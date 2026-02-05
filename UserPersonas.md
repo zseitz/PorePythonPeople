@@ -19,3 +19,7 @@
 # Grace is a collaborator. She works in a genomics lab, that has never used nanopore sequencing. She was given tools to run nanopore sequencing, and has data collected, and needs to analyze it. She is very technical, but has not taken formal coding classes.
 
 # Reginald is a collaborator. He does nanopore sequencing in another lab. He works with a different nanopore and wants to analyze his data. He is not very technical, aside from a good understanding of nanopore, and he wants to make sure he can analyze data on his unique pore.
+
+
+
+Testing Daniel
