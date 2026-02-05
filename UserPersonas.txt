@@ -24,3 +24,6 @@ Grace is a collaborator. She works in a genomics lab, that has never used nanopo
 tools to run nanopore sequencing, and has data collected, and needs to analyze it. She is very technical,
 but has not taken formal coding classes.
 
+Tom is a 1st year grad student. He does not know much about nanopore sequencing, he wants to use the tool
+to analyze sequencing data he has collected. They would like the tool to be easy to use and easy to learn. He
+has experience with programming in python.
