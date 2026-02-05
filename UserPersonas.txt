@@ -16,6 +16,9 @@ Joe is a first year grad student. He wants to adapt the lab's nanopore sequencin
 be able to manipulate the code to use with many different enzymes. Joe has some coding experience but needs a relatively straightforward
 interface to use and edit the tool.  
 
+Tom is a 1st year grad student. He does not know much about nanopore sequencing, he wants to use the tool
+to analyze sequencing data he has collected. They would like the tool to be easy to use and easy to learn. He
+has experience with programming in python.
 
 Post Doc:
 
@@ -33,8 +36,6 @@ Reginald is a collaborator. He does nanopore sequencing in another lab. He works
 and wants to analyze his data. He is not very technical, aside from a good understanding of nanopore, and he
 wants to make sure he can analyze data on his unique pore.
 
-Tom is a 1st year grad student. He does not know much about nanopore sequencing, he wants to use the tool
-to analyze sequencing data he has collected. They would like the tool to be easy to use and easy to learn. He
-has experience with programming in python.
+
 
 Testing Daniel
