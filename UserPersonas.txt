@@ -29,3 +29,5 @@ Grace is a collaborator. She works in a genomics lab, that has never used nanopo
 tools to run nanopore sequencing, and has data collected, and needs to analyze it. She is very technical,
 but has not taken formal coding classes.
 
+
+Testing Daniel
