@@ -36,6 +36,10 @@ Reginald is a collaborator. He does nanopore sequencing in another lab. He works
 and wants to analyze his data. He is not very technical, aside from a good understanding of nanopore, and he
 wants to make sure he can analyze data on his unique pore.
 
+Jenny is a graduate student collaborator. She works in a protein engineering lab and wants to design
+enzymes to develop new nanopore sequencing technologies. She wants to test novel enzymes
+and compare traces from various experiments. She is very experienced with Python and
+highly technical.
 
 
 Testing Daniel
