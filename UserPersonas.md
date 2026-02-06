@@ -1,41 +1,36 @@
-Students:
+## Students:
 
-Larry is a first year undergrad. He just joined the lab. He wants to analyze data that he collected.
-Larry needs the tool to be simple, but explain to him how it works. Larry is a beginner undergrad.
+* Larry is a first year undergrad. He just joined the lab. He wants to analyze data that he collected.Larry needs the tool to be simple, but explain to him how it works. Larry is a beginner undergrad.
 
-Judy is a senior undergrad. She wants to analyze data that she collected. Judy does not need the tool
-to be very simple, as she understands how to analyze the data very well, and may need flexibility
-in the tool to look at the data in new ways. Judy is a senior undergrad who just completed a class
-in the fundamentals of Python and is very technical.
+* Judy is a senior undergrad. She wants to analyze data that she collected. Judy does not need the tool to be very simple, as she understands how to analyze the data very well, and may need flexibility in the tool to look at the data in new ways. Judy is a senior undergrad who just completed a class in the fundamentals of Python and is very technical.
 
-Frank is a second year grad student. He wants to answer new questions about nanopore sequencing that 
-have not been asked before. Frank needs the tool to be usable on any enzyme. Frank has taken a little
-bit of coding classes, and wants to learn how to make the tool flexible.
+* Frank is a second year grad student. He wants to answer new questions about nanopore sequencing that have not been asked before. Frank needs the tool to be usable on any enzyme. Frank has taken a little bit of coding classes, and wants to learn how to make the tool flexible.
 
-Joe is a first year grad student. He wants to adapt the lab's nanopore sequencing to experiment with peptide sequencing. Joe wants to 
-be able to manipulate the code to use with many different enzymes. Joe has some coding experience but needs a relatively straightforward
-interface to use and edit the tool.  
+* Joe is a first year grad student. He wants to adapt the lab's nanopore sequencing to experiment with peptide sequencing. Joe wants to be able to manipulate the code to use with many different enzymes. Joe has some coding experience but needs a relatively straightforward interface to use and edit the tool.  
 
-Tom is a 1st year grad student. He does not know much about nanopore sequencing, he wants to use the tool
-to analyze sequencing data he has collected. They would like the tool to be easy to use and easy to learn. He
-has experience with programming in python.
+* Tom is a 1st year grad student. He does not know much about nanopore sequencing, he wants to use the tool to analyze sequencing data he has collected. They would like the tool to be easy to use and easy to learn. He has experience with programming in python.
 
+<<<<<<< HEAD
 Philantropy is an undergraduate in a biology lab studying fish evolution. Philantropy wants to be able to use the technology to analyze the sequence data of allele variants of minnows collected in the field. Philantropy wants the software to be able to convert nanopore signals to a DNA sequence string. Philantropy is not very familiar with terminal usage, but is comfortable with using computer programs with GUI.
 
 Post Doc:
+=======
+## Post Doc:
+>>>>>>> d1a2c44a90156439be5900a12e8414b658c6dc89
 
-Dave is a post doc. He has a deep understanding of nanopore sequencing. He wants the tool to be advanced
-enough to look through many files in detail with relative ease. Dave has completed advanced classes in
-programming, and is capable of working and adjusting programs under the hood.
+* Dave is a post doc. He has a deep understanding of nanopore sequencing. He wants the tool to be advanced enough to look through many files in detail with relative ease. Dave has completed advanced classes in programming, and is capable of working and adjusting programs under the hood.
 
+<<<<<<< HEAD
 Angela is a postdoc in their second year. Angela wants to adopt the technology to analyze precise pore opening and closing events for a variety of different experimental conditions to understand the sensitivity of nanopore activity. Angela wants the software to be able to detect these events with precision, or allow for signal visualization. Angela is a highly technical tech wizard, with degrees in biophysics and computer programming.
 
 Collaborators:
+=======
+## Collaborators:
+>>>>>>> d1a2c44a90156439be5900a12e8414b658c6dc89
 
-Grace is a collaborator. She works in a genomics lab, that has never used nanopore sequencing. She was given
-tools to run nanopore sequencing, and has data collected, and needs to analyze it. She is very technical,
-but has not taken formal coding classes.
+* Grace is a collaborator. She works in a genomics lab, that has never used nanopore sequencing. She was given tools to run nanopore sequencing, and has data collected, and needs to analyze it. She is very technical, but has not taken formal coding classes.
 
+<<<<<<< HEAD
 Reginald is a collaborator. He does nanopore sequencing in another lab. He works with a different nanopore 
 and wants to analyze his data. He is not very technical, aside from a good understanding of nanopore, and he
 wants to make sure he can analyze data on his unique pore.
@@ -51,3 +46,6 @@ Other:
 Zara is a consultant at a nanopore sequencing company. Zara wants to understand how available open source software compares to current industry standards in order to understand how to imporve company software and stay ahead of the competition. Zara wants to compare the sequencing results of their company software to the software using internal data files that conform to industry standards. Zara is highly technical, but prefers adherence to typical data input formats for her ease of use.
 
 Testing Daniel
+=======
+* Reginald is a collaborator. He does nanopore sequencing in another lab. He works with a different nanopore and wants to analyze his data. He is not very technical, aside from a good understanding of nanopore, and he wants to make sure he can analyze data on his unique pore.
+>>>>>>> d1a2c44a90156439be5900a12e8414b658c6dc89
