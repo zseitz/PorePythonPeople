@@ -12,7 +12,8 @@
 
 * Philantropy is an undergraduate in a biology lab studying fish evolution. Philantropy wants to be able to use the technology to analyze the sequence data of allele variants of minnows collected in the field. Philantropy wants the software to be able to convert nanopore signals to a DNA sequence string. Philantropy is not very familiar with terminal usage, but is comfortable with using computer programs with GUI.
 
-Post Doc:
+* Seymour Stokes is a rotating PhD student in their first year. For their rotation, Seymour is stoked to see more applications of nanopore technology, and wants to understand if nanopores can efficiently capture and store audio information. Seymour wants to be able to visualize a nanopore sequencer readout and be able to annotate/identify opening and closing events in precise detail. Seymour has some programming experience before but does not have much experience with nanopore technology and would prefer a telegraphed workflow.
+
 =======
 ## Post Doc:
 
@@ -21,7 +22,7 @@ Post Doc:
 
 * Angela is a postdoc in their second year. Angela wants to adopt the technology to analyze precise pore opening and closing events for a variety of different experimental conditions to understand the sensitivity of nanopore activity. Angela wants the software to be able to detect these events with precision, or allow for signal visualization. Angela is a highly technical tech wizard, with degrees in biophysics and computer programming.
 
-Collaborators:
+
 =======
 ## Collaborators:
 
@@ -41,5 +42,7 @@ highly technical.
 Other:
 
 * Zara is a consultant at a nanopore sequencing company. Zara wants to understand how available open source software compares to current industry standards in order to understand how to imporve company software and stay ahead of the competition. Zara wants to compare the sequencing results of their company software to the software using internal data files that conform to industry standards. Zara is highly technical, but prefers adherence to typical data input formats for her ease of use.
+
+* Qassandra with a Q is a freelance data analyst with a background in bioinformatics. Qassandra has been hired as a contract research scientist for a prestigious protein design lab that wants Qassandra to analyze the difference in nanopore readouts between different enzyme motors. Qassandra would like to have technology that can be trained on nanopore data and predict whether data has been produced by specific motors to give insights on enzyme performance, which in turn would assist in de novo design of efficient, sensitive nanopore technology. Qassandra is very technical and versed in programming and biophysics, but would prefer to not have to design a machine learning architecture from scratch.  
 
 
