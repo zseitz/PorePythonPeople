@@ -14,7 +14,7 @@
 
 * Seymour Stokes is a rotating PhD student in their first year. For their rotation, Seymour is stoked to see more applications of nanopore technology, and wants to understand if nanopores can efficiently capture and store audio information. Seymour wants to be able to visualize a nanopore sequencer readout and be able to annotate/identify opening and closing events in precise detail. Seymour has some programming experience before but does not have much experience with nanopore technology and would prefer a telegraphed workflow.
 
-=======
+
 ## Post Doc:
 
 * Dave is a post doc. He has a deep understanding of nanopore sequencing. He wants the tool to be advanced enough to look through many files in detail with relative ease. Dave has completed advanced classes in programming, and is capable of working and adjusting programs under the hood.
@@ -23,7 +23,7 @@
 * Angela is a postdoc in their second year. Angela wants to adopt the technology to analyze precise pore opening and closing events for a variety of different experimental conditions to understand the sensitivity of nanopore activity. Angela wants the software to be able to detect these events with precision, or allow for signal visualization. Angela is a highly technical tech wizard, with degrees in biophysics and computer programming.
 
 
-=======
+
 ## Collaborators:
 
 * Grace is a collaborator. She works in a genomics lab, that has never used nanopore sequencing. She was given tools to run nanopore sequencing, and has data collected, and needs to analyze it. She is very technical, but has not taken formal coding classes.
@@ -39,7 +39,7 @@ and compare traces from various experiments. She is very experienced with Python
 highly technical.
 
 
-Other:
+## Other:
 
 * Zara is a consultant at a nanopore sequencing company. Zara wants to understand how available open source software compares to current industry standards in order to understand how to imporve company software and stay ahead of the competition. Zara wants to compare the sequencing results of their company software to the software using internal data files that conform to industry standards. Zara is highly technical, but prefers adherence to typical data input formats for her ease of use.
 
