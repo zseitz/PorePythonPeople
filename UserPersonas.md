@@ -14,6 +14,8 @@
 
 * Seymour Stokes is a rotating PhD student in their first year. For their rotation, Seymour is stoked to see more applications of nanopore technology, and wants to understand if nanopores can efficiently capture and store audio information. Seymour wants to be able to visualize a nanopore sequencer readout and be able to annotate/identify opening and closing events in precise detail. Seymour has some programming experience before but does not have much experience with nanopore technology and would prefer a telegraphed workflow.
 
+* Hannah is a master’s student starting her first independent research project. She is new to nanopore sequencing and wants guided workflows that help her analyze her experimental data step by step. She has limited programming experience but is eager to learn.
+
 
 ## Post Doc:
 
@@ -22,7 +24,7 @@
 
 * Angela is a postdoc in their second year. Angela wants to adopt the technology to analyze precise pore opening and closing events for a variety of different experimental conditions to understand the sensitivity of nanopore activity. Angela wants the software to be able to detect these events with precision, or allow for signal visualization. Angela is a highly technical tech wizard, with degrees in biophysics and computer programming.
 
-Maya is a postdoc. She wants to use the program to help facilitate her analysis of long-read DNA to integrate into her current research pipeline. she has previous experience with python coding and understands the basics, but prefers clear documentation and example workflows when using a new program.
+* Maya is a postdoc. She wants to use the program to help facilitate her analysis of long-read DNA to integrate into her current research pipeline. She has previous experience with python coding and understands the basics, but prefers clear documentation and example workflows when using a new program.
 
 
 ## Collaborators:
@@ -46,4 +48,6 @@ highly technical.
 
 * Qassandra with a Q is a freelance data analyst with a background in bioinformatics. Qassandra has been hired as a contract research scientist for a prestigious protein design lab that wants Qassandra to analyze the difference in nanopore readouts between different enzyme motors. Qassandra would like to have technology that can be trained on nanopore data and predict whether data has been produced by specific motors to give insights on enzyme performance, which in turn would assist in de novo design of efficient, sensitive nanopore technology. Qassandra is very technical and versed in programming and biophysics, but would prefer to not have to design a machine learning architecture from scratch.  
 
+* Lena is a lab technician responsible for routine sequencing runs. She performs daily nanopore experiments and needs to quickly process data to verify experiment quality. Lena is comfortable with running established software but prefers simple, repeatable workflows with minimal configuration. She wants fast feedback, clear error messages, and automated quality checks.
 
+* Sofia is a clinical lab assistant processing biological samples. She uses nanopore sequencing as part of standardized diagnostic workflows. Sofia needs the software to produce consistent, validated outputs with minimal manual intervention. She values automation, simple reporting features, and safeguards that prevent accidental misuse.
