@@ -22,6 +22,7 @@
 
 * Angela is a postdoc in their second year. Angela wants to adopt the technology to analyze precise pore opening and closing events for a variety of different experimental conditions to understand the sensitivity of nanopore activity. Angela wants the software to be able to detect these events with precision, or allow for signal visualization. Angela is a highly technical tech wizard, with degrees in biophysics and computer programming.
 
+Maya is a postdoc. She wants to use the program to help facilitate her analysis of long-read DNA to integrate into her current research pipeline. she has previous experience with python coding and understands the basics, but prefers clear documentation and example workflows when using a new program.
 
 
 ## Collaborators:
