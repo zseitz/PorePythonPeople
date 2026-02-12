@@ -26,4 +26,4 @@
 * compares motor enzyme function across variables (buffer, atp conc, pH, temperature, etc)
 
 # Use case #4: 
-* for non-enzymatic experiments (sensing experiments, bond ruptures, etc)
+* for non-enzymatic experiments (sensing experiments, bond rupturing experiments, etc)
