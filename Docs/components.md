@@ -1,7 +1,24 @@
 # Components
+## Data_Navigator
+
+**Subcomponent 1:**
+
+## Prompt_User
+*Description:* using a GUI, ask the user for the path to the directory containing data. Save the path to a global string variable named, database_directory. 
+*Input:*
+File path
+*Output:* 
+database_directory variable (should be a global variable accessible by other functions)
+
+
+**Subcomponent 2:**
 
 ## Data_Navigator
 *Description:* Create a function called DataNavi that takes in as input 2 lists or arrays containing strings, and the string, _database\_directory_. The strings in the input lists Array\_1 and Array\_2 have the following format:
+
+Output of this function should be a list of files in User_Selected_Files within the database which are of interest to the user as selected through their searches and manual selections, and the list will be used with proceeding components for data analysis.
+
+
 
   - String with 4 components delimited by “\_”
 
@@ -11,13 +28,13 @@
 
       - Stationletter is a lowercase character
 
-    - Component  2: Pore Name + Pore Number
+    - Component  2: Pore Name + Pore Number
 
       - Pore Name is a string?
 
       - Pore Number is an integer value in string form
 
-    - Component  3: series of condition strings delimited by “&” of varying length
+    - Component  3: series of condition strings delimited by “&” of varying length
 
       - Ex: t1\&streptavidin&100mM100mM
 
@@ -27,13 +44,13 @@
 
       - File letter is a few characters
 
-  - Example string: "250101g\_2NNN1\_t1\&streptavidin&100mM100mM\_p180a" 
+  - Example string: "250101g\_2NNN1\_t1\&streptavidin&100mM100mM\_p180a" 
 
     - "250101" is the date in the format YYMMDD
 
     - the "g" following the date refers to station letter with no spaces
 
-    - "2NNN" is the pore name 
+    - "2NNN" is the pore name 
 
     - the "1" following the "2NNN" is the pore number with no spaces
 
@@ -41,7 +58,7 @@
 
     - "p180" refers to applied voltage or "pipette offset 180 mV"
 
-    - The final letter "a" is the file letter. 
+    - The final letter "a" is the file letter. 
 
 *Inputs:*
 
@@ -53,8 +70,27 @@
 
     - Returns the _filenames\_out_ array
 
+
+**Subcomponent 3**
+
+## DataNaviSubDirectory
+*Description:* Takes files in _filenames\_out_ array created by DataNavi function, and copies the data files from the source directory to a new directory with title of current date and time in format ‘DD/MM/YYYY_hh:mm:ss’ and includes a text file containing the exact input search query being Array\_1 and array\_2
+
+*Inputs:* source directory folder as a string, filenames\out array with names of directories containing relevant data
+
+Outputs: none, saves a copy of files to new directory and creates a new text file
+**Subcomponent 4**
+
+## DataNaviGUI
+* Description:* Creates a gui using PyGui that takes user input (Prompt_User) to select a directory containing data. Once, a valid directory is selected, (should prompt the user to re-enter a directory path if invalid directory inputted), should open a menu where the user can click a button to select files in that directory. The gui should have a space to input Array\_1 and array\_2, and the DataNavi function should be called after clicking a search button and Array\_1 field is filled. If array\_2 is not filled, assume an empty array. Once the user has submitted their entry, prompt the user for the new filepath to save the new directory created from DataNaviSubDirectory.  
+
+
+User should be able to search for specific strings that may be present in filenames by typing desired strings for the Initial_Search such as dates, pore names, or other conditions of the experiment, or etc as well as manually click to select or deselect files from the list of files contained in the database. 
+
+*inputs*: none
+*outputs*: none
 ## Event_Classifier
-*Description:* A GUI to visualize raw traces and classifies good events vs bad events.
+*Description:* Classifies good events vs bad events.
 
 *Inputs:*
 - Raw trace data
@@ -70,3 +106,4 @@
 
 *Outputs:*
 - Identified levels in events
+## Event Classifier GUI
