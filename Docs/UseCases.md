@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ## Components
 
 *Component name:* Data_Navigator
@@ -22,6 +23,8 @@
 *_Outputs_:
 *_Side-effects_:
 
+=======
+>>>>>>> aea9c260a1a437f5cce167f12eee320a7fd04bd5
 ## Use Cases
 
 # Use case #1: 
