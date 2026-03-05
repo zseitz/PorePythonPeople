@@ -52,7 +52,7 @@ class DataNaviGUI:
         self.all_available_files: List[str] = []
         
         self.build_gui()
-        self.load_saved_directories()
+        self.load_saved_directory()
     
     def build_gui(self):
         """Build the GUI layout."""
