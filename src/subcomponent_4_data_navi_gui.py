@@ -19,21 +19,25 @@ CONFIG_FILE = os.path.join(os.path.dirname(__file__), ".datanavi_config.json")
 
 
 def load_config():
-    """Load the saved database directory from config file."""
+    """Load the saved directories from config file."""
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, 'r') as f:
                 config = json.load(f)
-                return config.get("database_directory")
+                return config
         except Exception:
-            return None
-    return None
+            return {}
+    return {}
 
 
-def save_config(database_directory):
-    """Save the database directory to config file."""
+def save_config(database_directory=None, logs_directory=None):
+    """Save directories to config file."""
     try:
-        config = {"database_directory": database_directory}
+        config = load_config()
+        if database_directory is not None:
+            config["database_directory"] = database_directory
+        if logs_directory is not None:
+            config["logs_directory"] = logs_directory
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config, f)
     except Exception:
@@ -47,23 +51,23 @@ class DataNaviGUI:
         self.root.geometry("1000x700")
         
         self.database_directory = None
-        self.logs_save_directory = None
+        self.logs_directory = None
         self.selected_files: List[str] = []
         self.all_available_files: List[str] = []
         
         self.build_gui()
-        self.load_saved_directories()
+        self.load_saved_directory()
     
     def build_gui(self):
         """Build the GUI layout."""
-        # Top frame for directory selection
-        top_frame = tk.Frame(self.root)
-        top_frame.pack(side=tk.TOP, fill=tk.X, padx=10, pady=10)
+        # Top frame for database directory selection
+        db_frame = tk.Frame(self.root)
+        db_frame.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(10, 5))
         
-        tk.Label(top_frame, text="Database Directory:").pack(side=tk.LEFT)
-        self.dir_var = tk.StringVar()
-        tk.Entry(top_frame, textvariable=self.dir_var, width=60).pack(side=tk.LEFT, padx=5)
-        tk.Button(top_frame, text="Browse", command=self.browse_directory).pack(side=tk.LEFT)
+        tk.Label(db_frame, text="Database Directory:").pack(side=tk.LEFT)
+        self.db_dir_var = tk.StringVar()
+        tk.Entry(db_frame, textvariable=self.db_dir_var, width=50).pack(side=tk.LEFT, padx=5)
+        tk.Button(db_frame, text="Browse", command=self.browse_database_directory).pack(side=tk.LEFT)
         
         # Search and filter frame
         search_frame = tk.LabelFrame(self.root, text="Search Filters", padx=10, pady=10)
@@ -95,7 +99,16 @@ class DataNaviGUI:
         self.file_listbox.bind('<<ListboxSelect>>', self.on_file_select)
         scrollbar.config(command=self.file_listbox.yview)
         
-        # Confirm Search button frame (above log)
+        # Logs directory selection (right above log window)
+        logs_frame = tk.Frame(self.root)
+        logs_frame.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(5, 5))
+        
+        tk.Label(logs_frame, text="Logs Directory:").pack(side=tk.LEFT)
+        self.logs_dir_var = tk.StringVar()
+        tk.Entry(logs_frame, textvariable=self.logs_dir_var, width=50).pack(side=tk.LEFT, padx=5)
+        tk.Button(logs_frame, text="Browse", command=self.browse_logs_directory).pack(side=tk.LEFT)
+        
+        # Confirm Search button frame
         confirm_frame = tk.Frame(self.root)
         confirm_frame.pack(side=tk.TOP, fill=tk.X, padx=10, pady=5)
         
@@ -119,32 +132,73 @@ class DataNaviGUI:
         self.log_output.config(state=tk.DISABLED)
     
     def load_saved_directory(self):
-        """Load the saved directory on startup."""
-        saved_dir = load_config()
+        """Load the saved directories on startup."""
+        config = load_config()
         
-        if saved_dir and os.path.isdir(saved_dir):
-            self.set_directory(saved_dir)
-            self.log(f"Loaded saved directory: {saved_dir}")
+        db_dir = config.get("database_directory")
+        logs_dir = config.get("logs_directory")
+        
+        # Load database directory
+        if db_dir and os.path.isdir(db_dir):
+            self.set_database_directory(db_dir)
+            self.log(f"Loaded saved database directory: {db_dir}")
         else:
-            if saved_dir:
-                self.log(f"Saved directory no longer exists: {saved_dir}")
+            if db_dir:
+                self.log(f"Saved database directory no longer exists: {db_dir}")
             self.log("Please select a database directory.")
-    
-    def browse_directory(self):
-        """Open a directory browser dialog."""
-        path = filedialog.askdirectory(title="Select Database Directory")
-        if path and os.path.isdir(path):
-            self.set_directory(path)
+        
+        # Load or prompt for logs directory
+        if logs_dir and os.path.isdir(logs_dir):
+            self.set_logs_directory(logs_dir)
+            self.log(f"Loaded saved logs directory: {logs_dir}")
         else:
-            self.log("Invalid directory selected.")
+            if logs_dir:
+                self.log(f"Saved logs directory no longer exists: {logs_dir}")
+            self.log("Please select a logs directory.")
+            # Prompt user to select logs directory if not found
+            self.browse_logs_directory()
     
-    def set_directory(self, path):
-        """Set the database directory."""
-        self.dir_var.set(path)
+    def browse_database_directory(self):
+        """Open a directory browser dialog for database directory."""
+        selected_path = filedialog.askdirectory(title="Select Database Directory")
+        if selected_path and os.path.isdir(selected_path):
+            # Update database directory StringVar and instance variable
+            self.db_dir_var.set(selected_path)
+            self.database_directory = selected_path
+            # Save to config with database_directory key
+            save_config(database_directory=selected_path)
+            self.log(f"Database directory set: {selected_path}")
+            self.update_file_list()
+        else:
+            self.log("Invalid database directory selected.")
+    
+    def browse_logs_directory(self):
+        """Open a directory browser dialog for logs directory."""
+        selected_path = filedialog.askdirectory(title="Select Logs Directory")
+        if selected_path and os.path.isdir(selected_path):
+            # Update logs directory StringVar and instance variable
+            self.logs_dir_var.set(selected_path)
+            self.logs_directory = selected_path
+            # Save to config with logs_directory key
+            save_config(logs_directory=selected_path)
+            self.log(f"Logs directory set: {selected_path}")
+        else:
+            self.log("Invalid logs directory selected.")
+    
+    def set_database_directory(self, path):
+        """Set the database directory (used for loading saved config)."""
+        self.db_dir_var.set(path)
         self.database_directory = path
-        save_config(path)
-        self.log(f"Directory set: {path}")
+        save_config(database_directory=path)
+        self.log(f"Database directory set: {path}")
         self.update_file_list()
+    
+    def set_logs_directory(self, path):
+        """Set the logs directory (used for loading saved config)."""
+        self.logs_dir_var.set(path)
+        self.logs_directory = path
+        save_config(logs_directory=path)
+        self.log(f"Logs directory set: {path}")
     
     def update_file_list(self):
         """Update the listbox with available files, selected files at top and highlighted."""
@@ -231,14 +285,13 @@ class DataNaviGUI:
             messagebox.showwarning("No Selection", "Please select at least one file.")
             return
         
-        query_name = simpledialog.askstring("Query Name", "Enter a name for this search query:")
-        if not query_name:
+        if not self.logs_directory:
+            messagebox.showwarning("No Logs Directory", "Please select a logs directory first.")
+            self.browse_logs_directory()
             return
         
-        # Prompt for directory to save the log file
-        log_directory = filedialog.askdirectory(title="Select directory to save the search log")
-        if not log_directory:
-            self.log("Log directory selection cancelled.")
+        query_name = simpledialog.askstring("Query Name", "Enter a name for this search query:")
+        if not query_name:
             return
         
         try:
@@ -248,13 +301,13 @@ class DataNaviGUI:
             data_navi_sub_directory(
                 self.database_directory,
                 self.selected_files,
-                log_directory,
+                self.logs_directory,
                 query_name,
                 inclusion,
                 exclusion
             )
             
-            self.log(f"Search confirmed. Created log for '{query_name}' in {log_directory}.")
+            self.log(f"Search confirmed. Created log for '{query_name}' in {self.logs_directory}.")
             messagebox.showinfo("Success", f"Search saved successfully as '{query_name}'.\nThe GUI will now exit.")
             self.root.quit()
         except Exception as e:
