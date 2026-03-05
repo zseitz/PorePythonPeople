@@ -3,9 +3,9 @@ requires = ["setuptools >= 77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "entropy"
+name = "NanoporeAnalysis"
 version = "0.0.0"
-description ="entropy testing demo"
+description ="nanopore analysis pipeline"
 dependencies = [
     "numpy",
     "pytest",

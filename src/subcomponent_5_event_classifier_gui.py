@@ -41,7 +41,8 @@ def save_config(database_directory):
 
 
 def load_search_log(log_file_path):
-    """Load the selected files from a search log file."""
+    """Load the source directory and selected files from a search log file."""
+    source_directory = None
     selected_files = []
     try:
         with open(log_file_path, 'r') as f:
@@ -49,6 +50,10 @@ def load_search_log(log_file_path):
             in_selected = False
             for line in lines:
                 line = line.strip()
+                # Extract source directory
+                if line.startswith("Source Directory:"):
+                    source_directory = line.split("Source Directory:", 1)[1].strip()
+                # Extract selected files
                 if line.startswith("Selected Files/Directories:"):
                     in_selected = True
                     continue
@@ -58,7 +63,7 @@ def load_search_log(log_file_path):
                     break
     except Exception as e:
         print(f"Error loading log: {e}")
-    return selected_files
+    return source_directory, selected_files
 
 
 class EventClassifierGUI:
@@ -68,6 +73,7 @@ class EventClassifierGUI:
         self.root.geometry("1200x800")
         
         self.logs_directory = None
+        self.database_directory = None
         self.current_query = None
         self.selected_files: List[str] = []
         self.plot_canvas = None
@@ -215,14 +221,18 @@ class EventClassifierGUI:
             self.log(f"Log file not found: {log_file}")
             return
         
-        self.selected_files = load_search_log(log_file)
+        self.database_directory, self.selected_files = load_search_log(log_file)
+        
+        if not self.database_directory:
+            self.log(f"Could not find source directory in log file")
+            return
         
         # Update file listbox
         self.file_listbox.delete(0, tk.END)
         for file in self.selected_files:
             self.file_listbox.insert(tk.END, file)
         
-        self.log(f"Loaded query '{query_name}' with {len(self.selected_files)} files.")
+        self.log(f"Loaded query '{query_name}' with {len(self.selected_files)} files from {self.database_directory}.")
     
     def on_file_select(self, event):
         """Handle file selection and plot the data."""
@@ -243,8 +253,8 @@ class EventClassifierGUI:
             with h5py.File(mat_file_path, 'r') as f:
                 if 'reduced' in f:
                     reduced_group = f['reduced']
-                    if 'vdata' in reduced_group and 'pt' in reduced_group:
-                        vdata = reduced_group['vdata'][:].flatten()
+                    if 'data' in reduced_group and 'pt' in reduced_group:
+                        data = reduced_group['data'][:].flatten()
                         pt = reduced_group['pt'][:].flatten()
                         
                         # Clear previous plot and toolbar
@@ -256,9 +266,9 @@ class EventClassifierGUI:
                         
                         # Create new plot
                         fig, ax = plt.subplots(figsize=(6, 4))
-                        ax.plot(pt, vdata)
+                        ax.plot(pt, data)
                         ax.set_xlabel('Point Index')
-                        ax.set_ylabel('Voltage Data')
+                        ax.set_ylabel('Data')
                         ax.set_title(f'Data from {file_name}')
                         
                         # Embed in tkinter with toolbar
@@ -272,7 +282,7 @@ class EventClassifierGUI:
                         
                         self.log(f"Plotted data from {file_name}")
                     else:
-                        self.log(f"vdata or pt not found in reduced data for {file_name}")
+                        self.log(f"data or pt not found in reduced data for {file_name}")
                 else:
                     self.log(f"'reduced' key not found in {file_name}")
         except Exception as e:
