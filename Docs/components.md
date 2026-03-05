@@ -52,12 +52,12 @@ Example string: `250101g_2NNN1_t1&streptavidin&100mM100mM_p180a`
 **Subcomponent 3:**
 
 ## DataNaviSubDirectory
-*Description:* Creates a new timestamped directory under a `tests` folder. The name of the new folder begins with the search query name supplied by the user in subcomponent 2, followed by the current date and time in the format `YYYYMMDD_hh:mm:ss`. A text log is written documenting the inclusion/exclusion arrays and the list of selected files (without copying the actual files to save storage space).
+*Description:* Creates a new timestamped directory in the user-specified logs directory. The name of the new folder begins with the search query name supplied by the user in subcomponent 2, followed by the current date and time in the format `YYYYMMDD_hh:mm:ss`. A text log is written documenting the inclusion/exclusion arrays and the list of selected files (without copying the actual files to save storage space).
 
 *Inputs:*
 - `source_directory` (str): Path to the database root.
 - `filenames_out` (list): Names/paths of selected files or folders.
-- `destination_parent_directory` (str): The database directory where a `tests` subdirectory will be created if necessary.
+- `destination_parent_directory` (str): The logs directory where the query folder will be created.
 - `query_name` (str): User-provided identifier for this search.
 - `array_1` (list): Inclusion filter list.
 - `array_2` (list): Exclusion filter list.
@@ -69,29 +69,33 @@ None (creates a new folder with a log file listing the selected files and metada
 **Subcomponent 4:**
 
 ## DataNaviGUI
-*Description:* Creates a GUI using tkinter. This GUI-based application (DataNaviGUI) utilizes subcomponents 1, 2, and 3 for navigating and managing the database. The GUI prompts the user to select a database directory on startup; if a directory was previously selected (saved from a prior session), it automatically loads that directory, provided it still exists on the current system. If the saved directory no longer exists, or if no directory has been selected yet, the user is prompted to select a new one. The user can change the database directory at any time using the "Browse" button.
+*Description:* Creates a GUI using tkinter. This GUI-based application (DataNaviGUI) utilizes subcomponents 1, 2, and 3 for navigating and managing the database. The GUI manages two persistent directories:
 
-Once a valid directory is selected, the GUI displays a menu where the user can:
+1. **Database Directory**: The directory containing data files to search through. If a directory was previously selected (saved from a prior session), it automatically loads that directory, provided it still exists. The user can change this directory at any time using the "Browse" button next to "Database Directory".
+
+2. **Logs Directory**: The directory where search query logs will be saved. On first run (or if not previously set), the user is prompted to select a logs directory. This selection is saved and reused in future sessions. The user can change this directory at any time using the "Browse" button next to "Logs Directory".
+
+Once valid directories are selected, the GUI displays a menu where the user can:
 - Enter inclusion and exclusion search terms (Array_1 and Array_2) and click "Search" to filter files. **Multiple searches can be performed cumulatively**: each new search adds matching files to the current selection without clearing previously selected files. This allows for building up a selection across multiple queries, accommodating inconsistent naming schemes.
 - Click on files in the list to toggle their selection state: **clicking an unselected file selects it** (adds a ✓ checkmark, highlights with green background, and moves it to the top), and **clicking a selected file deselects it** (removes the checkmark and highlighting, and moves it to the bottom). Selected files are always displayed at the top of the list in alphabetical order, separated from unselected files below, with clear visual highlighting.
 - Click "Select All" to select all files or "Clear" to deselect all files.
 - Click "Confirm Search" to finalize the selection. This prompts the user for:
   - A name to associate with the search query (used to label the output directory).
-  - A directory where the search log will be saved (user selects via file browser).
-  - The function then creates a folder at `<selected_directory>/tests/<query_name>_YYYYMMDD_hh:mm:ss/` containing a log file with the list of selected files and search metadata (files are not copied to save storage).
+  - The function then creates a folder at `<logs_directory>/<query_name>_YYYYMMDD_hh:mm:ss/` containing a log file with the list of selected files and search metadata (files are not copied to save storage).
   - **Upon successful completion, the GUI exits automatically.**
 
 The GUI maintains a log of all operations (search, selection, confirmation, errors, etc.) with timestamps.
 
 *Key Behaviors:*
 - The search operation does **not** prompt in the terminal; it only uses the GUI.
-- The database directory is persisted to a config file (`.datanavi_config.json`) so it is remembered across sessions.
-- If the directory no longer exists (e.g., on a different system or after deletion), the user is re-prompted to select one.
-- The user can change the directory at any point during the session.
+- Both database and logs directories are persisted to a config file (`.datanavi_config.json`) so they are remembered across sessions.
+- If either directory no longer exists (e.g., on a different system or after deletion), the user is prompted to select one.
+- The user can change either directory at any point during the session using the respective Browse buttons.
 - **Cumulative searches**: Subsequent searches add to the existing selection, allowing users to include files that may not match the initial query due to naming inconsistencies.
 - **Toggle selection**: Click any file in the list to toggle between selected (with ✓ checkmark, at top) and unselected (no checkmark, at bottom). Single-click interaction makes the selection process intuitive.
-- **Sorted list**: Selected files appear at the top of the file list in alphabetical order, making it easier to see and manage the current selection.
-- **Storage efficient**: Only a log file is created in the `tests` subdirectory of the selected database directory with the list of selected files and metadata; actual data files are not copied to avoid wasting storage space.
+- **Sorted list**: Selected files appear at the top of the file list in alphabetical order with green highlighting, making it easier to see and manage the current selection.
+- **Storage efficient**: Only a log file is created in the logs directory with the list of selected files and metadata; actual data files are not copied to avoid wasting storage space.
+- **No subdirectories**: Query folders are created directly in the logs directory without intermediate subdirectories.
 
 *Inputs:*
 None
@@ -103,7 +107,7 @@ None (GUI creates directories and log files via subcomponent 3)
 **Subcomponent 5:**
 
 ## EventClassifierGUI
-*Description:* Creates a GUI using tkinter. This GUI-based application utilizes the search results generated by subcomponent 4 to assist with classifying events in the data. The GUI allows the user to browse to and select a search logs directory (the directory where subcomponent 4 saved search query logs). Once a search logs directory is selected, the GUI displays available search queries found in that directory as timestamped folders. When a query is selected, it loads the list of selected files from the search log. The user can then select a file to view its data. Each selected file is a folder containing MAT files; clicking on a file loads and plots `reduced.vdata` vs `reduced.pt` (point index) using matplotlib.
+*Description:* Creates a GUI using tkinter. This GUI-based application utilizes the search results generated by subcomponent 4 to assist with classifying events in the data. The GUI allows the user to browse to and select a search logs directory (the directory where subcomponent 4 saved search query logs). Once a search logs directory is selected, the GUI displays available search queries found in that directory as timestamped folders. When a query is selected, it loads the list of selected files from the search log. The user can then select a file to view its data. Each selected file is a folder containing MAT files; clicking on a file loads and plots `reduced.data` vs `reduced.pt` (point index) using matplotlib.
 
 *Key Features:*
 - Flexible directory selection: Users browse to any directory containing search logs created by subcomponent 4.
