@@ -47,11 +47,12 @@ class DataNaviGUI:
         self.root.geometry("1000x700")
         
         self.database_directory = None
+        self.logs_save_directory = None
         self.selected_files: List[str] = []
         self.all_available_files: List[str] = []
         
         self.build_gui()
-        self.load_saved_directory()
+        self.load_saved_directories()
     
     def build_gui(self):
         """Build the GUI layout."""
@@ -94,18 +95,18 @@ class DataNaviGUI:
         self.file_listbox.bind('<<ListboxSelect>>', self.on_file_select)
         scrollbar.config(command=self.file_listbox.yview)
         
+        # Confirm Search button frame (above log)
+        confirm_frame = tk.Frame(self.root)
+        confirm_frame.pack(side=tk.TOP, fill=tk.X, padx=10, pady=5)
+        
+        tk.Button(confirm_frame, text="Confirm Search", command=self.confirm_search).pack(side=tk.RIGHT, padx=5)
+        
         # Log frame
         log_frame = tk.LabelFrame(self.root, text="Log", padx=10, pady=10)
-        log_frame.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=False, padx=10, pady=5)
+        log_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=False, padx=10, pady=5)
         
         self.log_output = scrolledtext.ScrolledText(log_frame, height=5, width=100, state=tk.DISABLED)
         self.log_output.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        
-        # Bottom button frame
-        bottom_frame = tk.Frame(self.root)
-        bottom_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=10)
-        
-        tk.Button(bottom_frame, text="Confirm Search", command=self.confirm_search, bg='#4CAF50', fg='white').pack(side=tk.RIGHT, padx=5)
         
         self.log("DataNaviGUI ready.")
     
@@ -146,7 +147,7 @@ class DataNaviGUI:
         self.update_file_list()
     
     def update_file_list(self):
-        """Update the listbox with available files, selected files at top."""
+        """Update the listbox with available files, selected files at top and highlighted."""
         if not self.database_directory or not os.path.isdir(self.database_directory):
             self.log("Invalid database directory.")
             return
@@ -159,9 +160,12 @@ class DataNaviGUI:
             selected_sorted = sorted([f for f in self.all_available_files if f in self.selected_files])
             unselected_sorted = sorted([f for f in self.all_available_files if f not in self.selected_files])
             
-            # Display selected files first with checkmark, then unselected
+            # Display selected files first with checkmark and highlight, then unselected
             for file in selected_sorted:
+                idx = self.file_listbox.size()
                 self.file_listbox.insert(tk.END, f"✓ {file}")
+                self.file_listbox.itemconfig(idx, background='#4CAF50', foreground='white')
+            
             for file in unselected_sorted:
                 self.file_listbox.insert(tk.END, file)
             

@@ -67,8 +67,7 @@ class EventClassifierGUI:
         self.root.title("EventClassifierGUI - Data Analysis")
         self.root.geometry("1200x800")
         
-        self.database_directory = None
-        self.tests_directory = None
+        self.logs_directory = None
         self.current_query = None
         self.selected_files: List[str] = []
         self.plot_canvas = None
@@ -85,11 +84,11 @@ class EventClassifierGUI:
         top_frame = tk.Frame(self.root)
         top_frame.pack(side=tk.TOP, fill=tk.X, padx=10, pady=10)
         
-        # Directory selection
+        # Directory selection for search logs
         dir_frame = tk.Frame(top_frame)
         dir_frame.pack(side=tk.TOP, fill=tk.X)
         
-        tk.Label(dir_frame, text="Database Directory:").pack(side=tk.LEFT)
+        tk.Label(dir_frame, text="Search Logs Directory:").pack(side=tk.LEFT)
         self.dir_var = tk.StringVar()
         tk.Entry(dir_frame, textvariable=self.dir_var, width=50).pack(side=tk.LEFT, padx=5)
         tk.Button(dir_frame, text="Browse", command=self.browse_directory).pack(side=tk.LEFT)
@@ -164,31 +163,30 @@ class EventClassifierGUI:
             self.log("Please select a database directory.")
     
     def browse_directory(self):
-        """Open a directory browser dialog."""
-        path = filedialog.askdirectory(title="Select Database Directory")
+        """Open a directory browser dialog to select search logs directory."""
+        path = filedialog.askdirectory(title="Select Search Logs Directory")
         if path and os.path.isdir(path):
             self.set_directory(path)
         else:
             self.log("Invalid directory selected.")
     
     def set_directory(self, path):
-        """Set the database directory and update tests path."""
+        """Set the search logs directory."""
         self.dir_var.set(path)
-        self.database_directory = path
-        self.tests_directory = os.path.join(path, "tests")
+        self.logs_directory = path
         save_config(path)
         self.log(f"Directory set: {path}")
         self.refresh_queries()
     
     def refresh_queries(self):
         """Refresh the list of available search queries."""
-        if not self.tests_directory or not os.path.isdir(self.tests_directory):
-            self.log("Tests directory not found.")
+        if not self.logs_directory or not os.path.isdir(self.logs_directory):
+            self.log("Search logs directory not found.")
             return
         
         try:
-            items = os.listdir(self.tests_directory)
-            query_dirs = [item for item in items if os.path.isdir(os.path.join(self.tests_directory, item))]
+            items = os.listdir(self.logs_directory)
+            query_dirs = [item for item in items if os.path.isdir(os.path.join(self.logs_directory, item))]
             query_dirs.sort(reverse=True)  # Most recent first
             
             # Update the option menu
@@ -210,7 +208,7 @@ class EventClassifierGUI:
         self.query_var.set(query_name)
         self.current_query = query_name
         
-        query_path = os.path.join(self.tests_directory, query_name)
+        query_path = os.path.join(self.logs_directory, query_name)
         log_file = os.path.join(query_path, "search_query.txt")
         
         if not os.path.exists(log_file):
