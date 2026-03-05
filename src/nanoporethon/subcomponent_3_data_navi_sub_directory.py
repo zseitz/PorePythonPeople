@@ -47,6 +47,10 @@ def data_navi_sub_directory(source_directory: str, filenames_out: List[str],
     
     if not os.path.isdir(destination_parent_directory):
         raise ValueError(f"Destination parent directory does not exist: {destination_parent_directory}")
+
+    # Ensure tests subdirectory exists
+    tests_root = os.path.join(destination_parent_directory, "tests")
+    os.makedirs(tests_root, exist_ok=True)
     
     if not isinstance(filenames_out, list):
         raise TypeError("filenames_out must be a list of file paths.")
@@ -56,8 +60,8 @@ def data_navi_sub_directory(source_directory: str, filenames_out: List[str],
     timestamp = current_time.strftime("%Y%m%d_%H:%M:%S")
     directory_name = f"{query_name}_{timestamp}"
     
-    # Create the full path for the new directory directly in destination_parent_directory
-    new_directory_path = os.path.join(destination_parent_directory, directory_name)
+    # Create the full path for the new directory under tests_root
+    new_directory_path = os.path.join(tests_root, directory_name)
     
     try:
         os.makedirs(new_directory_path, exist_ok=True)

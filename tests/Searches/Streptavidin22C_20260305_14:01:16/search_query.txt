@@ -1,8 +1,8 @@
 DataNavi Search Query Log
 ==================================================
-Timestamp: 05/03/2026 12:02:26
+Timestamp: 05/03/2026 14:01:16
 Source Directory: /Users/zachseitz/Jupyter/ExampleData
-Destination Directory: /Users/zachseitz/GitRepos/PorePythonPeople/tests/Searches/tests/Streptavidin22C_20260305_12:02:26
+Destination Directory: /Users/zachseitz/GitRepos/PorePythonPeople/tests/Searches/Streptavidin22C_20260305_14:01:16
 
 Search Criteria:
 --------------------------------------------------
@@ -14,8 +14,11 @@ Exclusion Filter (Array_2):
 
 Selected Files/Directories:
 --------------------------------------------------
+  - 250103g_2NNN2_t1&100mM100mM&ph7pt5&forwards&streptavidin5uM&anchorT5uM&thermistor&tset22&Resistance34pt2kOhm&fsamp&50k_p120a
   - 241008e_2NNN2_t1&500mM500mM&ph7pt5&forwards&streptavidin5uM&anchorT20uM&thermistor&tset22&Resistance34pt4kOhm_p150d
   - 241008e_2NNN2_t1&500mM500mM&ph7pt5&forwards&streptavidin5uM&anchorT20uM&thermistor&tset22&Resistance34pt4kOhm_p210g
   - 241004e_2NNN1_t1&500mM500mM&ph7pt5&forwards&streptavidin5uM&anchorT20uM&thermistor&tset22&Resistance34pt4kOhm_p120d
   - 241004e_2NNN1_t1&500mM500mM&ph7pt5&forwards&streptavidin5uM&anchorT20uM&thermistor&tset22&Resistance34pt4kOhm_p150f
   - 241004e_2NNN1_t1&500mM500mM&ph7pt5&forwards&streptavidin5uM&anchorT20uM&thermistor&tset22&Resistance34pt4kOhm_p150g
+  - 250106d_2NNN2_t1&100mM100mM&ph7pt5&forwards&streptavidin5uM&anchorT5uM&thermistor&tset22&Resistance34pt2kOhm&fsamp&50k_p120d
+  - 250106d_2NNN2_t1&100mM100mM&ph7pt5&forwards&streptavidin5uM&anchorT5uM&thermistor&tset22&Resistance34pt2kOhm&fsamp&50k_p180c
