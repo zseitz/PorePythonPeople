@@ -73,11 +73,12 @@ None (creates a new folder with a log file listing the selected files and metada
 
 Once a valid directory is selected, the GUI displays a menu where the user can:
 - Enter inclusion and exclusion search terms (Array_1 and Array_2) and click "Search" to filter files. **Multiple searches can be performed cumulatively**: each new search adds matching files to the current selection without clearing previously selected files. This allows for building up a selection across multiple queries, accommodating inconsistent naming schemes.
-- Manually select and deselect files from the list using checkboxes (multiple selection supported). **Selected (highlighted) files are automatically moved to the top of the list**, separated from unselected files, for easier management.
-- Click "Select All" to highlight all files or "Clear" to deselect all.
+- Click on files in the list to toggle their selection state: **clicking an unselected file selects it** (adds a ✓ checkmark and moves it to the top), and **clicking a selected file deselects it** (removes the checkmark and moves it to the bottom). Selected files are always displayed at the top of the list in alphabetical order, separated from unselected files below.
+- Click "Select All" to select all files or "Clear" to deselect all files.
 - Click "Confirm Search" to finalize the selection. This prompts the user for:
   - A name to associate with the search query (used to label the output directory).
-  - The function then creates a folder at `<database_directory>/tests/<query_name>_YYYYMMDD_hh:mm:ss/` containing a log file with the list of selected files and search metadata (files are not copied to save storage).
+  - A directory where the search log will be saved (user selects via file browser).
+  - The function then creates a folder at `<selected_directory>/tests/<query_name>_YYYYMMDD_hh:mm:ss/` containing a log file with the list of selected files and search metadata (files are not copied to save storage).
   - **Upon successful completion, the GUI exits automatically.**
 
 The GUI maintains a log of all operations (search, selection, confirmation, errors, etc.) with timestamps.
@@ -88,7 +89,8 @@ The GUI maintains a log of all operations (search, selection, confirmation, erro
 - If the directory no longer exists (e.g., on a different system or after deletion), the user is re-prompted to select one.
 - The user can change the directory at any point during the session.
 - **Cumulative searches**: Subsequent searches add to the existing selection, allowing users to include files that may not match the initial query due to naming inconsistencies.
-- **Sorted list**: Selected files appear at the top of the file list, making it easier to see and manage the current selection.
+- **Toggle selection**: Click any file in the list to toggle between selected (with ✓ checkmark, at top) and unselected (no checkmark, at bottom). Single-click interaction makes the selection process intuitive.
+- **Sorted list**: Selected files appear at the top of the file list in alphabetical order, making it easier to see and manage the current selection.
 - **Storage efficient**: Only a log file is created in the `tests` subdirectory of the selected database directory with the list of selected files and metadata; actual data files are not copied to avoid wasting storage space.
 
 *Inputs:*

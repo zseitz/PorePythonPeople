@@ -82,14 +82,14 @@ class DataNaviGUI:
         tk.Button(button_frame, text="Clear Selection", command=self.clear_selection).pack(side=tk.LEFT, padx=5)
         tk.Button(button_frame, text="Select All", command=self.select_all).pack(side=tk.LEFT, padx=5)
         
-        # File list frame with checkboxes
-        list_frame = tk.LabelFrame(self.root, text="Available Files", padx=10, pady=10)
+        # File list
+        list_frame = tk.LabelFrame(self.root, text="Available Files (Click to select/deselect)", padx=10, pady=10)
         list_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=5)
         
         scrollbar = tk.Scrollbar(list_frame)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        self.file_listbox = tk.Listbox(list_frame, selectmode=tk.MULTIPLE, yscrollcommand=scrollbar.set, height=15)
+        self.file_listbox = tk.Listbox(list_frame, selectmode=tk.SINGLE, yscrollcommand=scrollbar.set, height=15)
         self.file_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.file_listbox.bind('<<ListboxSelect>>', self.on_file_select)
         scrollbar.config(command=self.file_listbox.yview)
@@ -146,7 +146,7 @@ class DataNaviGUI:
         self.update_file_list()
     
     def update_file_list(self):
-        """Update the listbox with available files."""
+        """Update the listbox with available files, selected files at top."""
         if not self.database_directory or not os.path.isdir(self.database_directory):
             self.log("Invalid database directory.")
             return
@@ -155,14 +155,17 @@ class DataNaviGUI:
             self.all_available_files = sorted(os.listdir(self.database_directory))
             self.file_listbox.delete(0, tk.END)
             
-            # Display selected files first, then others
-            for file in self.all_available_files:
-                if file in self.selected_files:
-                    self.file_listbox.insert(tk.END, f"✓ {file}")
-                else:
-                    self.file_listbox.insert(tk.END, file)
+            # Sort: selected files first, then unselected
+            selected_sorted = sorted([f for f in self.all_available_files if f in self.selected_files])
+            unselected_sorted = sorted([f for f in self.all_available_files if f not in self.selected_files])
             
-            self.log(f"Loaded {len(self.all_available_files)} files from directory.")
+            # Display selected files first with checkmark, then unselected
+            for file in selected_sorted:
+                self.file_listbox.insert(tk.END, f"✓ {file}")
+            for file in unselected_sorted:
+                self.file_listbox.insert(tk.END, file)
+            
+            self.log(f"Loaded {len(self.all_available_files)} files from directory. {len(self.selected_files)} selected.")
         except Exception as e:
             self.log(f"Error loading files: {e}")
     
@@ -189,12 +192,20 @@ class DataNaviGUI:
             self.log(f"Search error: {e}")
     
     def on_file_select(self, event):
-        """Handle file selection/deselection."""
+        """Handle file selection/deselection by toggling."""
         selection = self.file_listbox.curselection()
-        for idx in selection:
-            file = self.file_listbox.get(idx).lstrip('✓ ')
-            if file not in self.selected_files:
-                self.selected_files.append(file)
+        if not selection:
+            return
+        
+        idx = selection[0]
+        file_text = self.file_listbox.get(idx)
+        file_name = file_text.lstrip('✓ ')
+        
+        # Toggle selection
+        if file_name in self.selected_files:
+            self.selected_files.remove(file_name)
+        else:
+            self.selected_files.append(file_name)
         
         self.update_file_list()
     
@@ -220,6 +231,12 @@ class DataNaviGUI:
         if not query_name:
             return
         
+        # Prompt for directory to save the log file
+        log_directory = filedialog.askdirectory(title="Select directory to save the search log")
+        if not log_directory:
+            self.log("Log directory selection cancelled.")
+            return
+        
         try:
             inclusion = [term.strip() for term in self.inclusion_var.get().split(',') if term.strip()]
             exclusion = [term.strip() for term in self.exclusion_var.get().split(',') if term.strip()]
@@ -227,13 +244,13 @@ class DataNaviGUI:
             data_navi_sub_directory(
                 self.database_directory,
                 self.selected_files,
-                self.database_directory,
+                log_directory,
                 query_name,
                 inclusion,
                 exclusion
             )
             
-            self.log(f"Search confirmed. Created log for '{query_name}'.")
+            self.log(f"Search confirmed. Created log for '{query_name}' in {log_directory}.")
             messagebox.showinfo("Success", f"Search saved successfully as '{query_name}'.\nThe GUI will now exit.")
             self.root.quit()
         except Exception as e:
