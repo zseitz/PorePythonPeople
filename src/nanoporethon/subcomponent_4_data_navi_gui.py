@@ -11,8 +11,8 @@ import tkinter as tk
 from tkinter import filedialog, scrolledtext, messagebox, simpledialog
 from datetime import datetime
 from typing import List
-from subcomponent_2_data_navigator import data_navi
-from subcomponent_3_data_navi_sub_directory import data_navi_sub_directory
+from nanoporethon.subcomponent_2_data_navigator import data_navi
+from nanoporethon.subcomponent_3_data_navi_sub_directory import data_navi_sub_directory
 
 # Config file for persisting the selected directory
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), ".datanavi_config.json")
