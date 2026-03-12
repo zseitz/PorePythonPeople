@@ -12,6 +12,7 @@ from typing import List
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 # Import the subcomponents
+import nanoporethon.subcomponent_1_prompt_user as subcomponent_1_prompt_user_module
 from nanoporethon.subcomponent_1_prompt_user import prompt_user, database_directory
 from nanoporethon.subcomponent_2_data_navigator import data_navi
 from nanoporethon.subcomponent_3_data_navi_sub_directory import data_navi_sub_directory
@@ -34,7 +35,7 @@ class TestSubcomponent1PromptUser:
         mock_askdirectory.return_value = '/fake/path'
         result = prompt_user()
         assert result == '/fake/path'
-        assert database_directory == '/fake/path'
+        assert subcomponent_1_prompt_user_module.database_directory == '/fake/path'
 
     @mock.patch('nanoporethon.subcomponent_1_prompt_user.filedialog.askdirectory')
     @mock.patch('nanoporethon.subcomponent_1_prompt_user.tk.Tk')
@@ -43,7 +44,7 @@ class TestSubcomponent1PromptUser:
         mock_askdirectory.return_value = ''
         result = prompt_user()
         assert result is None
-        assert database_directory is None
+        assert subcomponent_1_prompt_user_module.database_directory is None
 
     @mock.patch('nanoporethon.subcomponent_1_prompt_user.filedialog.askdirectory')
     @mock.patch('nanoporethon.subcomponent_1_prompt_user.tk.Tk')
@@ -55,7 +56,7 @@ class TestSubcomponent1PromptUser:
             result = prompt_user()
             expected = path if path else None
             assert result == expected
-            assert database_directory == expected
+            assert subcomponent_1_prompt_user_module.database_directory == expected
 
     @mock.patch('nanoporethon.subcomponent_1_prompt_user.filedialog.askdirectory')
     @mock.patch('nanoporethon.subcomponent_1_prompt_user.tk.Tk')

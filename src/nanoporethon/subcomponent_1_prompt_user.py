@@ -33,6 +33,7 @@ def prompt_user():
         print(f"Selected directory: {database_directory}")
         return database_directory
     else:
+        database_directory = None
         print("No directory selected.")
         return None
 

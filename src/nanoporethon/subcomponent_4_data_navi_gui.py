@@ -146,17 +146,17 @@ class DataNaviGUI:
             if db_dir:
                 self.log(f"Saved database directory no longer exists: {db_dir}")
             self.log("Please select a database directory.")
+            # Prompt for database directory at startup when not already configured.
+            self.browse_database_directory()
         
-        # Load or prompt for logs directory
+        # Load logs directory if available. Do not prompt at startup.
         if logs_dir and os.path.isdir(logs_dir):
             self.set_logs_directory(logs_dir)
             self.log(f"Loaded saved logs directory: {logs_dir}")
         else:
             if logs_dir:
                 self.log(f"Saved logs directory no longer exists: {logs_dir}")
-            self.log("Please select a logs directory.")
-            # Prompt user to select logs directory if not found
-            self.browse_logs_directory()
+            self.log("Logs directory not set. You will be prompted when confirming search.")
     
     def browse_database_directory(self):
         """Open a directory browser dialog for database directory."""
@@ -170,7 +170,7 @@ class DataNaviGUI:
             self.log(f"Database directory set: {selected_path}")
             self.update_file_list()
         else:
-            self.log("Invalid database directory selected.")
+            self.log("Database directory selection cancelled or invalid.")
     
     def browse_logs_directory(self):
         """Open a directory browser dialog for logs directory."""
@@ -183,7 +183,7 @@ class DataNaviGUI:
             save_config(logs_directory=selected_path)
             self.log(f"Logs directory set: {selected_path}")
         else:
-            self.log("Invalid logs directory selected.")
+            self.log("Logs directory selection cancelled or invalid.")
     
     def set_database_directory(self, path):
         """Set the database directory (used for loading saved config)."""
@@ -281,14 +281,21 @@ class DataNaviGUI:
     
     def confirm_search(self):
         """Finalize the search and create a log file."""
+        if not self.database_directory or not os.path.isdir(self.database_directory):
+            messagebox.showwarning("No Database Directory", "Please select a valid database directory first.")
+            self.browse_database_directory()
+            if not self.database_directory or not os.path.isdir(self.database_directory):
+                return
+
         if not self.selected_files:
             messagebox.showwarning("No Selection", "Please select at least one file.")
             return
         
-        if not self.logs_directory:
-            messagebox.showwarning("No Logs Directory", "Please select a logs directory first.")
+        if not self.logs_directory or not os.path.isdir(self.logs_directory):
+            messagebox.showinfo("Select Logs Directory", "Please select a logs directory for this confirmed search.")
             self.browse_logs_directory()
-            return
+            if not self.logs_directory or not os.path.isdir(self.logs_directory):
+                return
         
         query_name = simpledialog.askstring("Query Name", "Enter a name for this search query:")
         if not query_name:

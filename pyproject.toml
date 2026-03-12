@@ -9,6 +9,10 @@ description ="Nanopore Python program for analyzing Nanopore files"
 dependencies = [
     "numpy",
     "pytest",
+    "pytest-cov",
     "matplotlib",
     "h5py",
 ]
+
+[tool.pytest.ini_options]
+addopts = "--cov=src/nanoporethon --cov-report=term-missing --cov-fail-under=100"
