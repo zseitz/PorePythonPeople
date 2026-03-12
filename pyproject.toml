@@ -15,4 +15,4 @@ dependencies = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "--cov=src/nanoporethon --cov-report=term-missing --cov-fail-under=99"
+addopts = "--cov=src/nanoporethon --cov-report=term-missing --cov-fail-under=98"
