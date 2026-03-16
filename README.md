@@ -6,6 +6,7 @@ This is an easy-to-use, Python-based tool that allows Gundlach lab members to:
 - plot and overlay nanopore trace data from selected experiments to compare results
 - detect and display ‘events’ in trace data with an interactive display to allow for streamlined data analysis
 
+This software package is planned to be open-source, in stark contrast to current proprietary nanopore technologies. We aim to offer users the ability to analyze nanopore data more independently and with a greater degree of customizability with this package.  
 
 The 'data navigator' component uses a GUI to take input from users about relevant data for plotting.
 The 'event classifier' component takes preprocessed sequencing data (Current in picoamperes, by points) which can be converted to current by time assuming that we know what the sampling frequency was set to at the time of recording data.
