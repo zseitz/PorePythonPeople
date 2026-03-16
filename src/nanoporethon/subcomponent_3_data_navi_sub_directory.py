@@ -6,6 +6,7 @@ documenting the search query and selected files (without copying the actual file
 
 import os
 import shutil
+import tempfile
 from datetime import datetime
 from typing import List
 
@@ -121,21 +122,27 @@ def data_navi_sub_directory(source_directory: str, filenames_out: List[str],
 
 if __name__ == "__main__":
     # Example usage
-    source_dir = "/Users/zachseitz/GitRepos/PorePythonPeople/ExampleData"
-    destination_dir = "/Users/zachseitz/GitRepos/PorePythonPeople"
     query_name = "example_query"
-    
+
     # Example filenames_out from DataNavi function
     filenames_out = [
         "240424g_2NNN2_t1&400mM400mM&perfuse&atp1000um&upstreamR4&thermistor&tset37&heating&hel308tga_p180a"
     ]
-    
+
     # Search arrays for documentation
     array_1 = ["2NNN2", "p180"]
     array_2 = ["b", "c"]
-    
-    try:
-        data_navi_sub_directory(source_dir, filenames_out, destination_dir, query_name, array_1, array_2)
-        print("\nOperation completed successfully. Check the created directory for the log file.")
-    except Exception as e:
-        print(f"Error: {e}")
+
+    # Use a temporary workspace for the standalone example so running tests
+    # never writes example query directories into the repository.
+    with tempfile.TemporaryDirectory() as temp_dir:
+        source_dir = os.path.join(temp_dir, "ExampleData")
+        destination_dir = os.path.join(temp_dir, "Logs")
+        os.makedirs(source_dir, exist_ok=True)
+        os.makedirs(destination_dir, exist_ok=True)
+
+        try:
+            data_navi_sub_directory(source_dir, filenames_out, destination_dir, query_name, array_1, array_2)
+            print("\nOperation completed successfully. Check the created directory for the log file.")
+        except Exception as e:
+            print(f"Error: {e}")
