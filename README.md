@@ -17,3 +17,8 @@ Example data can be found in tests/ExampleDataGit
 <img width="1470" height="917" alt="Screenshot 2026-03-12 at 4 03 30 PM" src="https://github.com/user-attachments/assets/1e9b6b72-5cee-48db-aa7a-eaa6eab9378a" />
 
 <img width="1470" height="918" alt="Screenshot 2026-03-12 at 4 05 02 PM" src="https://github.com/user-attachments/assets/4d21f391-f171-4932-bd69-586ad21a3433" />
+
+# How to run
+After nanoporethon is properly installed/imported, the respective GUIs can be run by passing these commands to terminal:
+- python subcomponent_4_data_navi_gui.py
+- python subcomponent_5_event_classifier_gui.py
