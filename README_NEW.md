@@ -244,7 +244,7 @@ Required files in your data folders:
 
 ## Contributing
 
-We welcome contributions from the research community! Please see our contributing guidelines for information on how to submit pull requests, report issues, or suggest improvements.
+Please reach out to the Gundlach lab at the University of Washington to discuss possible avenues for collaboration.
 
 ## License
 
