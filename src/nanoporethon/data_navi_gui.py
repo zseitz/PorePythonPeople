@@ -1,47 +1,24 @@
 """
-Subcomponent 4: DataNaviGUI
-Description: Creates a tkinter GUI for navigating and managing the database using
-subcomponents 1, 2, and 3. Supports cumulative searches, persistent directory selection,
-and sorted file lists.
+DataNaviGUI: Database Navigation and Search GUI
+Description: Creates a tkinter GUI for navigating and managing the database.
+Workflow: Select database directory → enter search criteria → view/select matching files → confirm search.
+Delegates to subcomponents 2, 3, 4, 5 for filtering, logging, config, and directory selection.
 """
 
 import os
-import json
 import tkinter as tk
-from tkinter import filedialog, scrolledtext, messagebox, simpledialog
+from tkinter import scrolledtext, messagebox, simpledialog
 from datetime import datetime
 from typing import List
+from nanoporethon.subcomponent_4_config_manager import (
+    get_database_directory, set_database_directory,
+    get_logs_directory, set_logs_directory,
+)
 from nanoporethon.subcomponent_2_data_navigator import data_navi
+from nanoporethon.subcomponent_5_directory_utilities import (
+    browse_for_directory, select_database_directory, select_logs_directory,
+)
 from nanoporethon.subcomponent_3_data_navi_sub_directory import data_navi_sub_directory
-
-# Config file for persisting the selected directory
-CONFIG_FILE = os.path.join(os.path.dirname(__file__), ".datanavi_config.json")
-
-
-def load_config():
-    """Load the saved directories from config file."""
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, 'r') as f:
-                config = json.load(f)
-                return config
-        except Exception:
-            return {}
-    return {}
-
-
-def save_config(database_directory=None, logs_directory=None):
-    """Save directories to config file."""
-    try:
-        config = load_config()
-        if database_directory is not None:
-            config["database_directory"] = database_directory
-        if logs_directory is not None:
-            config["logs_directory"] = logs_directory
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump(config, f)
-    except Exception:
-        pass
 
 
 class DataNaviGUI:
@@ -133,40 +110,32 @@ class DataNaviGUI:
     
     def load_saved_directory(self):
         """Load the saved directories on startup."""
-        config = load_config()
-        
-        db_dir = config.get("database_directory")
-        logs_dir = config.get("logs_directory")
+        db_dir = get_database_directory()
+        logs_dir = get_logs_directory()
         
         # Load database directory
-        if db_dir and os.path.isdir(db_dir):
+        if db_dir:
             self.set_database_directory(db_dir)
             self.log(f"Loaded saved database directory: {db_dir}")
         else:
-            if db_dir:
-                self.log(f"Saved database directory no longer exists: {db_dir}")
             self.log("Please select a database directory.")
             # Prompt for database directory at startup when not already configured.
             self.browse_database_directory()
         
         # Load logs directory if available. Do not prompt at startup.
-        if logs_dir and os.path.isdir(logs_dir):
+        if logs_dir:
             self.set_logs_directory(logs_dir)
             self.log(f"Loaded saved logs directory: {logs_dir}")
-        else:
-            if logs_dir:
-                self.log(f"Saved logs directory no longer exists: {logs_dir}")
-            self.log("Logs directory not set. You will be prompted when confirming search.")
     
     def browse_database_directory(self):
         """Open a directory browser dialog for database directory."""
-        selected_path = filedialog.askdirectory(title="Select Database Directory")
-        if selected_path and os.path.isdir(selected_path):
+        selected_path = browse_for_directory("Select Database Directory")
+        if selected_path:
             # Update database directory StringVar and instance variable
             self.db_dir_var.set(selected_path)
             self.database_directory = selected_path
-            # Save to config with database_directory key
-            save_config(database_directory=selected_path)
+            # Save to config
+            set_database_directory(selected_path)
             self.log(f"Database directory set: {selected_path}")
             self.update_file_list()
         else:
@@ -174,13 +143,13 @@ class DataNaviGUI:
     
     def browse_logs_directory(self):
         """Open a directory browser dialog for logs directory."""
-        selected_path = filedialog.askdirectory(title="Select Logs Directory")
-        if selected_path and os.path.isdir(selected_path):
+        selected_path = browse_for_directory("Select Logs Directory")
+        if selected_path:
             # Update logs directory StringVar and instance variable
             self.logs_dir_var.set(selected_path)
             self.logs_directory = selected_path
-            # Save to config with logs_directory key
-            save_config(logs_directory=selected_path)
+            # Save to config
+            set_logs_directory(selected_path)
             self.log(f"Logs directory set: {selected_path}")
         else:
             self.log("Logs directory selection cancelled or invalid.")
@@ -189,7 +158,7 @@ class DataNaviGUI:
         """Set the database directory (used for loading saved config)."""
         self.db_dir_var.set(path)
         self.database_directory = path
-        save_config(database_directory=path)
+        set_database_directory(path)
         self.log(f"Database directory set: {path}")
         self.update_file_list()
     
@@ -197,7 +166,7 @@ class DataNaviGUI:
         """Set the logs directory (used for loading saved config)."""
         self.logs_dir_var.set(path)
         self.logs_directory = path
-        save_config(logs_directory=path)
+        set_logs_directory(path)
         self.log(f"Logs directory set: {path}")
     
     def update_file_list(self):

@@ -16,8 +16,12 @@ import nanoporethon.subcomponent_1_prompt_user as subcomponent_1_prompt_user_mod
 from nanoporethon.subcomponent_1_prompt_user import prompt_user, database_directory
 from nanoporethon.subcomponent_2_data_navigator import data_navi
 from nanoporethon.subcomponent_3_data_navi_sub_directory import data_navi_sub_directory
-from nanoporethon.subcomponent_4_data_navi_gui import DataNaviGUI, load_config, save_config
-from nanoporethon.subcomponent_5_event_classifier_gui import EventClassifierGUI, load_config as load_config_5, save_config as save_config_5, load_search_log
+from nanoporethon.subcomponent_4_config_manager import load_config, save_config
+from nanoporethon.subcomponent_5_directory_utilities import browse_for_directory, select_database_directory
+from nanoporethon.subcomponent_6_search_log_utilities import load_search_log, find_search_queries
+from nanoporethon.subcomponent_7_mat_file_loader import load_reduced_mat, load_event_data, load_fsamp_from_event_mat, load_fsamp_from_meta_mat
+from nanoporethon.data_navi_gui import DataNaviGUI
+from nanoporethon.event_classifier_gui import EventClassifierGUI
 
 
 class TestSubcomponent1PromptUser:
@@ -213,14 +217,15 @@ class TestSubcomponent4DataNaviGUI:
 
     def test_pattern_config_load_save(self):
         """Pattern test: Load and save config."""
-        # Test save
-        save_config('/db', '/logs')
-        config = load_config()
-        assert config.get('database_directory') == '/db'
-        assert config.get('logs_directory') == '/logs'
+        # Test save using the new SC0 API
+        config = {'database_directory': '/db', 'logs_directory': '/logs'}
+        save_config(config)
+        loaded_config = load_config()
+        assert loaded_config.get('database_directory') == '/db'
+        assert loaded_config.get('logs_directory') == '/logs'
 
         # Clean up
-        config_file = os.path.join(os.path.dirname(__file__), '..', 'src', 'nanoporethon', '.datanavi_config.json')
+        config_file = os.path.join(os.path.dirname(__file__), '..', 'src', 'nanoporethon', '.nanoporethon_config.json')
         if os.path.exists(config_file):
             os.remove(config_file)
 
@@ -236,8 +241,8 @@ class TestSubcomponent5EventClassifierGUI:
     def test_smoke_import(self):
         """Smoke test: Ensure class exists."""
         assert EventClassifierGUI is not None
-        assert callable(load_config_5)
-        assert callable(save_config_5)
+        assert callable(load_config)
+        assert callable(save_config)
         assert callable(load_search_log)
 
     @pytest.mark.skip(reason="GUI initialization requires tkinter root, hard to mock without changing code")
@@ -251,19 +256,27 @@ class TestSubcomponent5EventClassifierGUI:
 
     def test_pattern_config_load_save(self):
         """Pattern test: Load and save config."""
-        save_config_5('/db')
-        config = load_config_5()
-        assert config == '/db'
+        # Test save using the new SC0 API
+        config = {'database_directory': '/db'}
+        save_config(config)
+        loaded_config = load_config()
+        assert loaded_config.get('database_directory') == '/db'
 
         # Clean up
-        config_file = os.path.join(os.path.dirname(__file__), '..', 'src', 'nanoporethon', '.datanavi_config.json')
+        config_file = os.path.join(os.path.dirname(__file__), '..', 'src', 'nanoporethon', '.nanoporethon_config.json')
         if os.path.exists(config_file):
             os.remove(config_file)
 
     def test_edge_config_file_missing(self):
         """Edge test: Config file missing."""
-        config = load_config_5()
-        assert config is None
+        # Remove config file if it exists
+        config_file = os.path.join(os.path.dirname(__file__), '..', 'src', 'nanoporethon', '.nanoporethon_config.json')
+        if os.path.exists(config_file):
+            os.remove(config_file)
+        
+        # Test that load_config returns {} when file is missing
+        config = load_config()
+        assert config == {}
 
     def test_one_shot_load_search_log(self):
         """One shot test: Load search log."""

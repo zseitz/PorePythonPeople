@@ -13,8 +13,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 import nanoporethon.subcomponent_1_prompt_user as sub1
 import nanoporethon.subcomponent_2_data_navigator as sub2
 import nanoporethon.subcomponent_3_data_navi_sub_directory as sub3
-import nanoporethon.subcomponent_4_data_navi_gui as sub4
-import nanoporethon.subcomponent_5_event_classifier_gui as sub5
+import nanoporethon.data_navi_gui as sub4
+import nanoporethon.event_classifier_gui as sub5
 
 
 class DummyVar:

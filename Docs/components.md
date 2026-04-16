@@ -1,21 +1,44 @@
-# Components
-## Data Navigator
+# NanoporethonArchitecture - Subcomponent Guide
 
-**Subcomponent 1:**
+## Overview
+The nanoporethon subcomponents have been organized to reduce code redundancy and improve separation of concerns. Each subcomponent has a single, well-defined responsibility following a layered architecture pattern:
 
-## Prompt_User
+- **Layer 1: Core Operations** (SC1-SC3) - Data processing and filtering
+- **Layer 2: Shared Utilities** (SC4-SC7) - Reusable infrastructure and data loading
+- **Layer 3: GUI Applications** - High-level interfaces that delegate to lower layers
+
+---
+
+## Architectural Layers
+
+### Layer 1: Core Operations
+Core functionality components that perform specific data processing tasks.
+
+---
+
+## Subcomponent 1: Prompt User
+
+**File:** `subcomponent_1_prompt_user.py`  
+**Size:** ~60 lines
+
 *Description:* Using a GUI, prompt the user for the path to the directory containing data. Save the path to a global string variable named `database_directory`.
 
 *Input:*
-File path
+- File path
 
 *Output:*
-`database_directory` variable (global variable accessible by other functions)
+- `database_directory` variable (global variable accessible by other functions)
 
+*Key Function:*
+- `prompt_user()` - Opens dialog to select database directory
 
-**Subcomponent 2:**
+---
 
-## Data_Navigator
+## Subcomponent 2: Data Navigator
+
+**File:** `subcomponent_2_data_navigator.py`  
+**Size:** ~50 lines
+
 *Description:* Create a function called `data_navi` that takes in as input 2 lists or arrays containing strings, and the string `database_directory`. The function should also prompt the user for the name to be associated with a specific search query. The strings in the input lists `Array_1` and `Array_2` have the following format:
 
 - String with 4 components delimited by "_"
@@ -48,10 +71,16 @@ Example string: `250101g_2NNN1_t1&streptavidin&100mM100mM_p180a`
 *Outputs:*
 - Returns the `filenames_out` array
 
+*Key Function:*
+- `data_navi(database_directory, array_1, array_2) -> List[str]` - Filters files based on inclusion/exclusion criteria
 
-**Subcomponent 3:**
+---
 
-## DataNaviSubDirectory
+## Subcomponent 3: Data Navi Sub Directory
+
+**File:** `subcomponent_3_data_navi_sub_directory.py`  
+**Size:** ~130 lines
+
 *Description:* Creates a new timestamped directory in the user-specified logs directory. The name of the new folder begins with the search query name supplied by the user in subcomponent 2, followed by the current date and time in the format `YYYYMMDD_hh:mm:ss`. A text log is written documenting the inclusion/exclusion arrays and the list of selected files (without copying the actual files to save storage space).
 
 *Inputs:*
@@ -63,13 +92,141 @@ Example string: `250101g_2NNN1_t1&streptavidin&100mM100mM_p180a`
 - `array_2` (list): Exclusion filter list.
 
 *Outputs:*
-None (creates a new folder with a log file listing the selected files and metadata)
+- None (creates a new folder with a log file listing the selected files and metadata)
 
+*Key Function:*
+- `data_navi_sub_directory(...)` - Creates timestamped directories and logs search queries
 
-**Subcomponent 4:**
+---
 
-## DataNaviGUI
-*Description:* Creates a GUI using tkinter. This GUI-based application (DataNaviGUI) utilizes subcomponents 1, 2, and 3 for navigating and managing the database. The GUI manages two persistent directories:
+### Layer 2: Shared Utilities
+Reusable utility subcomponents that provide cross-cutting functionality.
+
+---
+
+## Subcomponent 4: Config Manager
+
+**File:** `subcomponent_4_config_manager.py`  
+**Size:** ~80 lines
+
+*Description:* Handles persistent configuration storage for directory paths. Provides a centralized single-source-of-truth for user preferences that persist across sessions.
+
+*Responsibilities:*
+- Load/save configuration from JSON file (`.nanoporethon_config.json`)
+- Manage database and logs directory paths
+- Provide atomic config operations
+
+*Key Functions:*
+- `load_config()` - Loads config from JSON file
+- `save_config(dict)` - Saves config to JSON file
+- `get_config_value(key)` - Gets a config value
+- `set_config_value(key, val)` - Sets a config value
+- `get_database_directory()` / `set_database_directory()` - Directory-specific helpers
+- `get_logs_directory()` / `set_logs_directory()` - Directory-specific helpers
+
+*Used by:*
+- DataNaviGUI
+- EventClassifierGUI
+
+---
+
+## Subcomponent 5: Directory Utilities
+
+**File:** `subcomponent_5_directory_utilities.py`  
+**Size:** ~70 lines
+
+*Description:* Provides common directory selection and validation functions. Thin wrapper around tkinter filedialog with caching via SC4.
+
+*Responsibilities:*
+- Prompt user for directory selection via native file dialog
+- Cache directory selections using SC4
+- Validate directory existence
+
+*Key Functions:*
+- `browse_for_directory(title)` - Opens directory browser dialog
+- `select_database_directory()` - Select and cache database directory
+- `select_logs_directory()` - Select and cache logs directory
+
+*Delegation:*
+- Uses SC4 (Config Manager) for caching selections
+
+*Used by:*
+- DataNaviGUI
+- EventClassifierGUI
+
+---
+
+## Subcomponent 6: Search Log Utilities
+
+**File:** `subcomponent_6_search_log_utilities.py`  
+**Size:** ~40 lines
+
+*Description:* Parses and loads search log files created by SC3. Extracts metadata and file listings from search query logs.
+
+*Responsibilities:*
+- Parse search log file format
+- Extract source directory and selected files
+- Find available search queries in a directory
+
+*Key Functions:*
+- `load_search_log(log_file_path)` - Loads search log and returns metadata and file list
+- `find_search_queries(directory)` - Finds all search query directories in a location
+
+*Used by:*
+- EventClassifierGUI
+
+---
+
+## Subcomponent 7: MAT File Loader
+
+**File:** `subcomponent_7_mat_file_loader.py`  
+**Size:** ~420 lines
+
+*Description:* Loads and parses MATLAB files (reduced.mat, event.mat, meta.mat) with robust extraction and multiple fallback strategies. Handles both HDF5 (h5py) and non-HDF5 (scipy.io) MAT file formats.
+
+*Responsibilities:*
+- Load MATLAB files in different formats
+- Extract nested data with case-insensitive key matching
+- Resolve object references
+- Provide fallback loading strategies
+- Handle numeric extraction from various data types
+
+*Key Functions:*
+- `load_reduced_mat(path)` - Loads reduced.mat file and returns data arrays
+- `load_event_data(path)` - Loads event data from event.mat
+- `load_fsamp_from_event_mat(path)` - Extracts sampling frequency from event.mat
+- `load_fsamp_from_meta_mat(path)` - Extracts sampling frequency from meta.mat
+
+*Internal Helpers:*
+- `_safe_get_scalar()` - Safely extract scalar values
+- `_normalize_key()` - Case-insensitive key matching
+- `_extract_numeric_from_dataset()` - Extract numbers from datasets
+- `_load_event_vector()` - Load event data vectors
+- `_mat_extract_numeric_vector()` - Extract numeric vectors
+
+*Features:*
+- Case-insensitive key matching for robustness
+- Object reference resolution
+- Nested group searching
+- Multiple fallback loading paths
+- Proper handling of different data types
+
+*Used by:*
+- EventClassifierGUI
+
+---
+
+### Layer 3: GUI Applications
+High-level GUI applications that delegate to lower layers.
+
+---
+
+## Subcomponent 4: DataNaviGUI
+
+**File:** `data_navi_gui.py`  
+**Size:** ~340 lines
+
+*Description:* Creates a GUI using tkinter. This GUI-based application (DataNaviGUI) utilizes subcomponents 2 and 3 for navigating and managing the database. The GUI manages two persistent directories:
 
 1. **Database Directory**: The directory containing data files to search through. If a directory was previously selected (saved from a prior session), it automatically loads that directory, provided it still exists. The user can change this directory at any time using the "Browse" button next to "Database Directory".
 
@@ -86,9 +243,23 @@ Once valid directories are selected, the GUI displays a menu where the user can:
 
 The GUI maintains a log of all operations (search, selection, confirmation, errors, etc.) with timestamps.
 
+*Workflow:*
+Select database → Enter search criteria → View/select files → Confirm search
+
+*Responsibilities:*
+- GUI layout and user interactions
+- Search workflow orchestration
+- Logging/messaging
+
+*Delegates to:*
+- SC4 (Config Manager)
+- SC5 (Directory Utilities)
+- SC2 (Data Navigator) for filtering
+- SC3 (Data Navi Sub Directory) for logging
+
 *Key Behaviors:*
 - The search operation does **not** prompt in the terminal; it only uses the GUI.
-- Both database and logs directories are persisted to a config file (`.datanavi_config.json`) so they are remembered across sessions.
+- Both database and logs directories are persisted to a config file (`.nanoporethon_config.json`) so they are remembered across sessions.
 - If either directory no longer exists (e.g., on a different system or after deletion), the user is prompted to select one.
 - The user can change either directory at any point during the session using the respective Browse buttons.
 - **Cumulative searches**: Subsequent searches add to the existing selection, allowing users to include files that may not match the initial query due to naming inconsistencies.
@@ -101,16 +272,34 @@ The GUI maintains a log of all operations (search, selection, confirmation, erro
 None
 
 *Outputs:*
-None (GUI creates directories and log files via subcomponent 3)
+None (GUI creates directories and log files via SC3)
 
+---
 
-**Subcomponent 5:**
+## Subcomponent 5: EventClassifierGUI
 
-## EventClassifierGUI
-*Description:* Creates a GUI using tkinter. This GUI-based application utilizes the search results generated by subcomponent 4 to assist with classifying events in the data. The GUI allows the user to browse to and select a search logs directory (the directory where subcomponent 4 saved search query logs). Once a search logs directory is selected, the GUI displays available search queries found in that directory as timestamped folders. When a query is selected, it loads the list of selected files from the search log. The user can then select a file to view its data. Each selected file is a folder containing MAT files; clicking on a file loads and plots `reduced.data` vs `reduced.pt` (point index) using matplotlib.
+**File:** `event_classifier_gui.py`  
+**Size:** ~750 lines (reduced from ~1100+)
+
+*Description:* Creates a GUI using tkinter. This GUI-based application utilizes the search results generated by DataNaviGUI to assist with classifying events in the data. The GUI allows the user to browse to and select a search logs directory (the directory where DataNaviGUI saved search query logs). Once a search logs directory is selected, the GUI displays available search queries found in that directory as timestamped folders. When a query is selected, it loads the list of selected files from the search log. The user can then select a file to view its data. Each selected file is a folder containing MAT files; clicking on a file loads and plots `reduced.data` vs `reduced.pt` (point index) using matplotlib.
+
+*Workflow:*
+Select logs directory → Select query → Select file → View/edit events
+
+*Responsibilities:*
+- GUI layout and user interactions
+- Event visualization and navigation
+- Event quality editing
+- Keyboard shortcuts
+
+*Delegates to:*
+- SC4 (Config Manager)
+- SC5 (Directory Utilities)
+- SC6 (Search Log Utilities) for log parsing
+- SC7 (MAT File Loader) for data loading
 
 *Key Features:*
-- Flexible directory selection: Users browse to any directory containing search logs created by subcomponent 4.
+- Flexible directory selection: Users browse to any directory containing search logs created by DataNaviGUI.
 - Query selection: Dropdown to choose from search query directories found in the selected logs directory.
 - File selection: Listbox showing files from the selected query.
 - Data plotting: Loads MAT file data and plots the specified fields in an embedded matplotlib figure.
@@ -119,20 +308,140 @@ None (GUI creates directories and log files via subcomponent 3)
 - Error handling: Logs issues with loading files or data.
 
 *Inputs:*
-None (reads from config and tests directory)
+None (reads from config and logs directory)
 
 *Outputs:*
 None (displays plots in GUI)
+
+---
+
+## Dependencies and Data Flow
+
+### DataNaviGUI Dependency Tree
+```
+DataNaviGUI
+├── SC4 (Config Manager)
+├── SC5 (Directory Utilities)
+│   └── SC4 (Config Manager)
+├── SC2 (Data Navigator)
+└── SC3 (Data Navi Sub Directory)
+```
+
+### EventClassifierGUI Dependency Tree
+```
+EventClassifierGUI
+├── SC4 (Config Manager)
+├── SC5 (Directory Utilities)
+│   └── SC4 (Config Manager)
+├── SC6 (Search Log Utilities)
+└── SC7 (MAT File Loader)
+```
+
+---
+
+## Code Reuse Benefits
+
+### Before Refactoring
+- Config management duplicated in DataNaviGUI and EventClassifierGUI (~40 lines each)
+- Directory selection logic duplicated in DataNaviGUI and EventClassifierGUI (~35 lines each)
+- All MAT file loading logic (~700 lines) in EventClassifierGUI only
+- Search log parsing logic in EventClassifierGUI only
+- **Total code duplication: ~900+ lines**
+
+### After Refactoring
+- SC4 provides single config implementation (~80 lines) used by both GUIs
+- SC5 provides single directory selection implementation (~70 lines) used by both GUIs
+- SC7 provides reusable MAT file loading (~420 lines) available to future components
+- SC6 provides reusable log parsing (~40 lines) available to future components
+- **Eliminated ~400+ lines of redundant code**
+- **Improved maintainability**: Changes to config or directory logic only need to be made once
+
+---
+
+## Testing Strategy
+
+The test file (`test_nanoporethon.py`) tests each subcomponent independently using mock objects and unit tests.
+
+### Key Test Coverage
+- **SC1**: User prompting functionality
+- **SC2**: File filtering with various inclusion/exclusion patterns
+- **SC3**: Log file creation and format validation
+- **SC4**: Configuration save/load/clear operations
+- **SC5**: Directory selection caching
+- **SC6**: Search log parsing
+- **SC7**: MAT file loading from various formats
+- **DataNaviGUI**: Directory browsing, search workflow, file selection
+- **EventClassifierGUI**: Query loading, file loading, event data parsing, quality saving
+
+### Test Execution
+```bash
+pytest tests/test_nanoporethon.py -v
+```
+
+---
+
+## Future Extensibility
+
+The new architecture makes it easy to:
+
+1. **Add new data loading formats** - Extend SC7 with new parsers or file types
+2. **Create new GUIs** - Reuse SC4 and SC5 for any GUI that needs config and directory selection
+3. **Add new file formats to search logs** - Extend SC6 for new metadata formats
+4. **Improve config management** - Update SC4 without affecting GUIs
+5. **Create batch processing tools** - Use the utility subcomponents (SC4-SC7) for automation
+6. **Add new event parsers** - Extend SC6 to handle different log formats
+7. **Support additional file formats** - SC7 can be extended to load additional data types
+
+---
+
+## Migration Notes
+
+### For Users
+- No changes to user-facing behavior
+- All existing workflows work identically
+- Configuration files remain compatible (.nanoporethon_config.json)
+
+### For Developers
+
+When adding new features:
+
+1. **Check if similar functionality exists in layers 1-2** - Reuse before reimplementing
+2. **Prefer extending existing utilities over duplicating code** - Add to SC4-SC7 rather than duplicating
+3. **Keep GUI components focused on UI logic** - Offload data processing to layer 2 utilities
+4. **Extract reusable functionality to lower layers** - If two GUIs need the same logic, create a utility
+
+#### Import Path Updates
+All subcomponents are in `src.nanoporethon.*`:
+```python
+from src.nanoporethon import subcomponent_1_prompt_user
+from src.nanoporethon import subcomponent_2_data_navigator
+from src.nanoporethon import subcomponent_3_data_navi_sub_directory
+from src.nanoporethon import subcomponent_4_config_manager
+from src.nanoporethon import subcomponent_5_directory_utilities
+from src.nanoporethon import subcomponent_6_search_log_utilities
+from src.nanoporethon import subcomponent_7_mat_file_loader
+from src.nanoporethon import data_navi_gui
+from src.nanoporethon import event_classifier_gui
+```
+
+---
 
 ## Dependencies
 
 The following Python packages are required to run the subcomponents:
 
-- `scipy`: For potential MAT file loading compatibility.
-- `matplotlib`: For plotting data in subcomponent 5.
-- `h5py`: For loading MATLAB v7.3 HDF5 format MAT files in subcomponent 5.
+- `scipy`: For potential MAT file loading compatibility
+- `matplotlib`: For plotting data in EventClassifierGUI
+- `h5py`: For loading MATLAB v7.3 HDF5 format MAT files in SC7
+- `numpy`: For data array operations across all components
+- `tkinter`: For GUI components (usually included with Python)
 
 Install them using pip:
+```bash
+pip install scipy matplotlib h5py numpy
 ```
-pip install scipy matplotlib h5py
+
+Or install all dependencies from the project:
+```bash
+pip install -e .
 ```

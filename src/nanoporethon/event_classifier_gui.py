@@ -1,13 +1,13 @@
 """
-Subcomponent 5: EventClassifierGUI
-Description: Creates a GUI using tkinter to assist with classifying events in the data.
-Utilizes search results from subcomponent 4 to display and plot data from selected files.
+EventClassifierGUI: Event Classification and Editing GUI
+Description: Creates a GUI for classifying and editing events.
+Focuses on event visualization, navigation, and quality editing.
+Delegates to subcomponents 4, 5, 6, 7 for config, directory selection, log parsing, and data loading.
 """
 
 import os
-import json
 import tkinter as tk
-from tkinter import filedialog, scrolledtext
+from tkinter import scrolledtext
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 import matplotlib.pyplot as plt
@@ -15,61 +15,30 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 import h5py
 import numpy as np
 
-try:
-    from scipy import io as scipy_io
-except Exception:
-    scipy_io = None
+from nanoporethon.subcomponent_4_config_manager import (
+    get_database_directory, set_database_directory,
+)
+from nanoporethon.subcomponent_5_directory_utilities import browse_for_directory
+from nanoporethon.subcomponent_6_search_log_utilities import (
+    load_search_log, find_search_queries,
+)
+from nanoporethon.subcomponent_7_mat_file_loader import (
+    load_reduced_mat, load_event_data, load_fsamp_from_event_mat, load_fsamp_from_meta_mat,
+)
 
-# Config file for persisting the selected directory
-CONFIG_FILE = os.path.join(os.path.dirname(__file__), ".datanavi_config.json")
-
-
-def load_config():
-    """Load the saved database directory from config file."""
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, 'r') as f:
-                config = json.load(f)
-                return config.get("database_directory")
-        except Exception:
-            return None
-    return None
-
-
-def save_config(database_directory):
-    """Save the database directory to config file."""
-    try:
-        config = {"database_directory": database_directory}
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump(config, f)
-    except Exception:
-        pass
-
-
-def load_search_log(log_file_path):
-    """Load the source directory and selected files from a search log file."""
-    source_directory = None
-    selected_files = []
-    try:
-        with open(log_file_path, 'r') as f:
-            lines = f.readlines()
-            in_selected = False
-            for line in lines:
-                line = line.strip()
-                # Extract source directory
-                if line.startswith("Source Directory:"):
-                    source_directory = line.split("Source Directory:", 1)[1].strip()
-                # Extract selected files
-                if line.startswith("Selected Files/Directories:"):
-                    in_selected = True
-                    continue
-                if in_selected and line.startswith("- "):
-                    selected_files.append(line[2:])
-                elif in_selected and line.startswith("Failed"):
-                    break
-    except Exception as e:
-        print(f"Error loading log: {e}")
-    return source_directory, selected_files
+# Import internal MAT file loader functions for backward compatibility with tests
+from nanoporethon.subcomponent_7_mat_file_loader import (
+    _safe_get_scalar as _safe_get_scalar_impl,
+    _normalize_key as _normalize_key_impl,
+    _first_matching_key as _first_matching_key_impl,
+    _extract_numeric_from_dataset as _extract_numeric_from_dataset_impl,
+    _load_event_vector as _load_event_vector_impl,
+    _find_dataset_case_insensitive as _find_dataset_case_insensitive_impl,
+    _mat_extract_numeric_vector as _mat_extract_numeric_vector_impl,
+    _mat_find_field as _mat_find_field_impl,
+    _mat_iter_children as _mat_iter_children_impl,
+    _mat_to_numeric_array as _mat_to_numeric_array_impl,
+)
 
 
 class EventClassifierGUI:
@@ -256,20 +225,18 @@ class EventClassifierGUI:
     
     def load_saved_directory(self):
         """Load the saved directory on startup."""
-        saved_dir = load_config()
+        saved_dir = get_database_directory()
         
-        if saved_dir and os.path.isdir(saved_dir):
+        if saved_dir:
             self.set_directory(saved_dir)
             self.log(f"Loaded saved directory: {saved_dir}")
         else:
-            if saved_dir:
-                self.log(f"Saved directory no longer exists: {saved_dir}")
             self.log("Please select a database directory.")
     
     def browse_directory(self):
         """Open a directory browser dialog to select search logs directory."""
-        path = filedialog.askdirectory(title="Select Search Logs Directory")
-        if path and os.path.isdir(path):
+        path = browse_for_directory("Select Search Logs Directory")
+        if path:
             self.set_directory(path)
         else:
             self.log("Invalid directory selected.")
@@ -278,7 +245,7 @@ class EventClassifierGUI:
         """Set the search logs directory."""
         self.dir_var.set(path)
         self.logs_directory = path
-        save_config(path)
+        set_database_directory(path)
         self.log(f"Directory set: {path}")
         self.refresh_queries()
     
@@ -289,9 +256,7 @@ class EventClassifierGUI:
             return
         
         try:
-            items = os.listdir(self.logs_directory)
-            query_dirs = [item for item in items if os.path.isdir(os.path.join(self.logs_directory, item))]
-            query_dirs.sort(reverse=True)  # Most recent first
+            query_dirs = find_search_queries(self.logs_directory)
             
             # Update the option menu
             menu = self.query_combo["menu"]
@@ -349,23 +314,16 @@ class EventClassifierGUI:
             return
         
         try:
-            with h5py.File(mat_file_path, 'r') as f:
-                if 'reduced' not in f:
-                    self.log(f"'reduced' key not found in {file_name}")
-                    return
-
-                reduced_group = f['reduced']
-                if 'data' not in reduced_group or 'pt' not in reduced_group:
-                    self.log(f"data or pt not found in reduced data for {file_name}")
-                    return
-
-                data = np.array(reduced_group['data'][:]).flatten()
-                pt = np.array(reduced_group['pt'][:]).flatten()
-                downsample_factor = self._detect_downsample_factor(reduced_group)
-
-            event_data = self._load_event_data(event_file_path)
-            event_fsamp_hz = self._extract_fsamp_from_event_mat(event_file_path)
-            meta_fsamp_hz = self._extract_fsamp_from_meta_mat(meta_file_path)
+            # Load data from reduced.mat using SC5a
+            data, pt, downsample_factor = load_reduced_mat(mat_file_path)
+            if data is None or pt is None:
+                self.log(f"Failed to load data from {file_name}")
+                return
+            
+            # Load event data using SC5a
+            event_data = load_event_data(event_file_path)
+            event_fsamp_hz = load_fsamp_from_event_mat(event_file_path)
+            meta_fsamp_hz = load_fsamp_from_meta_mat(meta_file_path)
             fsamp_hz = meta_fsamp_hz if (meta_fsamp_hz and meta_fsamp_hz > 0) else event_fsamp_hz
 
             self.current_file_name = file_name
@@ -414,39 +372,39 @@ class EventClassifierGUI:
         except Exception as e:
             self.log(f"Error loading/plotting {file_name}: {e}")
 
+    # Helper methods for data processing and plotting
+    
+    # These methods are wrappers that delegate to SC5a (MAT File Loader)
+    # Kept for backward compatibility with existing tests and code
+    
     def _safe_get_scalar(self, dataset_or_value) -> Optional[float]:
-        """Safely extract a scalar float from HDF5 scalar/array-like values."""
-        if dataset_or_value is None:
-            return None
-        try:
-            value = dataset_or_value[()]
-            arr = np.array(value).flatten()
-            if arr.size == 0:
-                return None
-            return float(arr[0])
-        except Exception:
-            try:
-                arr = np.array(dataset_or_value).flatten()
-                if arr.size == 0:
-                    return None
-                return float(arr[0])
-            except Exception:
-                return None
-
+        """Wrapper for SC5a function."""
+        return _safe_get_scalar_impl(dataset_or_value)
+    
     def _normalize_key(self, key: str) -> str:
-        """Normalize field names for robust matching across naming variants."""
-        return ''.join(ch for ch in str(key).lower() if ch.isalnum())
-
+        """Wrapper for SC5a function."""
+        return _normalize_key_impl(key)
+    
     def _first_matching_key(self, container, candidates: List[str]) -> Optional[str]:
-        """Return first key in container matching any candidate after normalization."""
-        if not hasattr(container, 'keys'):
-            return None
-        normalized_candidates = {self._normalize_key(c) for c in candidates}
-        for key in container.keys():
-            if self._normalize_key(key) in normalized_candidates:
-                return key
-        return None
-
+        """Wrapper for SC5a function."""
+        return _first_matching_key_impl(container, candidates)
+    
+    def _extract_numeric_from_dataset(self, dataset, h5file) -> np.ndarray:
+        """Wrapper for SC5a function."""
+        return _extract_numeric_from_dataset_impl(dataset, h5file)
+    
+    def _load_event_data(self, event_file_path: str) -> Dict[str, np.ndarray]:
+        """Wrapper for SC5a function."""
+        return load_event_data(event_file_path)
+    
+    def _extract_fsamp_from_event_mat(self, event_file_path: str) -> Optional[float]:
+        """Wrapper for SC5a function."""
+        return load_fsamp_from_event_mat(event_file_path)
+    
+    def _extract_fsamp_from_meta_mat(self, meta_file_path: str) -> Optional[float]:
+        """Wrapper for SC5a function."""
+        return load_fsamp_from_meta_mat(meta_file_path)
+    
     def _detect_downsample_factor(self, reduced_group) -> float:
         """Detect downsample factor in reduced.mat. Defaults to 1 if unavailable."""
         candidate_keys = ['downsampleFactor', 'downsample', 'dwnspl', 'ds', 'dsFactor']
@@ -456,7 +414,7 @@ class EventClassifierGUI:
                 if value and value > 0:
                     return float(value)
         return 1.0
-
+    
     def _compute_time_axis(self):
         """Convert point axis to time (seconds) using fsamp and downsample factor."""
         if self.current_pt is None:
@@ -492,362 +450,39 @@ class EventClassifierGUI:
 
         self.current_effective_fs_hz = effective_fs
         self.current_time_s = np.array(self.current_pt, dtype=float) / effective_fs
-
+    
     def _array_or_empty(self, parent, key) -> np.ndarray:
+        """Helper to extract array from parent or return empty array."""
         if key in parent:
             try:
                 return np.array(parent[key][:]).flatten()
             except Exception:
                 return np.array([])
         return np.array([])
-
-    def _extract_numeric_from_dataset(self, dataset, h5file) -> np.ndarray:
-        """Extract numeric values from an HDF5 dataset, resolving object refs when needed."""
-        try:
-            value = dataset[()]
-        except Exception:
-            return np.array([])
-
-        arr = np.array(value)
-        if arr.size == 0:
-            return np.array([])
-
-        # MATLAB v7.3 struct fields are often object references.
-        if arr.dtype == object:
-            extracted = []
-            for ref in arr.flatten():
-                try:
-                    if isinstance(ref, np.ndarray):
-                        for sub in ref.flatten():
-                            try:
-                                obj = h5file[sub]
-                                obj_val = np.array(obj[()]).flatten()
-                                if obj_val.size > 0:
-                                    extracted.extend(obj_val.tolist())
-                            except Exception:
-                                continue
-                        continue
-                    if not ref:
-                        continue
-                    obj = h5file[ref]
-                    obj_val = np.array(obj[()]).flatten()
-                    if obj_val.size > 0:
-                        extracted.extend(obj_val.tolist())
-                except Exception:
-                    continue
-            if extracted:
-                return np.array(extracted, dtype=float).flatten()
-            return np.array([])
-
-        try:
-            return arr.astype(float).flatten()
-        except Exception:
-            return np.array([])
-
+    
     def _find_dataset_case_insensitive(self, group, target_key: str):
-        """Find a dataset by key (case-insensitive), searching recursively."""
-        target = self._normalize_key(target_key)
-
-        if not hasattr(group, 'keys'):
-            return None
-
-        # Direct children first.
-        for key in group.keys():
-            if self._normalize_key(key) == target:
-                return group[key]
-
-        # Then recurse into nested groups.
-        for key in group.keys():
-            child = group[key]
-            if isinstance(child, (h5py.Group, dict)):
-                found = self._find_dataset_case_insensitive(child, target_key)
-                if found is not None:
-                    return found
-        return None
-
+        """Wrapper for SC5a function."""
+        return _find_dataset_case_insensitive_impl(group, target_key)
+    
     def _load_event_vector(self, h5file, root_group, key: str) -> np.ndarray:
-        """Load a vector from event.mat by key with robust fallback behavior."""
-        ds = self._find_dataset_case_insensitive(root_group, key)
-        if ds is None:
-            return np.array([])
-
-        # Fast path for plain arrays/dict-backed test doubles.
-        if not isinstance(ds, h5py.Dataset):
-            try:
-                arr = np.array(ds).astype(float).flatten()
-                return arr if arr.size > 0 else np.array([])
-            except Exception:
-                try:
-                    arr = np.array(ds[()]).astype(float).flatten()
-                    return arr if arr.size > 0 else np.array([])
-                except Exception:
-                    return np.array([])
-
-        return self._extract_numeric_from_dataset(ds, h5file)
-
-    def _load_event_data(self, event_file_path: str) -> Dict[str, np.ndarray]:
-        """Load event metadata from event.mat if available."""
-        empty = {
-            'eventnum': np.array([]),
-            'eventStartPt': np.array([]),
-            'eventEndPt': np.array([]),
-            'eventStartNdx': np.array([]),
-            'eventEndNdx': np.array([]),
-            'quality': np.array([]),
-            'localIOS': np.array([]),
-        }
-
-        if not os.path.exists(event_file_path):
-            return empty
-
-        # First attempt: MATLAB v7.3 (HDF5-backed) via h5py.
-        try:
-            with h5py.File(event_file_path, 'r') as f:
-                event_group = f['event'] if 'event' in f else f
-                out = {
-                    'eventnum': self._load_event_vector(f, event_group, 'eventnum'),
-                    'eventStartPt': self._load_event_vector(f, event_group, 'eventStartPt'),
-                    'eventEndPt': self._load_event_vector(f, event_group, 'eventEndPt'),
-                    'eventStartNdx': self._load_event_vector(f, event_group, 'eventStartNdx'),
-                    'eventEndNdx': self._load_event_vector(f, event_group, 'eventEndNdx'),
-                    'quality': self._load_event_vector(f, event_group, 'quality'),
-                    'localIOS': self._load_event_vector(f, event_group, 'localIOS'),
-                }
-                return out
-        except Exception:
-            pass
-
-        # Fallback: MATLAB v5/v7 (non-HDF5) via scipy.io.loadmat.
-        if scipy_io is None:
-            self.log("Could not load event.mat: unsupported format and scipy is unavailable.")
-            return empty
-
-        try:
-            mat = scipy_io.loadmat(event_file_path, squeeze_me=True, struct_as_record=False)
-            event_obj = mat.get('event', mat)
-            out = {
-                'eventnum': self._mat_extract_numeric_vector(event_obj, 'eventnum'),
-                'eventStartPt': self._mat_extract_numeric_vector(event_obj, 'eventStartPt'),
-                'eventEndPt': self._mat_extract_numeric_vector(event_obj, 'eventEndPt'),
-                'eventStartNdx': self._mat_extract_numeric_vector(event_obj, 'eventStartNdx'),
-                'eventEndNdx': self._mat_extract_numeric_vector(event_obj, 'eventEndNdx'),
-                'quality': self._mat_extract_numeric_vector(event_obj, 'quality'),
-                'localIOS': self._mat_extract_numeric_vector(event_obj, 'localIOS'),
-            }
-            return out
-        except Exception as e:
-            self.log(f"Could not load event.mat: {e}")
-            return empty
-
+        """Wrapper for SC5a function."""
+        return _load_event_vector_impl(h5file, root_group, key)
+    
     def _mat_iter_children(self, obj):
-        """Yield child objects for recursive MATLAB-structure field search."""
-        if isinstance(obj, dict):
-            for k, v in obj.items():
-                if isinstance(k, str) and not k.startswith('__'):
-                    yield k, v
-            return
-
-        if isinstance(obj, np.ndarray):
-            for item in obj.flatten():
-                yield None, item
-            return
-
-        # MATLAB struct_as_record=False objects expose fields as attributes.
-        if hasattr(obj, '__dict__'):
-            for k, v in vars(obj).items():
-                if isinstance(k, str) and not k.startswith('_'):
-                    yield k, v
-
+        """Wrapper for SC5a function."""
+        return _mat_iter_children_impl(obj)
+    
     def _mat_find_field(self, obj, field_name: str, depth: int = 0):
-        """Recursively find a field in MATLAB-loaded structures (case-insensitive)."""
-        if obj is None or depth > 4:
-            return None
-
-        target = field_name.lower()
-        for k, v in self._mat_iter_children(obj):
-            if isinstance(k, str) and k.lower() == target:
-                return v
-
-        for _k, v in self._mat_iter_children(obj):
-            found = self._mat_find_field(v, field_name, depth + 1)
-            if found is not None:
-                return found
-        return None
-
+        """Wrapper for SC5a function."""
+        return _mat_find_field_impl(obj, field_name, depth)
+    
     def _mat_to_numeric_array(self, value) -> np.ndarray:
-        """Convert MATLAB-loaded value to a flat numeric numpy array when possible."""
-        if value is None:
-            return np.array([])
-
-        try:
-            arr = np.array(value)
-        except Exception:
-            return np.array([])
-
-        if arr.size == 0:
-            return np.array([])
-
-        if arr.dtype == object:
-            vals = []
-            for item in arr.flatten():
-                sub = self._mat_to_numeric_array(item)
-                if sub.size > 0:
-                    vals.extend(sub.tolist())
-            return np.array(vals, dtype=float) if vals else np.array([])
-
-        try:
-            return arr.astype(float).flatten()
-        except Exception:
-            return np.array([])
-
+        """Wrapper for SC5a function."""
+        return _mat_to_numeric_array_impl(value)
+    
     def _mat_extract_numeric_vector(self, root_obj, field_name: str) -> np.ndarray:
-        """Extract a numeric vector for a field from scipy-loaded MATLAB content."""
-        value = self._mat_find_field(root_obj, field_name)
-        return self._mat_to_numeric_array(value)
-
-    def _extract_fsamp_from_event_mat(self, event_file_path: str) -> Optional[float]:
-        """Extract fsamp from event.mat, preferring values in the event group."""
-        if not os.path.exists(event_file_path):
-            return None
-
-        candidate_keys = ['fsamp', 'Fsamp', 'f_samp', 'samplingFrequency', 'sampleRate', 'fs', 'Fs']
-
-        try:
-            with h5py.File(event_file_path, 'r') as f:
-                groups_to_check = []
-                if 'event' in f:
-                    groups_to_check.append(f['event'])
-                groups_to_check.append(f)
-
-                for group in groups_to_check:
-                    if not hasattr(group, 'keys'):
-                        continue
-                    matched_key = self._first_matching_key(group, candidate_keys)
-                    if matched_key is not None:
-                        obj = group[matched_key]
-                        if isinstance(obj, h5py.Dataset):
-                            vals = self._extract_numeric_from_dataset(obj, f)
-                            value = float(vals[0]) if vals.size > 0 else None
-                        else:
-                            try:
-                                value = float(np.array(obj).flatten()[0])
-                            except Exception:
-                                value = self._safe_get_scalar(obj)
-                        if value and value > 0:
-                            return float(value)
-
-                # Fallback: one-level nested groups (robust to schema variations).
-                for group in groups_to_check:
-                    if not hasattr(group, 'keys'):
-                        continue
-                    for child_key in group.keys():
-                        child = group[child_key]
-                        if isinstance(child, (h5py.Group, dict)):
-                            if not hasattr(child, 'keys'):
-                                continue
-                            matched_key = self._first_matching_key(child, candidate_keys)
-                            if matched_key is not None:
-                                obj = child[matched_key]
-                                if isinstance(obj, h5py.Dataset):
-                                    vals = self._extract_numeric_from_dataset(obj, f)
-                                    value = float(vals[0]) if vals.size > 0 else None
-                                else:
-                                    try:
-                                        value = float(np.array(obj).flatten()[0])
-                                    except Exception:
-                                        value = self._safe_get_scalar(obj)
-                                if value and value > 0:
-                                    return float(value)
-        except Exception:
-            pass
-
-        # Fallback for non-HDF5 MAT files.
-        if scipy_io is not None:
-            try:
-                mat = scipy_io.loadmat(event_file_path, squeeze_me=True, struct_as_record=False)
-                event_obj = mat.get('event', mat)
-                for key in candidate_keys:
-                    vals = self._mat_extract_numeric_vector(event_obj, key)
-                    if vals.size > 0 and float(vals[0]) > 0:
-                        return float(vals[0])
-            except Exception:
-                pass
-        else:
-            self.log("Could not extract fsamp from event.mat: scipy is unavailable for non-HDF5 files.")
-
-        return None
-
-    def _extract_fsamp_from_meta_mat(self, meta_file_path: str) -> Optional[float]:
-        """Extract fsamp from meta.mat, preferring values in the meta group."""
-        if not os.path.exists(meta_file_path):
-            return None
-
-        candidate_keys = ['fsamp', 'Fsamp', 'f_samp', 'samplingFrequency', 'sampleRate', 'fs', 'Fs']
-
-        try:
-            with h5py.File(meta_file_path, 'r') as f:
-                groups_to_check = []
-                if 'meta' in f:
-                    groups_to_check.append(f['meta'])
-                groups_to_check.append(f)
-
-                for group in groups_to_check:
-                    if not hasattr(group, 'keys'):
-                        continue
-                    matched_key = self._first_matching_key(group, candidate_keys)
-                    if matched_key is not None:
-                        obj = group[matched_key]
-                        if isinstance(obj, h5py.Dataset):
-                            vals = self._extract_numeric_from_dataset(obj, f)
-                            value = float(vals[0]) if vals.size > 0 else None
-                        else:
-                            try:
-                                value = float(np.array(obj).flatten()[0])
-                            except Exception:
-                                value = self._safe_get_scalar(obj)
-                        if value and value > 0:
-                            return float(value)
-
-                # Fallback: one-level nested groups (robust to schema variations).
-                for group in groups_to_check:
-                    if not hasattr(group, 'keys'):
-                        continue
-                    for child_key in group.keys():
-                        child = group[child_key]
-                        if isinstance(child, (h5py.Group, dict)):
-                            if not hasattr(child, 'keys'):
-                                continue
-                            matched_key = self._first_matching_key(child, candidate_keys)
-                            if matched_key is not None:
-                                obj = child[matched_key]
-                                if isinstance(obj, h5py.Dataset):
-                                    vals = self._extract_numeric_from_dataset(obj, f)
-                                    value = float(vals[0]) if vals.size > 0 else None
-                                else:
-                                    try:
-                                        value = float(np.array(obj).flatten()[0])
-                                    except Exception:
-                                        value = self._safe_get_scalar(obj)
-                                if value and value > 0:
-                                    return float(value)
-        except Exception:
-            pass
-
-        # Fallback for non-HDF5 MAT files.
-        if scipy_io is not None:
-            try:
-                mat = scipy_io.loadmat(meta_file_path, squeeze_me=True, struct_as_record=False)
-                meta_obj = mat.get('meta', mat)
-                for key in candidate_keys:
-                    vals = self._mat_extract_numeric_vector(meta_obj, key)
-                    if vals.size > 0 and float(vals[0]) > 0:
-                        return float(vals[0])
-            except Exception:
-                pass
-        else:
-            self.log("Could not extract fsamp from meta.mat: scipy is unavailable for non-HDF5 files.")
-
-        return None
+        """Wrapper for SC5a function."""
+        return _mat_extract_numeric_vector_impl(root_obj, field_name)
 
     def _event_point_to_time(self, point: float) -> float:
         fs = self.current_effective_fs_hz
