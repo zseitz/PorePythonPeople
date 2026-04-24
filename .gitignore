@@ -127,3 +127,14 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# macOS / editor artifacts
+.DS_Store
+**/.DS_Store
+
+# Temporary Office lock files
+~$*
+**/~$*
+
+# Local nanoporethon machine-specific config
+src/nanoporethon/.nanoporethon_config.json
