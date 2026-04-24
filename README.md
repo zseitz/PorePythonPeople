@@ -1,5 +1,5 @@
 # PorePythonPeople
-Developing python based Nanopore Sequencing/Tweezing analysis pipeline
+Developing python based Nanopore Sequencing/Tweezing analysis pipeline.
 
 This is an easy-to-use, Python-based tool that allows Gundlach lab members to:
 - search a large database of over 10 years of historical nanopore sequencing data by experimental conditions (pH, buffer concentration, forwards/backwards pore, enzyme, temperature, etc)
