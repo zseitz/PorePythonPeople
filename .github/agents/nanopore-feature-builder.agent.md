@@ -23,7 +23,7 @@ Read in order:
 
 - Preserve current Data Navigator and Event Classifier user workflows.
 - Keep shared logic in reusable subcomponents whenever possible.
-- If borrowing from MATLAB, port behavior but not legacy code structure.
+- If borrowing from MATLAB, treat it as reference only; preserve or change behavior based on validated Python contracts/tests, not MATLAB alone.
 - Add or update tests for changed behavior.
 - If a component contract changes, update `Docs/components.md`.
 - Append one concise log entry to `Docs/agent_logs/REQUEST_LOG.md`.

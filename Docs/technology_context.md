@@ -23,9 +23,9 @@ These scripts are **functional references**, not style or architecture reference
 
 Agent rule:
 
-- Port behavior where useful.
-- Do not port legacy structure blindly.
-- Preserve existing Python contracts unless a migration plan is explicit.
+- MATLAB scripts are reference-only.
+- Port behavior where useful and validated.
+- If MATLAB conflicts with Python contracts/tests, Python contracts/tests win.
 
 ## Current stable Python contracts
 

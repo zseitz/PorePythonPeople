@@ -24,6 +24,7 @@ Your purpose is to improve code structure and maintainability while preserving b
 - Default to editing only the requested module(s) and the closest relevant tests; expand scope only when required for correctness and explain why.
 - If component contracts change, update `Docs/components.md` in the same change.
 - Append one concise row to `Docs/agent_logs/REQUEST_LOG.md` for traceability.
+- For MATLAB-adjacent modules, Python tests/contracts are source-of-truth; MATLAB patterns are non-authoritative references.
 
 ## Refactor Decision Policy (nanoporethon-tuned)
 Before making edits, propose exactly 3 candidate refactors with:

@@ -19,3 +19,5 @@ Quality guardrails:
 - Preserve compatibility for search logs and MAT loading pathways unless migration is explicitly requested.
 - Keep GUI files orchestration-focused; push reusable logic into subcomponents.
 - Prefer clarity and composability over one-off quick fixes.
+- When MATLAB behavior conflicts with validated Python contracts/tests, Python is authoritative.
+- Use MATLAB as reference context only; do not copy legacy structure by default.

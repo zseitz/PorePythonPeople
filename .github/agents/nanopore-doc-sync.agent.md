@@ -23,6 +23,7 @@ Keep architecture and change-tracking docs aligned with current behavior.
 - Reflect actual merged behavior and interfaces.
 - Keep entries concise and operationally useful.
 - Preserve existing section organization where possible.
+- Document MATLAB-derived behavior only when it matches current Python implementation and tests.
 
 ## Output format
 
