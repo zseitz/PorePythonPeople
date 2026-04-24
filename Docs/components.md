@@ -222,6 +222,7 @@ Recommended agent guardrails:
 - Keep GUI modules focused on orchestration; extend reusable logic in C4–C7 first.
 - Maintain backward compatibility for MAT loading fallbacks (HDF5 + scipy fallback paths).
 - Follow context tiers in `Docs/agent_context_index.md` to limit unnecessary token/cost usage.
+- MATLAB behavior is not authoritative when it conflicts with Python contracts/tests.
 
 ---
 
@@ -235,7 +236,7 @@ Recommended agent guardrails:
 - **Keep docs/logs synchronized**:
   - If component behavior/contracts change, update this file in the same change.
   - Append a brief task entry to `Docs/agent_logs/REQUEST_LOG.md`.
-- **Tests**: use `tests/test_nanoporethon_comprehensive.py` as the main compatibility suite.
+- **Tests**: use `tests/test_nanoporethon_comprehensive.py` as the main compatibility suite. Tests are the authoritative arbiter when MATLAB and Python behavior diverge.
 
 ---
 
