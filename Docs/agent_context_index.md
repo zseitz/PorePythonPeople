@@ -18,12 +18,13 @@ To keep agent quality high **without** loading the whole repository every time.
 3. `Docs/UseCases.md`
 4. `Docs/UserPersonas.md`
 5. `Docs/technology_context.md`
+6. `Docs/nanoporethon_textbook.md`
 
 ### Tier 2 (read only if task requires)
 
-6. `MATLABcode/*.m` files relevant to the requested functionality
-7. Specific Python source files under `src/nanoporethon/`
-8. Tests related to touched components
+7. `MATLABcode/*.m` files relevant to the requested functionality
+8. Specific Python source files under `src/nanoporethon/`
+9. Tests related to touched components
 
 ## Minimum context policy for coding agents
 
@@ -39,4 +40,5 @@ When a component behavior or contract changes:
 1. Update source code.
 2. Update tests (or add tests) for behavior.
 3. Update `Docs/components.md` in the same change.
-4. Append a short entry to `Docs/agent_logs/REQUEST_LOG.md`.
+4. Update `Docs/nanoporethon_textbook.md` when user workflow changes.
+5. Append a short entry to `Docs/agent_logs/REQUEST_LOG.md`.

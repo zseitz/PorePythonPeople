@@ -138,6 +138,7 @@ Primary package location: `src/nanoporethon/`.
 ### C10. Agent operations and governance layer
 
 - **Files**:
+  - `.github/agents/nanopore-orchestrator.agent.md`
   - `.github/agents/nanopore-python-refactor.agent.md`
   - `.github/agents/nanopore-feature-builder.agent.md`
   - `.github/agents/nanopore-doc-sync.agent.md`
@@ -146,10 +147,12 @@ Primary package location: `src/nanoporethon/`.
   - `Docs/agent_context_index.md`
   - `Docs/technology_context.md`
   - `Docs/feature_request_template.md`
+  - `Docs/nanoporethon_textbook.md`
   - `Docs/agent_logs/REQUEST_LOG.md`
 - **Purpose**: Standardize how agents refactor/add features, maintain architecture docs, and keep a paper trail of requests.
 - **Key behavior**:
   - Enforces a cost-aware context loading order (`agent_context_index.md`).
+  - Uses an orchestration-first agent workflow for complex changes (`nanopore-orchestrator.agent.md`).
   - Provides a standardized feature-request intake template (`nanopore-feature-request.prompt.md`, `feature_request_template.md`).
   - Requires doc synchronization when component contracts change.
   - Requires request logging for traceability.
@@ -223,6 +226,7 @@ Recommended agent guardrails:
 - Maintain backward compatibility for MAT loading fallbacks (HDF5 + scipy fallback paths).
 - Follow context tiers in `Docs/agent_context_index.md` to limit unnecessary token/cost usage.
 - MATLAB behavior is not authoritative when it conflicts with Python contracts/tests.
+- Keep `Docs/nanoporethon_textbook.md` synchronized when user-facing workflows change.
 
 ---
 
@@ -235,6 +239,7 @@ Recommended agent guardrails:
   - EventClassifierGUI supports event navigation + quality save to `event.mat`.
 - **Keep docs/logs synchronized**:
   - If component behavior/contracts change, update this file in the same change.
+  - If user workflow changes, update `Docs/nanoporethon_textbook.md` in the same change.
   - Append a brief task entry to `Docs/agent_logs/REQUEST_LOG.md`.
 - **Tests**: use `tests/test_nanoporethon_comprehensive.py` as the main compatibility suite. Tests are the authoritative arbiter when MATLAB and Python behavior diverge.
 
