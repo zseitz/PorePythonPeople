@@ -118,6 +118,22 @@ waivers:
   schema:
     required_fields: [waiver_id, gate_id, reason, approver, scope]
 
+context_budgets:
+  # Per-stage token budgets (estimated as chars / 4).
+  # Compaction fires when utilization reaches the first threshold.
+  default_budget: 8000
+  triage_plan: 4000
+  implement: 8000
+  verify: 6000
+  verify_after_refactor: 6000
+  refactor_or_docsync: 3000
+  refactor: 6000
+  doc_sync: 4000
+  memory_sync: 2000
+  closeout: 2000
+  # Cascade thresholds (percent): compact → warn → hard-block
+  compaction_thresholds: [60, 75, 85]
+
 repo_memory:
   target_files:
     - memories/repo/testing.md

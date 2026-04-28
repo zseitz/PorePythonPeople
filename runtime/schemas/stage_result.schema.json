@@ -50,6 +50,10 @@
       "type": "array",
       "items": { "type": "string" }
     },
+    "context_metrics": {
+      "type": "object",
+      "additionalProperties": true
+    },
     "started_at": { "type": "string", "format": "date-time" },
     "ended_at": { "type": "string", "format": "date-time" }
   }

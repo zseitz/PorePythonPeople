@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from .context_manager import ContextBudgetManager
 from .memory_writer import MemoryWriter
 from .planner import build_triage_plan
 from .repo_ops import RepoSandboxManager
@@ -31,6 +32,7 @@ class SpecialistExecutor:
         repo_ops: Optional[RepoSandboxManager] = None,
         memory_writer: Optional[MemoryWriter] = None,
         policy: Optional[Dict[str, object]] = None,
+        context_manager: Optional[ContextBudgetManager] = None,
     ) -> None:
         self.specialists = specialists or {}
         self.model_adapter = model_adapter
@@ -38,6 +40,7 @@ class SpecialistExecutor:
         self.repo_ops = repo_ops
         self.memory_writer = memory_writer
         self.policy = policy or {}
+        self.context_manager = context_manager
 
     def run_stage(
         self,
@@ -54,6 +57,18 @@ class SpecialistExecutor:
         if llm_response:
             payload["model_response"] = llm_response
 
+        # --- context budget compaction + metrics recording ---
+        context_metrics: Dict[str, object] = {}
+        if self.context_manager is not None:
+            payload, compactions = self.context_manager.maybe_compact(stage_id, payload)
+            stage_metrics = self.context_manager.record_stage(stage_id, payload, compactions)
+            context_metrics = {
+                "estimated_tokens": stage_metrics.estimated_tokens,
+                "budget_tokens": stage_metrics.budget_tokens,
+                "utilization_pct": stage_metrics.utilization_pct,
+                "compacted": stage_metrics.compacted,
+            }
+
         stage_artifacts_dir = artifacts_dir / "stages"
         stage_artifacts_dir.mkdir(parents=True, exist_ok=True)
         payload_path = stage_artifacts_dir / f"{stage_id}_payload.json"
@@ -61,7 +76,7 @@ class SpecialistExecutor:
 
         ended_at = _utc_now()
 
-        return {
+        result: Dict[str, object] = {
             "run_id": run_id,
             "stage_id": stage_id,
             "specialist": owner,
@@ -79,6 +94,9 @@ class SpecialistExecutor:
             "started_at": started_at,
             "ended_at": ended_at,
         }
+        if context_metrics:
+            result["context_metrics"] = context_metrics
+        return result
 
     def _stage_payload(
         self, run_id: str, stage_id: str, request: str, context: Dict[str, object]

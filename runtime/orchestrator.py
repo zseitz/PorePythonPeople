@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from .adapters.ollama import OllamaAdapter
+from .context_manager import ContextBudgetManager
 from .contracts import ContractValidationError, ContractValidator
 from .executor import SpecialistExecutor, build_gate_evidence
 from .gates import evaluate_stage_gates
@@ -55,6 +56,7 @@ def _build_executor(
     repo_root: Path,
     repo_ops: Optional[RepoSandboxManager],
     memory_writer: Optional[MemoryWriter],
+    context_manager: Optional[ContextBudgetManager] = None,
 ) -> SpecialistExecutor:
     model_provider = policy.get("model_provider", {})
     specialists = policy.get("specialists", {})
@@ -72,6 +74,7 @@ def _build_executor(
         repo_ops=repo_ops,
         memory_writer=memory_writer,
         policy=policy,
+        context_manager=context_manager,
     )
 
 
@@ -147,6 +150,47 @@ def _build_handoff_packet(
     }
 
 
+def _traffic_light_from_utilization(utilization_pct: float, thresholds: List[float]) -> str:
+    if not thresholds:
+        low, high = 60.0, 85.0
+    elif len(thresholds) == 1:
+        low, high = float(thresholds[0]), 85.0
+    elif len(thresholds) == 2:
+        low, high = float(thresholds[0]), float(thresholds[1])
+    else:
+        low, high = float(thresholds[0]), float(thresholds[2])
+
+    if utilization_pct >= high:
+        return "🔴"
+    if utilization_pct >= low:
+        return "🟡"
+    return "🟢"
+
+
+def _build_live_progress_line(
+    stage_id: str,
+    stage_result: Dict[str, object],
+    gate_passed: bool,
+    thresholds: List[float],
+) -> str:
+    gate_label = "PASS" if gate_passed else "FAIL"
+    context_metrics = stage_result.get("context_metrics", {})
+    if not isinstance(context_metrics, dict) or not context_metrics:
+        return f"⚪ {stage_id} context:n/a gate:{gate_label}"
+
+    tokens = context_metrics.get("estimated_tokens", "?")
+    budget = context_metrics.get("budget_tokens", "?")
+    utilization_raw = context_metrics.get("utilization_pct", 0.0)
+    try:
+        utilization = float(utilization_raw)
+    except (TypeError, ValueError):
+        utilization = 0.0
+    compacted = bool(context_metrics.get("compacted", False))
+    compacted_marker = " compacted" if compacted else ""
+    light = _traffic_light_from_utilization(utilization, thresholds)
+    return f"{light} {stage_id} {tokens}/{budget} tok {utilization:.1f}% gate:{gate_label}{compacted_marker}"
+
+
 def run_milestone1(
     request: str,
     policy: Optional[Dict[str, object]] = None,
@@ -156,6 +200,7 @@ def run_milestone1(
     requested_waivers: Optional[Dict[str, Dict[str, str]]] = None,
     resume_run_id: Optional[str] = None,
     resume_choice: Optional[str] = None,
+    live_progress: bool = False,
 ) -> Dict[str, object]:
     """Run policy-driven orchestration across all configured stages."""
     if policy is None:
@@ -179,8 +224,12 @@ def run_milestone1(
     sandbox_repo = sandbox_manager.prepare()
     memory_writer = MemoryWriter(repo_root=repo_root)
 
+    context_mgr = ContextBudgetManager.from_policy(policy if isinstance(policy, dict) else {})
+
     if executor is None:
-        executor = _build_executor(policy, repo_root, sandbox_manager, memory_writer)
+        executor = _build_executor(policy, repo_root, sandbox_manager, memory_writer, context_mgr)
+    elif executor.context_manager is None:
+        executor.context_manager = context_mgr
 
     if resume_run_id and resume_choice == "resume_from_last_completed" and (run_dir / "run.json").exists():
         run_state = load_run_state(run_dir)
@@ -194,6 +243,19 @@ def run_milestone1(
 
     stage_map = _get_stage_map(policy)
     gates = policy.get("gates", {})
+    budget_cfg = policy.get("context_budgets", {}) if isinstance(policy, dict) else {}
+    threshold_values = [60.0, 75.0, 85.0]
+    if isinstance(budget_cfg, dict):
+        raw = budget_cfg.get("compaction_thresholds", [60, 75, 85])
+        if isinstance(raw, list) and raw:
+            parsed: List[float] = []
+            for value in raw:
+                try:
+                    parsed.append(float(value))
+                except (TypeError, ValueError):
+                    continue
+            if parsed:
+                threshold_values = parsed
     context: Dict[str, object] = {"request": request, "stage_history": []}
     stage_order = list(stage_map.keys())
     if not stage_order:
@@ -285,6 +347,9 @@ def run_milestone1(
                 },
             )
 
+            if live_progress:
+                print(_build_live_progress_line(current_stage_id, stage_result, passed, threshold_values))
+
             if not passed:
                 finalize_run_state(run_state, "failed")
                 validator.validate("run_state", run_state)
@@ -329,6 +394,7 @@ def run_milestone1(
         write_run_state(run_dir, run_state)
         return run_state
 
+    run_state["context_metrics"] = context_mgr.summary()
     finalize_run_state(run_state, "completed")
     validator.validate("run_state", run_state)
     write_run_state(run_dir, run_state)
@@ -349,7 +415,58 @@ def _parse_args() -> argparse.Namespace:
         choices=["restart_from_beginning", "resume_from_last_completed"],
         help="Operator-selected resume behavior",
     )
+    parser.add_argument(
+        "--output",
+        choices=["json", "summary", "both"],
+        default="json",
+        help="CLI output format. 'summary' includes context budget utilization details.",
+    )
+    parser.add_argument(
+        "--live-progress",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Print a compact traffic-light line after each stage while the run is executing.",
+    )
     return parser.parse_args()
+
+
+def _build_cli_summary(run_state: Dict[str, object]) -> str:
+    lines: List[str] = []
+    run_id = str(run_state.get("run_id", "unknown"))
+    status = str(run_state.get("status", "unknown"))
+    current_stage = str(run_state.get("current_stage", "unknown"))
+    stage_history = run_state.get("stage_history", [])
+    stage_count = len(stage_history) if isinstance(stage_history, list) else 0
+
+    lines.append(f"Run ID: {run_id}")
+    lines.append(f"Status: {status}")
+    lines.append(f"Current Stage: {current_stage}")
+    lines.append(f"Stages Recorded: {stage_count}")
+
+    context_metrics = run_state.get("context_metrics", {})
+    if isinstance(context_metrics, dict) and context_metrics:
+        lines.append("")
+        lines.append("Context Budget Summary:")
+        lines.append(f"- Stages tracked: {context_metrics.get('stages_tracked', 0)}")
+        lines.append(f"- Total estimated tokens: {context_metrics.get('total_estimated_tokens', 0)}")
+        lines.append(f"- Peak utilization: {context_metrics.get('peak_utilization_pct', 0.0)}%")
+        lines.append(f"- Total compactions: {context_metrics.get('total_compactions', 0)}")
+
+        per_stage = context_metrics.get("per_stage", [])
+        if isinstance(per_stage, list) and per_stage:
+            lines.append("- Per-stage utilization:")
+            for entry in per_stage:
+                if not isinstance(entry, dict):
+                    continue
+                stage_id = entry.get("stage_id", "unknown")
+                tokens = entry.get("estimated_tokens", 0)
+                budget = entry.get("budget_tokens", 0)
+                pct = entry.get("utilization_pct", 0.0)
+                compacted = entry.get("compacted", False)
+                compacted_marker = " (compacted)" if compacted else ""
+                lines.append(f"  - {stage_id}: {tokens}/{budget} tokens ({pct}%){compacted_marker}")
+
+    return "\n".join(lines)
 
 
 def main() -> None:
@@ -359,8 +476,14 @@ def main() -> None:
         policy=_load_policy(Path(args.policy)),
         resume_run_id=args.resume_run_id,
         resume_choice=args.resume_choice,
+        live_progress=args.live_progress,
     )
-    print(json.dumps(run_state, indent=2))
+    if args.output in {"summary", "both"}:
+        print(_build_cli_summary(run_state))
+    if args.output in {"json", "both"}:
+        if args.output == "both":
+            print()
+        print(json.dumps(run_state, indent=2))
 
 
 if __name__ == "__main__":

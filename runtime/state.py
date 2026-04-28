@@ -25,6 +25,7 @@ def initialize_run_state(run_id: str, request: str) -> Dict[str, object]:
         "resume_source_run_id": "",
         "created_at": _utc_now(),
         "updated_at": _utc_now(),
+        "context_metrics": {},
     }
 
 

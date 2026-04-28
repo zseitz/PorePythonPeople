@@ -8,8 +8,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from runtime.executor import SpecialistExecutor
 from runtime.gates import evaluate_stage_gates
-from runtime.orchestrator import run_milestone1
+from runtime.orchestrator import _build_cli_summary, run_milestone1
 from runtime.planner import build_triage_plan, classify_complexity
+from runtime.context_manager import ContextBudgetManager
 
 
 def _policy_with_run_root(run_root: Path):
@@ -255,4 +256,170 @@ def test_memory_sync_writes_directly_to_repo_memory(tmp_path):
     memory_file = temp_repo / "memories" / "repo" / "testing.md"
     assert memory_file.exists()
     assert "schema-validated stage and gate boundaries" in memory_file.read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# ContextBudgetManager unit tests
+# ---------------------------------------------------------------------------
+
+def test_context_manager_below_threshold_no_compact():
+    mgr = ContextBudgetManager(
+        stage_budgets={"triage_plan": 10000},
+        default_budget=10000,
+        compaction_thresholds=[60, 75, 85],
+    )
+    small_payload = {"key": "value"}
+    assert mgr.should_compact("triage_plan", small_payload) is False
+    compacted, n = mgr.maybe_compact("triage_plan", small_payload)
+    assert n == 0
+    assert compacted == small_payload
+
+
+def test_context_manager_above_threshold_compacts():
+    # Tiny budget forces the payload over the threshold.
+    mgr = ContextBudgetManager(
+        stage_budgets={"implement": 1},
+        default_budget=1,
+        compaction_thresholds=[1, 75, 85],
+    )
+    payload = {"notes": "drop me", "summary": "A" * 600}
+    assert mgr.should_compact("implement", payload) is True
+    compacted, n = mgr.compact_payload(payload)
+    # "notes" key should be dropped and "summary" should be truncated
+    assert "notes" not in compacted
+    assert len(compacted["summary"]) < 600
+    assert n >= 2
+
+
+def test_context_manager_record_stage_and_summary():
+    mgr = ContextBudgetManager(
+        stage_budgets={"verify": 4000},
+        default_budget=4000,
+        compaction_thresholds=[60, 75, 85],
+    )
+    payload = {"checks_run": ["pytest -q -> 0"], "quality_signals": {"require_refactor": False}}
+    mgr.record_stage("verify", payload, compactions_applied=0)
+    summary = mgr.summary()
+    assert summary["stages_tracked"] == 1
+    assert summary["total_compactions"] == 0
+    assert summary["peak_utilization_pct"] >= 0.0
+    assert summary["per_stage"][0]["stage_id"] == "verify"
+
+
+def test_context_manager_empty_summary():
+    mgr = ContextBudgetManager()
+    summary = mgr.summary()
+    assert summary["stages_tracked"] == 0
+    assert summary["total_estimated_tokens"] == 0
+    assert summary["per_stage"] == []
+
+
+def test_context_manager_from_policy():
+    policy = {
+        "context_budgets": {
+            "default_budget": 5000,
+            "triage_plan": 2000,
+            "implement": 7000,
+            "compaction_thresholds": [50, 75, 90],
+        }
+    }
+    mgr = ContextBudgetManager.from_policy(policy)
+    assert mgr.default_budget == 5000
+    assert mgr.get_budget("triage_plan") == 2000
+    assert mgr.get_budget("implement") == 7000
+    assert mgr.get_budget("unknown_stage") == 5000
+    assert mgr.compaction_thresholds == [50, 75, 90]
+
+
+def test_run_state_includes_context_metrics_after_completion(tmp_path):
+    policy = _policy_with_run_root(tmp_path)
+    policy["context_budgets"] = {
+        "default_budget": 8000,
+        "compaction_thresholds": [60, 75, 85],
+    }
+    run_state = run_milestone1(
+        request="Validate context metrics in run artifacts",
+        policy=policy,
+        executor=SpecialistExecutor(),
+        repo_root=Path(__file__).resolve().parents[1],
+    )
+    assert run_state["status"] == "completed"
+    metrics = run_state.get("context_metrics", {})
+    assert isinstance(metrics, dict)
+    assert metrics["stages_tracked"] > 0
+    assert "peak_utilization_pct" in metrics
+    assert "per_stage" in metrics
+    # Verify it is also persisted to run.json
+    run_dir = tmp_path / run_state["run_id"]
+    persisted = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    assert persisted["context_metrics"]["stages_tracked"] == metrics["stages_tracked"]
+
+
+def test_cli_summary_includes_context_budget_data():
+    run_state = {
+        "run_id": "run_test123",
+        "status": "completed",
+        "current_stage": "closeout",
+        "stage_history": [{"stage_id": "triage_plan"}, {"stage_id": "implement"}],
+        "context_metrics": {
+            "stages_tracked": 2,
+            "total_estimated_tokens": 1200,
+            "peak_utilization_pct": 42.5,
+            "total_compactions": 1,
+            "per_stage": [
+                {
+                    "stage_id": "triage_plan",
+                    "estimated_tokens": 300,
+                    "budget_tokens": 4000,
+                    "utilization_pct": 7.5,
+                    "compacted": False,
+                },
+                {
+                    "stage_id": "implement",
+                    "estimated_tokens": 900,
+                    "budget_tokens": 8000,
+                    "utilization_pct": 11.2,
+                    "compacted": True,
+                },
+            ],
+        },
+    }
+    summary = _build_cli_summary(run_state)
+    assert "Context Budget Summary:" in summary
+    assert "Peak utilization: 42.5%" in summary
+    assert "implement: 900/8000 tokens (11.2%) (compacted)" in summary
+
+
+def test_live_progress_outputs_traffic_light_lines(tmp_path, capsys):
+    policy = _policy_with_run_root(tmp_path)
+    policy["context_budgets"] = {
+        "default_budget": 8000,
+        "compaction_thresholds": [60, 75, 85],
+    }
+    run_state = run_milestone1(
+        request="Emit live progress lines",
+        policy=policy,
+        executor=SpecialistExecutor(),
+        repo_root=Path(__file__).resolve().parents[1],
+        live_progress=True,
+    )
+    assert run_state["status"] == "completed"
+    out = capsys.readouterr().out
+    assert "gate:PASS" in out
+    assert "triage_plan" in out
+    assert "🟢" in out or "🟡" in out or "🔴" in out
+
+
+def test_live_progress_can_be_disabled(tmp_path, capsys):
+    policy = _policy_with_run_root(tmp_path)
+    run_state = run_milestone1(
+        request="Do not emit live progress lines",
+        policy=policy,
+        executor=SpecialistExecutor(),
+        repo_root=Path(__file__).resolve().parents[1],
+        live_progress=False,
+    )
+    assert run_state["status"] == "completed"
+    out = capsys.readouterr().out
+    assert out == ""
 
