@@ -1,40 +1,147 @@
-<<<<<<< HEAD
-## Components
+# nanoporethon Use Cases
 
-*Component name:* Data_Navigator
-*Description:* Creates a gui using PyGui that takes user input to build subset of database that contains many files of a consistent naming scheme. Database at Database_File_Path contains files with a consistent naming scheme that contains information on the data within those files. An example filename is "250101g_2NNN1_t1&streptavidin&100mM100mM_p180a" where "250101" is the date in the format YYMMDD, the "g" following the date refers to station letter, "2NNN" is the pore name, the "1" following the "2NNN" is the pore number, and the "t1&streptavidin&100mM100mM" contains strings separated by "&" that explain the conditions of this experiment, "p180" refers to applied voltage or "pipette offset 180 mV", and the final letter "a" is the file letter. The date, station letter, applied voltage are always the same number of characteres (if less than 100mV, say for 60mV, then the applied voltage will read "p060"). The pore name, pore number, conditions of the experiment, and file letter can change number of characters. User should be able to search for specific strings that may be present in filenames by typing desired strings for the Initial_Search such as dates, pore names, or other conditions of the experiment, or etc as well as manually click to select or deselect files from the list of files contained in the database. Output of this function should be a list of files in User_Selected_Files within the database which are of interest to the user as selected through their searches and manual selections, and the list will be used with proceeding components for data analysis.
-*_Inputs_: Initial_Search, Database_File_Path
-*_Outputs_: User_Selected_Files
-*_Side-effects_:
+This document summarizes the real workflow problems nanoporethon is intended to support.
 
-*Component name:* Event_Classifier
- * gui to visualize raw traces
- * classifies good events vs bad events
-*Description:*
-*_Inputs_:
-*_Outputs_:
-*_Side-effects_:
+It helps both humans and coding agents understand **why** the software exists, not just **how** it is implemented.
 
-*Component name:* Level_Finder
-* gui (maybe same component as component #2?) that identifies levels in good events
-* needs high manipulatability for different experiments
-*Description:*
-*_Inputs_:
-*_Outputs_:
-*_Side-effects_:
+---
 
-=======
->>>>>>> aea9c260a1a437f5cce167f12eee320a7fd04bd5
-## Use Cases
+## 1. Core operational use case
 
-# Use case #1: 
-* pulls ranges of data from database by searching or manual selecting of metadata/variables
+### Use Case 1: Search a large historical experiment database
 
-# Use case #2: 
-* sequences known or unknown DNA/RNA (ID potential tech improvements, or expanded alphabet experiments)
+Users need to pull a focused subset of experiments from a large directory of files/folders whose names encode experimental conditions.
 
-# Use case #3: 
-* compares motor enzyme function across variables (buffer, atp conc, pH, temperature, etc)
+Typical goals:
 
-# Use case #4: 
-* for non-enzymatic experiments (sensing experiments, bond rupturing experiments, etc)
+- find all experiments for a specific pore,
+- find all runs at a specific voltage,
+- compare specific enzymes or buffer conditions,
+- exclude broken controls or irrelevant runs,
+- manually curate the final selection,
+- and save that selection reproducibly for later analysis.
+
+This use case maps directly to:
+
+- `DataNaviGUI`,
+- the search filter engine,
+- and query-log generation.
+
+---
+
+## 2. Scientific analysis use cases
+
+### Use Case 2: Compare experimental conditions across many runs
+
+Researchers want to compare nanopore behavior across variables such as:
+
+- pore identity,
+- motor enzyme,
+- ATP concentration,
+- pH,
+- temperature,
+- salt concentration,
+- orientation/direction,
+- voltage,
+- and other experiment labels encoded in names.
+
+This often begins with Data Navigator and continues into trace inspection with Event Classifier.
+
+### Use Case 3: Review and curate event quality
+
+Users need to visualize traces and assess whether events appear good, bad, ambiguous, noisy, or otherwise noteworthy.
+
+This use case maps directly to:
+
+- trace plotting,
+- event overlays,
+- event navigation,
+- and saving quality values back to `event.mat`.
+
+### Use Case 4: Support sequencing-oriented nanopore experiments
+
+Users may work on DNA, RNA, peptide, or other analyte workflows where event structure and trace quality help evaluate:
+
+- enzyme performance,
+- read quality,
+- pore behavior,
+- and candidate sequencing conditions.
+
+nanoporethon does not yet perform full automated sequence calling, but it supports the selection and inspection steps needed before or alongside those pipelines.
+
+### Use Case 5: Support non-enzymatic or noncanonical experiments
+
+nanoporethon should also support broader nanopore workflows such as:
+
+- sensing experiments,
+- pore opening/closing studies,
+- bond-rupture experiments,
+- mechanistic event characterization,
+- and exploratory experiments that do not fit a strict sequencing template.
+
+---
+
+## 3. Collaboration and reproducibility use cases
+
+### Use Case 6: Re-open and share a saved experiment subset
+
+Users often need to:
+
+- save the exact selection they used,
+- revisit it later,
+- share it with a collaborator,
+- or use the same set for a later round of analysis.
+
+This is why the query-log folder and `search_query.txt` contract matter so much.
+
+### Use Case 7: Standardize workflows across users with different skill levels
+
+nanoporethon must work for:
+
+- brand-new undergraduates,
+- experienced graduate students,
+- postdocs,
+- collaborators outside the lab,
+- and developers who want to extend the software.
+
+That means:
+
+- GUI workflows should be clear,
+- documentation should be explicit,
+- and internal contracts should be stable enough for agents to maintain.
+
+---
+
+## 4. Future-facing use cases
+
+### Use Case 8: Prepare data for downstream modeling or ML
+
+Curated selections and event-quality annotations can support future workflows such as:
+
+- classifier training,
+- model benchmarking,
+- consensus alignment studies,
+- or deterministic preprocessing pipelines.
+
+### Use Case 9: Extend to broader nanopore platforms and analytes
+
+The project should stay flexible enough that future users can adapt it to:
+
+- different pores,
+- different enzymes,
+- new analytes,
+- or new experiment naming conventions,
+
+as long as stable data contracts are preserved where required.
+
+---
+
+## 5. Summary
+
+In short, nanoporethon is meant to support:
+
+- **finding experiments**,
+- **saving selections reproducibly**,
+- **plotting and comparing traces**,
+- **curating event quality**,
+- and **providing an extensible, open workflow** for nanopore data analysis.
