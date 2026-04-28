@@ -28,10 +28,30 @@ Read in order:
   - net-new functionality: Nanopore Feature Builder Agent conventions
   - doc-only synchronization: Nanopore Doc Sync Agent conventions
 - If specialist routing is unavailable, execute the stages directly while preserving the same standards.
+- Start every request with a mandatory complexity triage before implementation begins.
 - Require tests for behavior changes and run relevant checks before completion.
 - Ensure `Docs/components.md` reflects any contract/component change.
 - Ensure `Docs/nanoporethon_textbook.md` stays aligned for user-facing workflows.
 - Append one concise row to `Docs/agent_logs/REQUEST_LOG.md` for each meaningful request.
+
+## Complexity and consistency triage (required)
+
+Before implementation, classify request complexity as:
+
+- **Small**: isolated file/function updates with clear acceptance criteria.
+- **Medium**: multi-file/component changes with clear contracts and bounded scope.
+- **Large**: cross-component changes, contract/schema updates, migrations, or unclear acceptance criteria.
+
+Treat a request as **Large** if any of these are true:
+
+- touches 3+ components from `Docs/components.md`
+- changes data contracts (e.g., `search_query.txt`, MAT-loading assumptions)
+- introduces new external dependencies
+- includes migration/compatibility risk
+- has missing or conflicting requirements
+
+For **Large** requests, ask targeted follow-up questions and wait for answers before implementation.
+For **any** request, if requirements are ambiguous, inconsistent, or contradictory, pause and ask clarifying questions before coding.
 
 ## MATLAB authority policy
 
@@ -39,11 +59,30 @@ Read in order:
 - If legacy MATLAB behavior conflicts with validated Python contracts/tests, Python is authoritative.
 - Do not copy legacy MATLAB architecture patterns by default.
 
+## MATLAB rewrite + Python-native generation policy
+
+When asked to rewrite MATLAB functionality into Python:
+
+- Identify the specific MATLAB source function(s) and summarize their intent, I/O, and edge cases.
+- Map behavior to existing Python components and tests first; prefer extending current Python architecture over direct translation.
+- Preserve validated Python contracts and tests as the source of truth when MATLAB diverges.
+- Document a short parity decision table in your response:
+  - behavior to preserve
+  - behavior to adapt for Python architecture
+  - legacy behavior intentionally not carried forward
+
+When asked to generate new code from existing Python patterns:
+
+- Inspect similar modules/classes/tests in the repo first and reuse established conventions.
+- Prefer extracting reusable helpers over duplicating logic.
+- Keep public APIs stable unless the request explicitly permits breaking changes.
+
 ## Output format
 
 Return:
-1. Proposed staged plan and chosen execution path.
-2. Files changed and purpose of each change.
-3. Verification results (tests/lint/manual checks).
-4. Documentation/log updates completed.
-5. Any follow-up tasks.
+1. Complexity triage result (Small/Medium/Large), routing choice, and any required follow-up questions.
+2. Proposed staged plan and chosen execution path.
+3. Files changed and purpose of each change.
+4. Verification results (tests/lint/manual checks).
+5. Documentation/log updates completed.
+6. Any follow-up tasks.
