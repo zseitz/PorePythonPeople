@@ -20,7 +20,9 @@ def initialize_run_state(run_id: str, request: str) -> Dict[str, object]:
         "current_stage": "triage_plan",
         "stage_history": [],
         "artifacts_dir": "",
+        "sandbox_dir": "",
         "events_file": "",
+        "resume_source_run_id": "",
         "created_at": _utc_now(),
         "updated_at": _utc_now(),
     }
@@ -57,6 +59,10 @@ def write_run_state(run_dir: Path, run_state: Dict[str, object]) -> Path:
     run_state["events_file"] = str((run_dir / "events.jsonl").as_posix())
     run_file.write_text(json.dumps(run_state, indent=2), encoding="utf-8")
     return run_file
+
+
+def load_run_state(run_dir: Path) -> Dict[str, object]:
+    return json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
 
 
 def append_event(run_dir: Path, event: Dict[str, object]) -> Path:

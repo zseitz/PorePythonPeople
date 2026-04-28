@@ -13,14 +13,18 @@ from .adapters.ollama import OllamaAdapter
 from .contracts import ContractValidationError, ContractValidator
 from .executor import SpecialistExecutor, build_gate_evidence
 from .gates import evaluate_stage_gates
+from .memory_writer import MemoryWriter
+from .repo_ops import RepoSandboxManager
 from .state import (
     append_event,
     append_stage_result,
     ensure_run_dirs,
     finalize_run_state,
     initialize_run_state,
+    load_run_state,
     write_run_state,
 )
+from .waivers import apply_waivers, write_waiver_log
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -46,7 +50,12 @@ def _load_policy(path: Path) -> Dict[str, object]:
     return loaded
 
 
-def _build_executor(policy: Dict[str, object], repo_root: Path) -> SpecialistExecutor:
+def _build_executor(
+    policy: Dict[str, object],
+    repo_root: Path,
+    repo_ops: Optional[RepoSandboxManager],
+    memory_writer: Optional[MemoryWriter],
+) -> SpecialistExecutor:
     model_provider = policy.get("model_provider", {})
     specialists = policy.get("specialists", {})
 
@@ -56,7 +65,14 @@ def _build_executor(policy: Dict[str, object], repo_root: Path) -> SpecialistExe
         base_url = str(model_provider.get("base_url", "http://localhost:11434"))
         adapter = OllamaAdapter(model=model, base_url=base_url)
 
-    return SpecialistExecutor(specialists=specialists, model_adapter=adapter, repo_root=repo_root)
+    return SpecialistExecutor(
+        specialists=specialists,
+        model_adapter=adapter,
+        repo_root=repo_root,
+        repo_ops=repo_ops,
+        memory_writer=memory_writer,
+        policy=policy,
+    )
 
 
 def _get_stage_map(policy: Dict[str, object]) -> Dict[str, Dict[str, object]]:
@@ -137,6 +153,9 @@ def run_milestone1(
     run_root: Optional[Path] = None,
     executor: Optional[SpecialistExecutor] = None,
     repo_root: Optional[Path] = None,
+    requested_waivers: Optional[Dict[str, Dict[str, str]]] = None,
+    resume_run_id: Optional[str] = None,
+    resume_choice: Optional[str] = None,
 ) -> Dict[str, object]:
     """Run policy-driven orchestration across all configured stages."""
     if policy is None:
@@ -145,14 +164,31 @@ def run_milestone1(
         repo_root = Path.cwd()
     if run_root is None:
         run_root = Path(policy["runtime"]["run_root"])  # type: ignore[index]
-    if executor is None:
-        executor = _build_executor(policy, repo_root)
 
-    run_id = f"run_{uuid.uuid4().hex[:12]}"
+    if resume_run_id and not resume_choice:
+        raise ValueError(
+            "Resume requested but no operator choice was provided. "
+            "Use resume_choice='restart_from_beginning' or 'resume_from_last_completed'."
+        )
+
+    run_id = resume_run_id or f"run_{uuid.uuid4().hex[:12]}"
     run_dir = ensure_run_dirs(run_root, run_id)
-    validator = ContractValidator(runtime_dir=repo_root / "runtime")
+    runtime_dir = Path(__file__).resolve().parent
+    validator = ContractValidator(runtime_dir=runtime_dir)
+    sandbox_manager = RepoSandboxManager(repo_root=repo_root, sandbox_root=run_dir / "sandbox")
+    sandbox_repo = sandbox_manager.prepare()
+    memory_writer = MemoryWriter(repo_root=repo_root)
 
-    run_state = initialize_run_state(run_id=run_id, request=request)
+    if executor is None:
+        executor = _build_executor(policy, repo_root, sandbox_manager, memory_writer)
+
+    if resume_run_id and resume_choice == "resume_from_last_completed" and (run_dir / "run.json").exists():
+        run_state = load_run_state(run_dir)
+        run_state["resume_source_run_id"] = resume_run_id
+        run_state["status"] = "running"
+    else:
+        run_state = initialize_run_state(run_id=run_id, request=request)
+    run_state["sandbox_dir"] = str(sandbox_repo.as_posix())
     validator.validate("run_state", run_state)
     write_run_state(run_dir, run_state)
 
@@ -165,7 +201,16 @@ def run_milestone1(
         write_run_state(run_dir, run_state)
         return run_state
 
-    current_stage_id: Optional[str] = stage_order[0]
+    if resume_run_id and resume_choice == "resume_from_last_completed" and run_state.get("stage_history"):
+        previous_stage_ids = [entry.get("stage_id") for entry in run_state.get("stage_history", []) if isinstance(entry, dict)]
+        last_stage = previous_stage_ids[-1] if previous_stage_ids else None
+        if last_stage in stage_order:
+            idx = stage_order.index(last_stage)
+            current_stage_id = stage_order[idx + 1] if idx + 1 < len(stage_order) else None
+        else:
+            current_stage_id = stage_order[0]
+    else:
+        current_stage_id = stage_order[0]
     visited = 0
 
     try:
@@ -219,8 +264,15 @@ def run_milestone1(
             required_checks = gates.get(current_stage_id, {}).get("required_checks", [])
             evidence = build_gate_evidence(current_stage_id, stage_payload)
             passed, gate_results = evaluate_stage_gates(run_id, current_stage_id, required_checks, evidence)
+            waiver_config = policy.get("waivers", {}) if isinstance(policy, dict) else {}
+            allowed_approvers = waiver_config.get("allowed_approvers", []) if isinstance(waiver_config, dict) else []
+            requested = requested_waivers or {}
+            if isinstance(allowed_approvers, list) and requested:
+                passed, gate_results = apply_waivers(gate_results, requested, allowed_approvers)
             for gate_result in gate_results:
                 validator.validate("gate_result", gate_result)
+
+            write_waiver_log(run_dir / "artifacts" / "waivers.jsonl", run_id, gate_results)
 
             append_event(
                 run_dir,
@@ -284,19 +336,30 @@ def run_milestone1(
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run Milestone-1 orchestrator flow")
+    parser = argparse.ArgumentParser(description="Run policy-driven orchestrator flow")
     parser.add_argument("--request", required=True, help="User request text")
     parser.add_argument(
         "--policy",
         default="runtime/policies.yaml",
         help="Path to policy YAML",
     )
+    parser.add_argument("--resume-run-id", help="Existing run id to resume")
+    parser.add_argument(
+        "--resume-choice",
+        choices=["restart_from_beginning", "resume_from_last_completed"],
+        help="Operator-selected resume behavior",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = _parse_args()
-    run_state = run_milestone1(request=args.request, policy=_load_policy(Path(args.policy)))
+    run_state = run_milestone1(
+        request=args.request,
+        policy=_load_policy(Path(args.policy)),
+        resume_run_id=args.resume_run_id,
+        resume_choice=args.resume_choice,
+    )
     print(json.dumps(run_state, indent=2))
 
 

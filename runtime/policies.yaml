@@ -4,7 +4,7 @@ runtime:
   name: nanopore-orchestrator-runtime
   run_root: .nanopore-runtime/runs
   resume_supported: true
-  default_branch_strategy: in-place
+  default_branch_strategy: sandbox-copy
   workspace_locking: per-run
 
 model_provider:
@@ -114,13 +114,14 @@ gates:
 waivers:
   enabled: true
   require_approver: true
+  allowed_approvers: [zachseitz]
   schema:
     required_fields: [waiver_id, gate_id, reason, approver, scope]
 
 repo_memory:
   target_files:
-    - /memories/repo/testing.md
-    - /memories/repo/orchestrator-runtime.md
+    - memories/repo/testing.md
+    - memories/repo/orchestrator-runtime.md
   max_bullets_per_update: 8
   only_verified_facts: true
 
@@ -143,4 +144,4 @@ policies:
       - Docs/**
       - .github/**
       - runtime/**
-      - /memories/repo/**
+      - memories/repo/**

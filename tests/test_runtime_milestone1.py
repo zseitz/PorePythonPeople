@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -139,8 +140,8 @@ def test_run_routing_without_refactor_path(tmp_path):
 
 def test_run_routing_with_refactor_path(tmp_path):
     class RefactorRequiredExecutor(SpecialistExecutor):
-        def _stage_payload(self, stage_id, request, context):
-            payload = super()._stage_payload(stage_id, request, context)
+        def _stage_payload(self, run_id, stage_id, request, context):
+            payload = super()._stage_payload(run_id, stage_id, request, context)
             if stage_id == "verify":
                 payload["quality_signals"] = {"require_refactor": True}
             return payload
@@ -188,3 +189,70 @@ def test_run_state_artifact_contract_written(tmp_path):
     assert isinstance(persisted["stage_history"], list)
     assert persisted["artifacts_dir"].endswith("/artifacts")
     assert persisted["events_file"].endswith("/events.jsonl")
+    assert persisted["sandbox_dir"].endswith("/sandbox/repo")
+
+
+def test_run_applies_approved_waiver(tmp_path):
+    policy = _policy_with_run_root(tmp_path)
+    policy["waivers"] = {"allowed_approvers": ["zachseitz"]}
+    policy["gates"]["verify"]["required_checks"].append({"id": "must_be_false_for_test"})
+
+    run_state = run_milestone1(
+        request="Run waiver path test",
+        policy=policy,
+        executor=SpecialistExecutor(),
+        requested_waivers={
+            "must_be_false_for_test": {
+                "approver": "zachseitz",
+                "reason": "Operator approved skip for controlled test.",
+                "scope": "single gate",
+            }
+        },
+        repo_root=Path(__file__).resolve().parents[1],
+    )
+
+    assert run_state["status"] == "completed"
+    waiver_log = tmp_path / run_state["run_id"] / "artifacts" / "waivers.jsonl"
+    assert waiver_log.exists()
+    assert "must_be_false_for_test" in waiver_log.read_text(encoding="utf-8")
+
+
+def test_resume_requires_operator_choice(tmp_path):
+    policy = _policy_with_run_root(tmp_path)
+    try:
+        run_milestone1(
+            request="Resume without choice",
+            policy=policy,
+            executor=SpecialistExecutor(),
+            resume_run_id="run_abc123",
+            repo_root=Path(__file__).resolve().parents[1],
+        )
+    except ValueError as exc:
+        assert "Resume requested but no operator choice" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError when resume_choice is missing")
+
+
+def test_memory_sync_writes_directly_to_repo_memory(tmp_path):
+    fixture_repo = Path(__file__).resolve().parent / "fixtures" / "runtime_fixture_repo"
+    temp_repo = tmp_path / "fixture_repo"
+    shutil.copytree(fixture_repo, temp_repo)
+
+    policy = _policy_with_run_root(tmp_path)
+    policy["repo_memory"] = {
+        "target_files": ["memories/repo/testing.md", "memories/repo/orchestrator-runtime.md"]
+    }
+    policy["waivers"] = {"allowed_approvers": ["zachseitz"]}
+
+    run_state = run_milestone1(
+        request="Write memory updates",
+        policy=policy,
+        executor=None,
+        repo_root=temp_repo,
+    )
+
+    assert run_state["status"] == "completed"
+    memory_file = temp_repo / "memories" / "repo" / "testing.md"
+    assert memory_file.exists()
+    assert "schema-validated stage and gate boundaries" in memory_file.read_text(encoding="utf-8")
+

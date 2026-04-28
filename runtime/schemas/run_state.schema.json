@@ -36,7 +36,9 @@
       }
     },
     "artifacts_dir": { "type": "string" },
+    "sandbox_dir": { "type": "string" },
     "events_file": { "type": "string" },
+    "resume_source_run_id": { "type": "string" },
     "created_at": { "type": "string", "format": "date-time" },
     "updated_at": { "type": "string", "format": "date-time" }
   }
