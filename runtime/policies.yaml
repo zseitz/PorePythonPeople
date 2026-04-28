@@ -1,0 +1,145 @@
+version: 1
+
+runtime:
+  name: nanopore-orchestrator-runtime
+  run_root: .nanopore-runtime/runs
+  resume_supported: true
+  default_branch_strategy: in-place
+  workspace_locking: per-run
+
+model_provider:
+  adapter: openai_compatible
+  model: gpt-5.3-codex
+  temperature: 0.1
+  max_retries: 2
+
+specialists:
+  orchestrator:
+    prompt_file: .github/agents/nanopore-orchestrator.agent.md
+    tools: [read, search, edit, execute, todo]
+  feature_builder:
+    prompt_file: .github/agents/nanopore-feature-builder.agent.md
+    tools: [read, search, edit, execute, todo]
+  refactor:
+    prompt_file: .github/agents/nanopore-python-refactor.agent.md
+    tools: [read, search, edit, execute, todo]
+  doc_sync:
+    prompt_file: .github/agents/nanopore-doc-sync.agent.md
+    tools: [read, search, edit, todo]
+  verifier:
+    prompt_inline: |
+      You are the nanoporethon verification specialist.
+      Mission: verify behavior changes with the smallest relevant checks,
+      report failures with root-cause hints, and prevent stage promotion when
+      acceptance criteria are not satisfied.
+    tools: [read, search, execute, todo]
+  memory_sync:
+    prompt_inline: |
+      You are the nanoporethon memory synchronization specialist.
+      Mission: write concise, verified, non-speculative run learnings to
+      repository memory files and summarize reusable patterns.
+    tools: [read, search, edit, todo]
+
+stages:
+  - id: triage_plan
+    owner: orchestrator
+    required: true
+    next_on_success: [implement]
+  - id: implement
+    owner: feature_builder
+    required: true
+    next_on_success: [verify]
+  - id: verify
+    owner: verifier
+    required: true
+    next_on_success: [refactor_or_docsync]
+  - id: refactor_or_docsync
+    owner: orchestrator
+    required: true
+    next_on_success: [refactor, doc_sync]
+    routing:
+      when:
+        - condition: quality_signals.require_refactor == true
+          next: refactor
+        - condition: quality_signals.require_refactor == false
+          next: doc_sync
+  - id: refactor
+    owner: refactor
+    required: false
+    next_on_success: [verify_after_refactor]
+  - id: verify_after_refactor
+    owner: verifier
+    required: false
+    next_on_success: [doc_sync]
+  - id: doc_sync
+    owner: doc_sync
+    required: true
+    next_on_success: [memory_sync]
+  - id: memory_sync
+    owner: memory_sync
+    required: true
+    next_on_success: [closeout]
+  - id: closeout
+    owner: orchestrator
+    required: true
+
+gates:
+  triage_plan:
+    required_checks:
+      - id: complexity_classified
+      - id: acceptance_criteria_present
+      - id: impacted_components_listed
+  implement:
+    required_checks:
+      - id: changeset_nonempty_or_noop_justified
+      - id: no_unresolved_merge_markers
+  verify:
+    required_checks:
+      - id: tests_pass
+      - id: no_new_errors
+      - id: coverage_meets_policy
+    commands:
+      tests: "pytest -q"
+      coverage: "pytest --cov=nanoporethon --cov-report=term-missing"
+  doc_sync:
+    required_checks:
+      - id: components_updated_if_contract_changed
+      - id: textbook_updated_if_user_workflow_changed
+      - id: request_log_appended
+  memory_sync:
+    required_checks:
+      - id: repo_memory_updated
+
+waivers:
+  enabled: true
+  require_approver: true
+  schema:
+    required_fields: [waiver_id, gate_id, reason, approver, scope]
+
+repo_memory:
+  target_files:
+    - /memories/repo/testing.md
+    - /memories/repo/orchestrator-runtime.md
+  max_bullets_per_update: 8
+  only_verified_facts: true
+
+policies:
+  command_allowlist:
+    - pytest
+    - python -m pytest
+    - git status
+    - git diff
+    - ruff check
+    - ruff format --check
+  command_blocklist:
+    - rm -rf /
+    - sudo
+    - curl | sh
+  edit_scope:
+    default_paths:
+      - src/**
+      - tests/**
+      - Docs/**
+      - .github/**
+      - runtime/**
+      - /memories/repo/**

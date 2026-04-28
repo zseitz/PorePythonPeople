@@ -1,0 +1,88 @@
+version: 1
+
+templates:
+  triage_plan:
+    description: "Classify complexity, define staged plan, and set acceptance criteria."
+    required_inputs:
+      - user_request
+      - repository_context
+      - startup_docs
+    required_outputs:
+      - complexity: [Small, Medium, Large]
+      - staged_plan
+      - acceptance_criteria
+      - impacted_components
+    handoff_packet: handoff_packet
+
+  implement:
+    description: "Implement requested behavior and update/add nearest tests."
+    required_inputs:
+      - user_request
+      - staged_plan
+      - acceptance_criteria
+      - impacted_components
+    required_outputs:
+      - changed_files
+      - implementation_summary
+      - test_updates
+      - unresolved_risks
+    handoff_packet: handoff_packet
+
+  verify:
+    description: "Run and evaluate relevant tests/checks with pass/fail evidence."
+    required_inputs:
+      - changed_files
+      - acceptance_criteria
+    required_outputs:
+      - checks_run
+      - gate_results
+      - quality_signals
+      - failures_or_warnings
+    handoff_packet: handoff_packet
+
+  refactor:
+    description: "Apply safe structural cleanup without changing requested behavior."
+    required_inputs:
+      - changed_files
+      - quality_signals
+      - refactor_scope
+    required_outputs:
+      - refactor_candidates
+      - selected_refactor
+      - changed_files
+      - behavior_preservation_notes
+    handoff_packet: handoff_packet
+
+  doc_sync:
+    description: "Synchronize architecture and workflow docs with verified behavior."
+    required_inputs:
+      - changed_files
+      - behavior_summary
+      - contract_change_flags
+    required_outputs:
+      - docs_updated
+      - doc_change_summary
+      - request_log_entry
+    handoff_packet: handoff_packet
+
+  memory_sync:
+    description: "Write concise verified learnings into repository memory files."
+    required_inputs:
+      - run_summary
+      - verification_evidence
+      - known_pitfalls
+    required_outputs:
+      - memory_updates
+      - reusable_patterns
+      - followup_constraints
+    handoff_packet: handoff_packet
+
+contracts:
+  handoff_packet:
+    schema_file: runtime/schemas/handoff_packet.schema.json
+  stage_result:
+    schema_file: runtime/schemas/stage_result.schema.json
+  gate_result:
+    schema_file: runtime/schemas/gate_result.schema.json
+  run_state:
+    schema_file: runtime/schemas/run_state.schema.json

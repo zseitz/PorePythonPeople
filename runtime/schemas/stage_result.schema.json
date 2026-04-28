@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "nanopore-runtime/stage-result",
+  "title": "StageResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "run_id",
+    "stage_id",
+    "specialist",
+    "status",
+    "summary",
+    "changed_files",
+    "checks_run",
+    "artifacts",
+    "started_at",
+    "ended_at"
+  ],
+  "properties": {
+    "run_id": { "type": "string", "minLength": 1 },
+    "stage_id": { "type": "string", "minLength": 1 },
+    "specialist": { "type": "string", "minLength": 1 },
+    "status": {
+      "type": "string",
+      "enum": ["success", "failed", "blocked", "skipped"]
+    },
+    "summary": { "type": "string", "minLength": 1 },
+    "changed_files": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "checks_run": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "path"],
+        "properties": {
+          "name": { "type": "string" },
+          "path": { "type": "string" },
+          "mime_type": { "type": "string" }
+        }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "started_at": { "type": "string", "format": "date-time" },
+    "ended_at": { "type": "string", "format": "date-time" }
+  }
+}
