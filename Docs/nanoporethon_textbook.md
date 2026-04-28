@@ -1156,6 +1156,18 @@ You can run it with:
 
 - `python -m runtime.orchestrator --request "<your request>"`
 
+Optional CLI output formatting:
+
+- `--output json` (default)
+- `--output summary` (human-readable run summary including context budget usage)
+- `--output both` (summary first, then full JSON)
+
+Live task-progress indicator:
+
+- runtime now prints a compact one-line traffic-light status per stage while the run is executing,
+- default is enabled via `--live-progress` (disable with `--no-live-progress`),
+- indicator format includes stage id, estimated context usage, utilization %, gate pass/fail, and whether payload compaction occurred.
+
 Current behavior:
 
 - creates a new `run_id`,
@@ -1164,6 +1176,8 @@ Current behavior:
 - appends stage/gate events to `.nanopore-runtime/runs/<run_id>/events.jsonl`,
 - emits stage-to-stage handoff artifacts in `.nanopore-runtime/runs/<run_id>/artifacts/handoffs/`,
 - records approved waivers in `.nanopore-runtime/runs/<run_id>/artifacts/waivers.jsonl`,
+- applies stage-specific context budgets from policy and compacts oversized payloads automatically,
+- records per-stage context utilization in stage results and aggregate context metrics in `run.json`,
 - writes repository memory updates directly into `memories/repo/` when memory sync runs,
 - validates `HandoffPacket`, `StageResult`, `GateResult`, and `RunState` against runtime schemas,
 - halts early if a required gate fails.

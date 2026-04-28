@@ -166,6 +166,7 @@ Primary package location: `src/nanoporethon/`.
   - `runtime/orchestrator.py`
   - `runtime/planner.py`
   - `runtime/executor.py`
+  - `runtime/context_manager.py`
   - `runtime/gates.py`
   - `runtime/state.py`
   - `runtime/repo_ops.py`
@@ -186,6 +187,8 @@ Primary package location: `src/nanoporethon/`.
   - Defines waiver structure for explicit, auditable gate bypasses, restricted to approved operators.
   - Validates handoff, stage-result, gate-result, and run-state artifacts against JSON schemas at stage boundaries.
   - Writes repository-memory synchronization targets directly to `memories/repo/` in the repository.
+  - Applies per-stage context budgets from policy and compacts oversized stage payloads before artifact write/model handoff.
+  - Stores context utilization metrics in stage results and final run state for budget tuning.
   - Supports local specialist prompting through Ollama adapter + specialist `prompt_file`/`prompt_inline` contexts.
   - Supports operator-selected resume behavior for interrupted runs.
 
