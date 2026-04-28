@@ -12,6 +12,8 @@ dependencies = [
     "pytest-cov",
     "matplotlib",
     "h5py",
+    "PyYAML",
+    "jsonschema",
 ]
 
 [tool.pytest.ini_options]

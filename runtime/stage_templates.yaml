@@ -40,6 +40,14 @@ templates:
       - failures_or_warnings
     handoff_packet: handoff_packet
 
+  refactor_or_docsync:
+    description: "Route to refactor or doc_sync based on quality signals."
+    required_inputs:
+      - quality_signals
+    required_outputs:
+      - route_decision
+    handoff_packet: handoff_packet
+
   refactor:
     description: "Apply safe structural cleanup without changing requested behavior."
     required_inputs:
@@ -51,6 +59,17 @@ templates:
       - selected_refactor
       - changed_files
       - behavior_preservation_notes
+    handoff_packet: handoff_packet
+
+  verify_after_refactor:
+    description: "Re-run relevant checks after refactor before promoting to doc sync."
+    required_inputs:
+      - changed_files
+      - acceptance_criteria
+    required_outputs:
+      - checks_run
+      - quality_signals
+      - failures_or_warnings
     handoff_packet: handoff_packet
 
   doc_sync:
@@ -75,6 +94,16 @@ templates:
       - memory_updates
       - reusable_patterns
       - followup_constraints
+    handoff_packet: handoff_packet
+
+  closeout:
+    description: "Finalize run summary and persist closeout artifacts."
+    required_inputs:
+      - stage_history
+      - gate_results
+    required_outputs:
+      - final_summary
+      - artifacts_index
     handoff_packet: handoff_packet
 
 contracts:

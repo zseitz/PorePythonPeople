@@ -8,8 +8,9 @@ runtime:
   workspace_locking: per-run
 
 model_provider:
-  adapter: openai_compatible
-  model: gpt-5.3-codex
+  adapter: ollama
+  model: qwen2.5-coder:14b
+  base_url: http://localhost:11434
   temperature: 0.1
   max_retries: 2
 
