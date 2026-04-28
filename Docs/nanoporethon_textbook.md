@@ -111,16 +111,12 @@ This textbook is written for several types of readers.
 
 ### 4.1 New lab members
 
-For users like Larry, Hannah, Tom, or Seymour in `Docs/UserPersonas.md`, the priority is:
-
 - a clear workflow,
 - explanation of why steps matter,
 - confidence that the software is being used correctly,
 - and reduced dependence on trial-and-error.
 
 ### 4.2 Experienced nanopore users
-
-For users like Judy, Frank, Joe, Dave, Angela, or Tina, the priority is:
 
 - fast selection across many experiments,
 - reproducible saved searches,
