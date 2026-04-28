@@ -18,6 +18,30 @@ This document complements, but does not replace:
 - `Docs/agent_context_index.md` for cost-aware agent context loading
 - `README.md` for high-level project overview
 
+## Table of contents
+
+- [1. What nanoporethon is](#1-what-nanoporethon-is)
+- [2. What nanoporethon is used for](#2-what-nanoporethon-is-used-for)
+- [3. What nanoporethon does not currently do](#3-what-nanoporethon-does-not-currently-do)
+- [4. Who this textbook is for](#4-who-this-textbook-is-for)
+- [5. The big-picture workflow](#5-the-big-picture-workflow)
+- [6. Important concepts before using the software](#6-important-concepts-before-using-the-software)
+- [7. Components and important subcomponents](#7-components-and-important-subcomponents)
+- [8. Guide to using DataNaviGUI](#8-guide-to-using-datanavigui)
+- [9. Guide to using EventClassifierGUI](#9-guide-to-using-eventclassifiergui)
+- [10. Example user scenarios](#10-example-user-scenarios)
+- [11. First analysis session walkthrough](#11-first-analysis-session-walkthrough)
+- [12. MAT file schema reference](#12-mat-file-schema-reference)
+- [13. Troubleshooting guide](#13-troubleshooting-guide)
+- [14. How agents should use the documentation system](#14-how-agents-should-use-the-documentation-system)
+- [15. True orchestrator runtime for specialist delegation](#15-true-orchestrator-runtime-for-specialist-delegation)
+  - [15.11 Operator checklist (stage-by-stage runbook)](#1511-operator-checklist-stage-by-stage-runbook)
+  - [15.14 Runtime entrypoint (usable now)](#1514-runtime-entrypoint-usable-now)
+  - [15.15 Concrete Tier-2 feature delivery runbook (for daily use)](#1515-concrete-tier-2-feature-delivery-runbook-for-daily-use)
+- [16. Guidance for developers extending nanoporethon](#16-guidance-for-developers-extending-nanoporethon)
+- [17. Quick-start checklist for a new user](#17-quick-start-checklist-for-a-new-user)
+- [18. Final summary](#18-final-summary)
+
 ---
 
 ## 1. What nanoporethon is
