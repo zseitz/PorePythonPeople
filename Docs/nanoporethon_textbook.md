@@ -1163,6 +1163,125 @@ Testing note:
 - fixture-based runtime integration tests now live inside `tests/fixtures/runtime_fixture_repo/`,
 - this keeps Tier-2 tests safely inside the main repository test tree.
 
+### 15.15 Concrete Tier-2 feature delivery runbook (for daily use)
+
+This is the practical, copyable workflow for adding new nanoporethon features with Tier-2 runtime orchestration.
+
+#### 15.15.1 What this runbook is for
+
+Use this runbook when you want to:
+
+- add or change a feature,
+- run specialist handoff stages in order,
+- keep docs/tests/memory synchronized,
+- and keep work auditable through run artifacts.
+
+#### 15.15.2 Default operating mode for this repository
+
+Current recommended defaults:
+
+- sandbox-copy execution for implementation/doc-sync actions,
+- waiver approval limited to the configured operator,
+- explicit operator choice on resume,
+- direct memory writes to `memories/repo/`,
+- fixture-based integration tests under `tests/`.
+
+#### 15.15.3 Pre-run checklist (2-minute version)
+
+Before running a feature request:
+
+1. Confirm `runtime/policies.yaml` is present.
+2. Confirm runtime tests pass at least once in the current branch.
+3. Confirm target feature scope is specific enough to test.
+4. Confirm waiver approver identity is correct in policy.
+5. Confirm `memories/repo/` exists and is writable.
+
+#### 15.15.4 Standard run command
+
+Use:
+
+- `python -m runtime.orchestrator --request "<clear feature request>"`
+
+Example request text (recommended style):
+
+- "Add <feature>. Update nearest tests. If behavior/contracts change, sync components and textbook. Run verification gates and write run artifacts."
+
+#### 15.15.5 Stage-by-stage user expectations
+
+What you should expect:
+
+1. **`triage_plan`**
+  - outputs complexity, acceptance criteria, impacted components.
+2. **`implement`**
+  - applies changes in sandbox copy; records changed files.
+3. **`verify`**
+  - runs verification checks from policy.
+4. **`refactor_or_docsync`**
+  - routes by quality signal.
+5. **`refactor` + `verify_after_refactor`** (when required)
+  - structural cleanup and re-verification.
+6. **`doc_sync`**
+  - syncs user/architecture documentation expectations.
+7. **`memory_sync`**
+  - writes concise verified bullets to `memories/repo/`.
+8. **`closeout`**
+  - final run summary and artifact completeness.
+
+#### 15.15.6 If a gate fails
+
+Follow this order:
+
+1. Fix the underlying issue and re-run.
+2. If unavoidable, apply waiver only with approved operator.
+3. Ensure waiver is recorded in run artifacts.
+4. Re-check downstream stages before closing run.
+
+#### 15.15.7 If execution is interrupted
+
+Resume requires explicit operator choice.
+
+Use one of:
+
+- `--resume-choice restart_from_beginning`
+- `--resume-choice resume_from_last_completed`
+
+Recommended practice:
+
+- use `resume_from_last_completed` only when artifact integrity is intact,
+- otherwise restart cleanly.
+
+#### 15.15.8 Where to inspect results
+
+For run `<run_id>`, inspect:
+
+- `.nanopore-runtime/runs/<run_id>/run.json`
+- `.nanopore-runtime/runs/<run_id>/events.jsonl`
+- `.nanopore-runtime/runs/<run_id>/artifacts/handoffs/`
+- `.nanopore-runtime/runs/<run_id>/artifacts/waivers.jsonl` (if waivers used)
+
+#### 15.15.9 Promotion checklist before merge
+
+Do not promote unless all are true:
+
+- required stages are `success` (or explicit approved `waived`),
+- verification evidence exists,
+- docs are synchronized if behavior/workflow changed,
+- request log entry is appended,
+- memory updates are present and factual,
+- run artifacts are complete.
+
+#### 15.15.10 Feature request template for users
+
+Use this short template when asking for Tier-2 feature work:
+
+- **Goal**: <what should change>
+- **Why**: <user/lab value>
+- **Acceptance checks**: <tests, outputs, edge cases>
+- **Constraints**: <must not break X>
+- **Docs impact**: <components/textbook expected or not>
+
+This improves stage quality and reduces rework.
+
 ---
 
 ## 16. Guidance for developers extending nanoporethon
