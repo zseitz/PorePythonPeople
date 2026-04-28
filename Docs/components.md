@@ -168,6 +168,9 @@ Primary package location: `src/nanoporethon/`.
   - `runtime/executor.py`
   - `runtime/gates.py`
   - `runtime/state.py`
+  - `runtime/repo_ops.py`
+  - `runtime/waivers.py`
+  - `runtime/memory_writer.py`
   - `runtime/adapters/ollama.py`
   - `runtime/schemas/handoff_packet.schema.json`
   - `runtime/schemas/stage_result.schema.json`
@@ -179,10 +182,12 @@ Primary package location: `src/nanoporethon/`.
   - Executes full policy-driven stage graph with conditional routing (`refactor_or_docsync`).
   - Defines conditional route to refactor stage when verification quality signals require it.
   - Enforces gate checks for plan/build/verify/doc-sync/memory-sync transitions.
-  - Defines waiver structure for explicit, auditable gate bypasses.
+  - Executes implementation/doc-sync work inside a sandbox repository copy before touching the main workspace.
+  - Defines waiver structure for explicit, auditable gate bypasses, restricted to approved operators.
   - Validates handoff, stage-result, gate-result, and run-state artifacts against JSON schemas at stage boundaries.
-  - Defines repository-memory synchronization targets for durable run learnings.
+  - Writes repository-memory synchronization targets directly to `memories/repo/` in the repository.
   - Supports local specialist prompting through Ollama adapter + specialist `prompt_file`/`prompt_inline` contexts.
+  - Supports operator-selected resume behavior for interrupted runs.
 
 ---
 
@@ -250,6 +255,7 @@ Current implementation status:
 
 - executable flow includes routing stage and closeout: `triage_plan` → `implement` → `verify` → `refactor_or_docsync` → (`refactor` → `verify_after_refactor`)? → `doc_sync` → `memory_sync` → `closeout`
 - each stage transition emits validated handoff and gate artifacts under `.nanopore-runtime/runs/<run_id>/`
+- integration coverage for runtime lives under `tests/test_runtime_milestone1.py`, `tests/test_runtime_integration.py`, and `tests/fixtures/runtime_fixture_repo/`
 
 ---
 

@@ -1032,8 +1032,8 @@ The runtime should persist concise, verified lessons for future agent performanc
 
 Current policy targets:
 
-- `/memories/repo/testing.md`
-- `/memories/repo/orchestrator-runtime.md`
+- `memories/repo/testing.md`
+- `memories/repo/orchestrator-runtime.md`
 
 Memory entries should be:
 
@@ -1107,6 +1107,7 @@ Before launching a run, verify:
 - runtime policy file is present and readable (`runtime/policies.yaml`),
 - stage templates and schemas are present,
 - test environment is available,
+- approved waiver operator is configured correctly,
 - runtime has write permissions for source/docs/memory targets,
 - waiver policy/approver path is defined,
 - run artifact directory can be created (`.nanopore-runtime/runs/<run_id>/`).
@@ -1138,16 +1139,29 @@ You can run it with:
 Current behavior:
 
 - creates a new `run_id`,
+- creates a sandbox copy of the repository under the run artifacts before implementation/doc-sync actions,
 - writes `.nanopore-runtime/runs/<run_id>/run.json`,
 - appends stage/gate events to `.nanopore-runtime/runs/<run_id>/events.jsonl`,
 - emits stage-to-stage handoff artifacts in `.nanopore-runtime/runs/<run_id>/artifacts/handoffs/`,
+- records approved waivers in `.nanopore-runtime/runs/<run_id>/artifacts/waivers.jsonl`,
+- writes repository memory updates directly into `memories/repo/` when memory sync runs,
 - validates `HandoffPacket`, `StageResult`, `GateResult`, and `RunState` against runtime schemas,
 - halts early if a required gate fails.
+
+Operator-resume behavior:
+
+- if a run is resumed, the operator must explicitly choose the resume mode,
+- supported current modes are restarting from the beginning or resuming from the last completed stage.
 
 Model-provider behavior:
 
 - when `model_provider.adapter: ollama`, specialist stages load their `prompt_file`/`prompt_inline` and call local Ollama,
 - when no adapter is configured, executor remains deterministic and local-test friendly.
+
+Testing note:
+
+- fixture-based runtime integration tests now live inside `tests/fixtures/runtime_fixture_repo/`,
+- this keeps Tier-2 tests safely inside the main repository test tree.
 
 ---
 
