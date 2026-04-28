@@ -163,6 +163,12 @@ Primary package location: `src/nanoporethon/`.
 - **Files**:
   - `runtime/policies.yaml`
   - `runtime/stage_templates.yaml`
+  - `runtime/orchestrator.py`
+  - `runtime/planner.py`
+  - `runtime/executor.py`
+  - `runtime/gates.py`
+  - `runtime/state.py`
+  - `runtime/adapters/ollama.py`
   - `runtime/schemas/handoff_packet.schema.json`
   - `runtime/schemas/stage_result.schema.json`
   - `runtime/schemas/gate_result.schema.json`
@@ -170,11 +176,13 @@ Primary package location: `src/nanoporethon/`.
 - **Purpose**: Provide executable delegation contracts so one orchestrator run can route work across specialists with stage gates and auditable handoffs.
 - **Key behavior**:
   - Declares specialist registry and stage ownership.
+  - Executes full policy-driven stage graph with conditional routing (`refactor_or_docsync`).
   - Defines conditional route to refactor stage when verification quality signals require it.
   - Enforces gate checks for plan/build/verify/doc-sync/memory-sync transitions.
   - Defines waiver structure for explicit, auditable gate bypasses.
-  - Defines schema-validated artifacts for handoffs, stage results, gate outcomes, and resumable run state.
+  - Validates handoff, stage-result, gate-result, and run-state artifacts against JSON schemas at stage boundaries.
   - Defines repository-memory synchronization targets for durable run learnings.
+  - Supports local specialist prompting through Ollama adapter + specialist `prompt_file`/`prompt_inline` contexts.
 
 ---
 
@@ -238,6 +246,11 @@ Each selected item is expected to be a folder containing at least:
 
 `User request` → C11 `triage_plan` → `implement` → `verify` → (`refactor` if needed) → `doc_sync` → `memory_sync` → closeout artifacts
 
+Current implementation status:
+
+- executable flow includes routing stage and closeout: `triage_plan` → `implement` → `verify` → `refactor_or_docsync` → (`refactor` → `verify_after_refactor`)? → `doc_sync` → `memory_sync` → `closeout`
+- each stage transition emits validated handoff and gate artifacts under `.nanopore-runtime/runs/<run_id>/`
+
 ---
 
 ## Agent-oriented implementation notes
@@ -285,5 +298,7 @@ From `pyproject.toml`, primary dependencies include:
 - `matplotlib`
 - `h5py`
 - `pytest`, `pytest-cov` (testing)
+- `PyYAML` (runtime policy loading)
+- `jsonschema` (runtime contract enforcement)
 
 `subcomponent_7_mat_file_loader.py` can also use `scipy` when available for non-HDF5 MAT fallback loading.

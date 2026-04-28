@@ -943,6 +943,12 @@ Current runtime-planning artifacts are in:
 
 - `runtime/policies.yaml`
 - `runtime/stage_templates.yaml`
+- `runtime/orchestrator.py`
+- `runtime/planner.py`
+- `runtime/executor.py`
+- `runtime/gates.py`
+- `runtime/state.py`
+- `runtime/adapters/ollama.py`
 - `runtime/schemas/handoff_packet.schema.json`
 - `runtime/schemas/stage_result.schema.json`
 - `runtime/schemas/gate_result.schema.json`
@@ -1115,6 +1121,33 @@ After completion, verify:
 - request log row was appended,
 - repo memory update was written,
 - run artifacts are complete and timestamped.
+
+### 15.14 Runtime entrypoint (usable now)
+
+The Tier-2 runtime now executes the policy-defined graph end-to-end:
+
+- `triage_plan` → `implement` → `verify` → `refactor_or_docsync` →
+  - `refactor` → `verify_after_refactor` (when required), or
+  - `doc_sync` directly (when refactor is not required),
+- then `memory_sync` → `closeout`
+
+You can run it with:
+
+- `python -m runtime.orchestrator --request "<your request>"`
+
+Current behavior:
+
+- creates a new `run_id`,
+- writes `.nanopore-runtime/runs/<run_id>/run.json`,
+- appends stage/gate events to `.nanopore-runtime/runs/<run_id>/events.jsonl`,
+- emits stage-to-stage handoff artifacts in `.nanopore-runtime/runs/<run_id>/artifacts/handoffs/`,
+- validates `HandoffPacket`, `StageResult`, `GateResult`, and `RunState` against runtime schemas,
+- halts early if a required gate fails.
+
+Model-provider behavior:
+
+- when `model_provider.adapter: ollama`, specialist stages load their `prompt_file`/`prompt_inline` and call local Ollama,
+- when no adapter is configured, executor remains deterministic and local-test friendly.
 
 ---
 
