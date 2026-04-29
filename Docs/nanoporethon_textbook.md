@@ -38,6 +38,7 @@ This document complements, but does not replace:
   - [15.11 Operator checklist (stage-by-stage runbook)](#1511-operator-checklist-stage-by-stage-runbook)
   - [15.14 Runtime entrypoint (usable now)](#1514-runtime-entrypoint-usable-now)
   - [15.15 Concrete Tier-2 feature delivery runbook (for daily use)](#1515-concrete-tier-2-feature-delivery-runbook-for-daily-use)
+  - [15.16 Per-specialist model routing and context-window guidance](#1516-per-specialist-model-routing-and-context-window-guidance)
 - [16. Guidance for developers extending nanoporethon](#16-guidance-for-developers-extending-nanoporethon)
 - [17. Quick-start checklist for a new user](#17-quick-start-checklist-for-a-new-user)
 - [18. Final summary](#18-final-summary)
@@ -1190,6 +1191,7 @@ Operator-resume behavior:
 Model-provider behavior:
 
 - when `model_provider.adapter: ollama`, specialist stages load their `prompt_file`/`prompt_inline` and call local Ollama,
+- specialists can optionally define `specialists.<owner>.model_provider` to override model/base_url per agent while inheriting unspecified global provider fields,
 - when no adapter is configured, executor remains deterministic and local-test friendly.
 
 Testing note:
@@ -1315,6 +1317,68 @@ Use this short template when asking for Tier-2 feature work:
 - **Docs impact**: <components/textbook expected or not>
 
 This improves stage quality and reduces rework.
+
+### 15.16 Per-specialist model routing and context-window guidance
+
+This section defines the practical model map for local Tier-2 runs in this repository.
+
+#### 15.16.1 Concrete model map (current recommended default)
+
+- Global default model provider:
+  - `qwen2.5-coder:14b`
+- Specialist overrides:
+  - `doc_sync` → `qwen2.5:7b`
+  - `memory_sync` → `qwen2.5:7b`
+
+Rationale:
+
+- implementation/refactor/verification tasks keep stronger coding depth,
+- documentation/memory summarization tasks use a smaller and faster local model,
+- orchestrator and routing remain on the stronger global model unless explicitly overridden.
+
+#### 15.16.2 Context-window estimates by specialist (operational guidance)
+
+These values are practical planning estimates for local operation, not strict guarantees.
+
+| Specialist | Typical work | Recommended effective context window | Runtime stage budget reference |
+|---|---|---:|---:|
+| `orchestrator` | triage, route decisions, closeout | 24k–32k | `triage_plan: 4000`, `refactor_or_docsync: 3000`, `closeout: 2000` |
+| `feature_builder` | new/changed code | 32k–48k | `implement: 8000` |
+| `verifier` | quality checks + test interpretation | 24k–32k | `verify: 6000`, `verify_after_refactor: 6000` |
+| `refactor` | structural cleanup | 32k–48k | `refactor: 6000` |
+| `doc_sync` | contract + workflow docs updates | 8k–16k | `doc_sync: 4000` |
+| `memory_sync` | concise, factual memory notes | 8k–12k | `memory_sync: 2000` |
+
+Important: the runtime stage budgets are intentional working limits and should usually be treated as the authoritative operating bound, even when model context capacity is larger.
+
+#### 15.16.3 Pre-assigned context by specialist (what to load first)
+
+Use this minimal context allocation to keep signal high and context growth controlled:
+
+- `orchestrator`:
+  - `Docs/agent_context_index.md`
+  - `Docs/components.md`
+  - `Docs/technology_context.md`
+  - `Docs/nanoporethon_textbook.md` Section 15
+- `feature_builder`:
+  - Tier-0 docs, nearest source files, nearest tests
+- `verifier`:
+  - changed files + nearest tests + `runtime/policies.yaml` gate section
+- `refactor`:
+  - changed module(s), references/call sites, preservation tests
+- `doc_sync`:
+  - `Docs/components.md`, relevant textbook subsection(s), verified behavior summary
+- `memory_sync`:
+  - run artifacts (`run.json`, stage payload summaries), target memory files, request-log context
+
+#### 15.16.4 Tuning order when context pressure rises
+
+When you repeatedly observe high utilization or frequent compaction:
+
+1. reduce unnecessary context inputs for that specialist,
+2. tighten stage payload shape,
+3. increase the specialist stage budget only if needed,
+4. increase model context allocation only after policy-level tuning is insufficient.
 
 ---
 

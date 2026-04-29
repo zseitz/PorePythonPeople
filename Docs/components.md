@@ -190,6 +190,7 @@ Primary package location: `src/nanoporethon/`.
   - Applies per-stage context budgets from policy and compacts oversized stage payloads before artifact write/model handoff.
   - Stores context utilization metrics in stage results and final run state for budget tuning.
   - Supports local specialist prompting through Ollama adapter + specialist `prompt_file`/`prompt_inline` contexts.
+  - Supports optional per-specialist model-provider overrides (with global fallback) so different agents can use different local models.
   - Supports operator-selected resume behavior for interrupted runs.
 
 ---
