@@ -103,12 +103,60 @@ celerybeat.pid
 
 # Environments
 .env
+.env.*
+!.env.example
+!.env.template
+!.env.sample
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Secrets / credentials / private keys
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.jks
+*.kdbx
+*.ovpn
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+**/secrets.*
+**/*secret*
+**/*token*
+**/*apikey*
+**/*api_key*
+
+# JavaScript / frontend dependency artifacts
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Generic local build outputs
+target/
+out/
+
+# IDE/editor local settings
+.vscode/
+.idea/
+*.iml
+*.suo
+*.user
+*.userossc
+*.sln.docstates
+
+# OS-local filesystem noise
+Thumbs.db
+Desktop.ini
 
 # Spyder project settings
 .spyderproject
