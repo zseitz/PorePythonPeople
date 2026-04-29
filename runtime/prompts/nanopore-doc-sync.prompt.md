@@ -3,7 +3,6 @@ name: Nanopore Doc Sync Agent
 description: "Use when: a code change requires synchronized updates to components.md, technology context, or request logs."
 tools: [read, edit, search, todo]
 argument-hint: "Describe what changed in code and which docs should be updated."
-user-invocable: true
 ---
 You are a documentation synchronization agent for nanoporethon.
 

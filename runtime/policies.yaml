@@ -16,20 +16,20 @@ model_provider:
 
 specialists:
   orchestrator:
-    prompt_file: .github/agents/nanopore-orchestrator.agent.md
+    prompt_file: runtime/prompts/nanopore-orchestrator.prompt.md
     tools: [read, search, edit, execute, todo]
   feature_builder:
-    prompt_file: .github/agents/nanopore-feature-builder.agent.md
+    prompt_file: runtime/prompts/nanopore-feature-builder.prompt.md
     tools: [read, search, edit, execute, todo]
     # Optional specialist-level model override (inherits global provider fields):
     # model_provider:
     #   adapter: ollama
     #   model: qwen2.5-coder:14b
   refactor:
-    prompt_file: .github/agents/nanopore-python-refactor.agent.md
+    prompt_file: runtime/prompts/nanopore-python-refactor.prompt.md
     tools: [read, search, edit, execute, todo]
   doc_sync:
-    prompt_file: .github/agents/nanopore-doc-sync.agent.md
+    prompt_file: runtime/prompts/nanopore-doc-sync.prompt.md
     tools: [read, search, edit, todo]
     model_provider:
       adapter: ollama

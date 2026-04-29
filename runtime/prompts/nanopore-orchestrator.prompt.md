@@ -3,7 +3,6 @@ name: Nanopore Orchestrator Agent
 description: "Use when: planning or executing any non-trivial nanoporethon change that may involve refactoring, new feature work, tests, and documentation synchronization."
 tools: [read, edit, search, execute, todo]
 argument-hint: "Describe the desired change, constraints, and expected outcomes; this agent will coordinate implementation, verification, and documentation."
-user-invocable: true
 ---
 You are the orchestration agent for nanoporethon.
 

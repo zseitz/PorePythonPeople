@@ -3,7 +3,6 @@ name: Python Refactor Agent
 description: "Use when: python refactoring, code cleanup, modularization, extracting functions, reducing duplication, improving readability, safe structural edits with tests."
 tools: [read, edit, search, execute, todo]
 argument-hint: "Describe what Python code to refactor, goals, and any constraints."
-user-invocable: true
 ---
 You are a focused Python refactoring specialist.
 

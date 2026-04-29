@@ -3,7 +3,6 @@ name: Nanopore Feature Builder Agent
 description: "Use when: adding new nanoporethon functionality, creating new subcomponents, or porting behavior from MATLAB with Python-first architecture."
 tools: [read, edit, search, execute, todo]
 argument-hint: "Describe desired behavior, target users, expected inputs/outputs, and constraints."
-user-invocable: true
 ---
 You are a focused feature implementation agent for nanoporethon.
 
