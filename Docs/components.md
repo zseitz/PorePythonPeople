@@ -138,12 +138,13 @@ Primary package location: `src/nanoporethon/`.
 ### C10. Agent operations and governance layer
 
 - **Files**:
-  - `.github/agents/nanopore-orchestrator.agent.md`
-  - `.github/agents/nanopore-python-refactor.agent.md`
-  - `.github/agents/nanopore-feature-builder.agent.md`
-  - `.github/agents/nanopore-doc-sync.agent.md`
+  - `runtime/prompts/nanopore-orchestrator.prompt.md`
+  - `runtime/prompts/nanopore-python-refactor.prompt.md`
+  - `runtime/prompts/nanopore-feature-builder.prompt.md`
+  - `runtime/prompts/nanopore-doc-sync.prompt.md`
   - `.github/instructions/nanopore-agent-workflow.instructions.md`
   - `.github/prompts/nanopore-feature-request.prompt.md`
+  - `.github/archive/tier1-agents/*`
   - `Docs/agent_context_index.md`
   - `Docs/technology_context.md`
   - `Docs/feature_request_template.md`
@@ -152,9 +153,10 @@ Primary package location: `src/nanoporethon/`.
 - **Purpose**: Standardize how agents refactor/add features, maintain architecture docs, and keep a paper trail of requests.
 - **Key behavior**:
   - Enforces a cost-aware context loading order (`agent_context_index.md`).
-  - Uses an orchestration-first agent workflow for complex changes (`nanopore-orchestrator.agent.md`).
+  - Uses an orchestration-first agent workflow for complex changes (`runtime/prompts/nanopore-orchestrator.prompt.md`).
   - Requires mandatory complexity triage and clarification-first follow-up for large/ambiguous/inconsistent requests.
   - Provides a standardized orchestrator-first intake prompt (`nanopore-feature-request.prompt.md`) and optional detailed worksheet (`feature_request_template.md`).
+  - Keeps superseded Tier-1 agent prompt files archived under `.github/archive/tier1-agents/` for audit/history while runtime uses `runtime/prompts/` as canonical prompt source.
   - Requires doc synchronization when component contracts change.
   - Requires request logging for traceability.
 
