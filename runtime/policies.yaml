@@ -21,12 +21,19 @@ specialists:
   feature_builder:
     prompt_file: .github/agents/nanopore-feature-builder.agent.md
     tools: [read, search, edit, execute, todo]
+    # Optional specialist-level model override (inherits global provider fields):
+    # model_provider:
+    #   adapter: ollama
+    #   model: qwen2.5-coder:14b
   refactor:
     prompt_file: .github/agents/nanopore-python-refactor.agent.md
     tools: [read, search, edit, execute, todo]
   doc_sync:
     prompt_file: .github/agents/nanopore-doc-sync.agent.md
     tools: [read, search, edit, todo]
+    model_provider:
+      adapter: ollama
+      model: qwen2.5:7b
   verifier:
     prompt_inline: |
       You are the nanoporethon verification specialist.
@@ -40,6 +47,9 @@ specialists:
       Mission: write concise, verified, non-speculative run learnings to
       repository memory files and summarize reusable patterns.
     tools: [read, search, edit, todo]
+    model_provider:
+      adapter: ollama
+      model: qwen2.5:7b
 
 stages:
   - id: triage_plan

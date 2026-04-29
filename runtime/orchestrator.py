@@ -61,15 +61,37 @@ def _build_executor(
     model_provider = policy.get("model_provider", {})
     specialists = policy.get("specialists", {})
 
+    def _build_ollama_adapter(provider_cfg: Dict[str, object]) -> Optional[OllamaAdapter]:
+        if provider_cfg.get("adapter") != "ollama":
+            return None
+        model = str(provider_cfg.get("model", "qwen2.5-coder:14b"))
+        base_url = str(provider_cfg.get("base_url", "http://localhost:11434"))
+        return OllamaAdapter(model=model, base_url=base_url)
+
     adapter = None
-    if isinstance(model_provider, dict) and model_provider.get("adapter") == "ollama":
-        model = str(model_provider.get("model", "qwen2.5-coder:14b"))
-        base_url = str(model_provider.get("base_url", "http://localhost:11434"))
-        adapter = OllamaAdapter(model=model, base_url=base_url)
+    model_adapters: Dict[str, object] = {}
+    if isinstance(model_provider, dict):
+        adapter = _build_ollama_adapter(model_provider)
+
+    if isinstance(specialists, dict):
+        for owner, cfg in specialists.items():
+            if not isinstance(owner, str) or not isinstance(cfg, dict):
+                continue
+            override = cfg.get("model_provider")
+            if not isinstance(override, dict):
+                continue
+            merged: Dict[str, object] = {}
+            if isinstance(model_provider, dict):
+                merged.update(model_provider)
+            merged.update(override)
+            specialist_adapter = _build_ollama_adapter(merged)
+            if specialist_adapter is not None:
+                model_adapters[owner] = specialist_adapter
 
     return SpecialistExecutor(
         specialists=specialists,
         model_adapter=adapter,
+        model_adapters=model_adapters,
         repo_root=repo_root,
         repo_ops=repo_ops,
         memory_writer=memory_writer,

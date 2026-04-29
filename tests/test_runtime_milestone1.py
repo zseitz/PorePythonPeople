@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from runtime.executor import SpecialistExecutor
 from runtime.gates import evaluate_stage_gates
-from runtime.orchestrator import _build_cli_summary, run_milestone1
+from runtime.orchestrator import _build_cli_summary, _build_executor, run_milestone1
 from runtime.planner import build_triage_plan, classify_complexity
 from runtime.context_manager import ContextBudgetManager
 
@@ -422,4 +422,67 @@ def test_live_progress_can_be_disabled(tmp_path, capsys):
     assert run_state["status"] == "completed"
     out = capsys.readouterr().out
     assert out == ""
+
+
+def test_build_executor_supports_specialist_model_overrides(tmp_path):
+    policy = _policy_with_run_root(tmp_path)
+    policy["model_provider"] = {
+        "adapter": "ollama",
+        "model": "global-model",
+        "base_url": "http://localhost:11434",
+    }
+    policy["specialists"]["feature_builder"]["model_provider"] = {
+        "model": "feature-model"
+    }
+    policy["specialists"]["doc_sync"]["model_provider"] = {
+        "model": "docs-model",
+        "base_url": "http://localhost:11435",
+    }
+
+    executor = _build_executor(
+        policy=policy,
+        repo_root=Path(__file__).resolve().parents[1],
+        repo_ops=None,
+        memory_writer=None,
+        context_manager=None,
+    )
+
+    assert executor.model_adapter is not None
+    assert getattr(executor.model_adapter, "model") == "global-model"
+    assert "feature_builder" in executor.model_adapters
+    assert getattr(executor.model_adapters["feature_builder"], "model") == "feature-model"
+    assert "doc_sync" in executor.model_adapters
+    assert getattr(executor.model_adapters["doc_sync"], "model") == "docs-model"
+    assert getattr(executor.model_adapters["doc_sync"], "base_url") == "http://localhost:11435"
+
+
+def test_executor_uses_owner_specific_adapter_when_present():
+    class FakeAdapter:
+        def __init__(self, label):
+            self.label = label
+
+        def chat(self, _system_prompt, _messages):
+            return f"from-{self.label}"
+
+    executor = SpecialistExecutor(
+        specialists={"doc_sync": {"prompt_inline": "doc specialist"}},
+        model_adapter=FakeAdapter("default"),
+        model_adapters={"doc_sync": FakeAdapter("doc")},
+    )
+
+    doc_response = executor._try_model_response(
+        owner="doc_sync",
+        stage_id="doc_sync",
+        request="Update docs",
+        context={"request": "Update docs"},
+    )
+    verify_response = executor._try_model_response(
+        owner="verifier",
+        stage_id="verify",
+        request="Run checks",
+        context={"request": "Run checks"},
+    )
+
+    assert doc_response == "from-doc"
+    assert verify_response == "from-default"
 

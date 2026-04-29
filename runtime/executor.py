@@ -28,6 +28,7 @@ class SpecialistExecutor:
         self,
         specialists: Optional[Dict[str, object]] = None,
         model_adapter: Optional[object] = None,
+        model_adapters: Optional[Dict[str, object]] = None,
         repo_root: Optional[Path] = None,
         repo_ops: Optional[RepoSandboxManager] = None,
         memory_writer: Optional[MemoryWriter] = None,
@@ -36,6 +37,7 @@ class SpecialistExecutor:
     ) -> None:
         self.specialists = specialists or {}
         self.model_adapter = model_adapter
+        self.model_adapters = model_adapters or {}
         self.repo_root = repo_root or Path.cwd()
         self.repo_ops = repo_ops
         self.memory_writer = memory_writer
@@ -209,7 +211,8 @@ class SpecialistExecutor:
         request: str,
         context: Dict[str, object],
     ) -> Optional[str]:
-        if self.model_adapter is None:
+        adapter = self.model_adapters.get(owner, self.model_adapter)
+        if adapter is None:
             return None
 
         specialist_cfg = self.specialists.get(owner, {}) if isinstance(self.specialists, dict) else {}
@@ -225,7 +228,7 @@ class SpecialistExecutor:
             "request": request,
             "context_keys": sorted(list(context.keys())),
         }
-        return self.model_adapter.chat(system_prompt, [{"role": "user", "content": json.dumps(user_payload)}])
+        return adapter.chat(system_prompt, [{"role": "user", "content": json.dumps(user_payload)}])
 
     def _load_specialist_prompt(self, specialist_cfg: Dict[str, object]) -> str:
         inline = specialist_cfg.get("prompt_inline")
