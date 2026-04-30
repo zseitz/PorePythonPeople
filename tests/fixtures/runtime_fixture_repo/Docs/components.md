@@ -1,3 +1,3 @@
 # Fixture Components
 
-Runtime fixture repo for Tier-2 integration tests.
+Runtime fixture repo for Local Specialist runtime integration tests.

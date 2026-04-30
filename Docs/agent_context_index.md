@@ -6,21 +6,21 @@ Use this file as the first stop for agent tasks.
 
 To keep agent quality high **without** loading the whole repository every time.
 
-## Context tiers
+## Context levels
 
-### Tier 0 (always read first)
+### Level 0 (always read first)
 
 1. `Docs/agent_context_index.md` (this file)
 2. `Docs/components.md`
 
-### Tier 1 (read when planning/feature work)
+### Level 1 (read when planning/feature work)
 
 3. `Docs/UseCases.md`
 4. `Docs/UserPersonas.md`
 5. `Docs/technology_context.md`
 6. `Docs/nanoporethon_textbook.md`
 
-### Tier 2 (read only if task requires)
+### Level 2 (read only if task requires)
 
 7. `MATLABcode/*.m` files relevant to the requested functionality
 8. Specific Python source files under `src/nanoporethon/`
@@ -28,9 +28,9 @@ To keep agent quality high **without** loading the whole repository every time.
 
 ## Minimum context policy for coding agents
 
-- Start with Tier 0.
-- Add Tier 1 only for design-heavy or new-feature tasks.
-- Add Tier 2 only for files directly affected by the request.
+- Start with Level 0.
+- Add Level 1 only for design-heavy or new-feature tasks.
+- Add Level 2 only for files directly affected by the request.
 - Avoid full-repo reads unless debugging a cross-cutting issue.
 
 ## Mandatory maintenance policy

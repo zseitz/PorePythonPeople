@@ -156,7 +156,7 @@ Primary package location: `src/nanoporethon/`.
   - Uses an orchestration-first agent workflow for complex changes (`runtime/prompts/nanopore-orchestrator.prompt.md`).
   - Requires mandatory complexity triage and clarification-first follow-up for large/ambiguous/inconsistent requests.
   - Provides a standardized orchestrator-first intake prompt (`nanopore-feature-request.prompt.md`) and optional detailed worksheet (`feature_request_template.md`).
-  - Keeps superseded Tier-1 agent prompt files archived under `.github/archive/tier1-agents/` for audit/history while runtime uses `runtime/prompts/` as canonical prompt source.
+  - Keeps superseded legacy prompt-only agent files archived under `.github/archive/tier1-agents/` for audit/history while runtime uses `runtime/prompts/` as canonical prompt source.
   - Requires doc synchronization when component contracts change.
   - Requires request logging for traceability.
 
@@ -282,7 +282,7 @@ Recommended agent guardrails:
 - Preserve `search_query.txt` parsing markers expected by C6.
 - Keep GUI modules focused on orchestration; extend reusable logic in C4–C7 first.
 - Maintain backward compatibility for MAT loading fallbacks (HDF5 + scipy fallback paths).
-- Follow context tiers in `Docs/agent_context_index.md` to limit unnecessary token/cost usage.
+- Follow context levels in `Docs/agent_context_index.md` to limit unnecessary token/cost usage.
 - MATLAB behavior is not authoritative when it conflicts with Python contracts/tests.
 - Keep `Docs/nanoporethon_textbook.md` synchronized when user-facing workflows change.
 

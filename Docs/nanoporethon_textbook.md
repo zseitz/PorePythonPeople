@@ -37,7 +37,7 @@ This document complements, but does not replace:
 - [15. True orchestrator runtime for specialist delegation](#15-true-orchestrator-runtime-for-specialist-delegation)
   - [15.11 Operator checklist (stage-by-stage runbook)](#1511-operator-checklist-stage-by-stage-runbook)
   - [15.14 Runtime entrypoint (usable now)](#1514-runtime-entrypoint-usable-now)
-  - [15.15 Concrete Tier-2 feature delivery runbook (for daily use)](#1515-concrete-tier-2-feature-delivery-runbook-for-daily-use)
+  - [15.15 Concrete Local Specialist feature delivery runbook (for daily use)](#1515-concrete-local-specialist-feature-delivery-runbook-for-daily-use)
   - [15.16 Per-specialist model routing and context-window guidance](#1516-per-specialist-model-routing-and-context-window-guidance)
 - [16. Guidance for developers extending nanoporethon](#16-guidance-for-developers-extending-nanoporethon)
 - [17. Quick-start checklist for a new user](#17-quick-start-checklist-for-a-new-user)
@@ -1146,7 +1146,7 @@ After completion, verify:
 
 ### 15.14 Runtime entrypoint (usable now)
 
-The Tier-2 runtime now executes the policy-defined graph end-to-end:
+The Local Specialist runtime now executes the policy-defined graph end-to-end:
 
 - `triage_plan` → `implement` → `verify` → `refactor_or_docsync` →
   - `refactor` → `verify_after_refactor` (when required), or
@@ -1204,11 +1204,11 @@ Model-provider behavior:
 Testing note:
 
 - fixture-based runtime integration tests now live inside `tests/fixtures/runtime_fixture_repo/`,
-- this keeps Tier-2 tests safely inside the main repository test tree.
+- this keeps Local Specialist runtime tests safely inside the main repository test tree.
 
-### 15.15 Concrete Tier-2 feature delivery runbook (for daily use)
+### 15.15 Concrete Local Specialist feature delivery runbook (for daily use)
 
-This is the practical, copyable workflow for adding new nanoporethon features with Tier-2 runtime orchestration.
+This is the practical, copyable workflow for adding new nanoporethon features with Local Specialist runtime orchestration.
 
 #### 15.15.1 What this runbook is for
 
@@ -1328,7 +1328,7 @@ Do not promote unless all are true:
 
 #### 15.15.10 Feature request template for users
 
-Use this short template when asking for Tier-2 feature work:
+Use this short template when asking for Local Specialist runtime feature work:
 
 - **Goal**: <what should change>
 - **Why**: <user/lab value>
@@ -1340,15 +1340,15 @@ This improves stage quality and reduces rework.
 
 ### 15.16 Per-specialist model routing and context-window guidance
 
-This section defines the practical model map for local Tier-2 runs in this repository.
+This section defines the practical model map for Local Specialist runtime runs in this repository.
 
 #### 15.16.1 Concrete model map (current recommended default)
 
 - Global default model provider:
-  - `qwen2.5-coder:14b`
+  - `qwen3:4b` (local Ollama, quantization: `Q4_K_M`)
 - Specialist overrides:
-  - `doc_sync` → `qwen2.5:7b`
-  - `memory_sync` → `qwen2.5:7b`
+  - `doc_sync` → `qwen3:4b` (local Ollama, quantization: `Q4_K_M`)
+  - `memory_sync` → `qwen3:4b` (local Ollama, quantization: `Q4_K_M`)
 
 Rationale:
 
@@ -1381,7 +1381,7 @@ Use this minimal context allocation to keep signal high and context growth contr
   - `Docs/technology_context.md`
   - `Docs/nanoporethon_textbook.md` Section 15
 - `feature_builder`:
-  - Tier-0 docs, nearest source files, nearest tests
+  - Level-0 docs, nearest source files, nearest tests
 - `verifier`:
   - changed files + nearest tests + `runtime/policies.yaml` gate section
 - `refactor`:
