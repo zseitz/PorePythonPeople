@@ -424,6 +424,68 @@ def test_live_progress_can_be_disabled(tmp_path, capsys):
     assert out == ""
 
 
+def test_run_blocks_when_stage_transition_not_approved(tmp_path):
+    policy = _policy_with_run_root(tmp_path)
+
+    def approval_handler(request):
+        assert request["from_stage"] == "triage_plan"
+        assert request["to_stage"] == "implement"
+        return "reject"
+
+    run_state = run_milestone1(
+        request="Pause after planning",
+        policy=policy,
+        executor=SpecialistExecutor(),
+        repo_root=Path(__file__).resolve().parents[1],
+        approval_mode="per_stage",
+        approval_handler=approval_handler,
+    )
+
+    assert run_state["status"] == "blocked"
+    assert _stage_ids_from_run_state(run_state) == ["triage_plan"]
+    pending = run_state["pending_approval"]
+    assert pending["from_stage"] == "triage_plan"
+    assert pending["to_stage"] == "implement"
+
+    events_text = (tmp_path / run_state["run_id"] / "events.jsonl").read_text(encoding="utf-8")
+    assert '"type": "approval_requested"' in events_text
+    assert '"decision": "rejected"' in events_text
+
+
+def test_resume_after_stage_transition_approval_block(tmp_path):
+    policy = _policy_with_run_root(tmp_path)
+    repo_root = Path(__file__).resolve().parents[1]
+    decisions = iter(["reject", "approve", "approve", "approve", "approve", "approve", "approve"])
+
+    def approval_handler(_request):
+        return next(decisions)
+
+    first_run = run_milestone1(
+        request="Pause and resume",
+        policy=policy,
+        executor=SpecialistExecutor(),
+        repo_root=repo_root,
+        approval_mode="per_stage",
+        approval_handler=approval_handler,
+    )
+    assert first_run["status"] == "blocked"
+
+    resumed_run = run_milestone1(
+        request="Pause and resume",
+        policy=policy,
+        executor=SpecialistExecutor(),
+        repo_root=repo_root,
+        resume_run_id=first_run["run_id"],
+        resume_choice="resume_from_last_completed",
+        approval_handler=approval_handler,
+    )
+
+    assert resumed_run["status"] == "completed"
+    assert resumed_run["pending_approval"] == {}
+    assert resumed_run["approval_mode"] == "per_stage"
+    assert resumed_run["stage_history"][-1]["stage_id"] == "closeout"
+
+
 def test_build_executor_supports_specialist_model_overrides(tmp_path):
     policy = _policy_with_run_root(tmp_path)
     policy["model_provider"] = {

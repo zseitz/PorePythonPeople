@@ -12,12 +12,14 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def initialize_run_state(run_id: str, request: str) -> Dict[str, object]:
+def initialize_run_state(run_id: str, request: str, approval_mode: str = "auto") -> Dict[str, object]:
     return {
         "run_id": run_id,
         "request": request,
         "status": "running",
         "current_stage": "triage_plan",
+        "approval_mode": approval_mode,
+        "pending_approval": {},
         "stage_history": [],
         "artifacts_dir": "",
         "sandbox_dir": "",

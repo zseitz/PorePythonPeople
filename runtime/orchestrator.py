@@ -7,7 +7,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from .adapters.ollama import OllamaAdapter
 from .context_manager import ContextBudgetManager
@@ -29,6 +29,9 @@ from .waivers import apply_waivers, write_waiver_log
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+StageApprovalHandler = Callable[[Dict[str, object]], str]
 
 
 def _load_policy(path: Path) -> Dict[str, object]:
@@ -213,6 +216,123 @@ def _build_live_progress_line(
     return f"{light} {stage_id} {tokens}/{budget} tok {utilization:.1f}% gate:{gate_label}{compacted_marker}"
 
 
+def _normalize_approval_mode(approval_mode: Optional[str]) -> str:
+    normalized = (approval_mode or "auto").strip().lower()
+    if normalized not in {"auto", "per_stage"}:
+        raise ValueError("approval_mode must be either 'auto' or 'per_stage'")
+    return normalized
+
+
+def _normalize_approval_decision(decision: object) -> str:
+    normalized = str(decision).strip().lower()
+    if normalized in {"y", "yes", "a", "approve", "approved"}:
+        return "approved"
+    if normalized in {"n", "no", "r", "reject", "rejected"}:
+        return "rejected"
+    if normalized in {"q", "quit", "cancel", "cancelled", "c"}:
+        return "cancelled"
+    raise ValueError(f"Unsupported approval decision: {decision}")
+
+
+def _prompt_for_stage_approval(request: Dict[str, object]) -> str:
+    from_stage = request.get("from_stage", "unknown")
+    to_stage = request.get("to_stage", "unknown")
+    review_paths = request.get("review_artifacts", [])
+    if isinstance(review_paths, list) and review_paths:
+        print(f"Review artifacts before proceeding: {', '.join(str(path) for path in review_paths)}")
+
+    prompt = (
+        f"Approve transition {from_stage} -> {to_stage}? "
+        "[a]pprove/[r]eject/[q]uit: "
+    )
+    while True:
+        try:
+            return _normalize_approval_decision(input(prompt))
+        except EOFError:
+            return "cancelled"
+        except ValueError:
+            print("Please enter a, r, or q.")
+
+
+def _request_stage_transition_approval(
+    run_dir: Path,
+    run_state: Dict[str, object],
+    approval_request: Dict[str, object],
+    approval_mode: str,
+    approval_handler: Optional[StageApprovalHandler],
+) -> Optional[Dict[str, object]]:
+    pending = run_state.get("pending_approval", {})
+    if not isinstance(pending, dict):
+        pending = {}
+
+    if approval_mode != "per_stage":
+        if pending:
+            run_state["pending_approval"] = {}
+        return None
+
+    append_event(
+        run_dir,
+        {
+            "type": "approval_requested",
+            "run_id": approval_request.get("run_id", run_state.get("run_id", "unknown")),
+            "from_stage": approval_request.get("from_stage"),
+            "to_stage": approval_request.get("to_stage"),
+            "timestamp": _utc_now(),
+        },
+    )
+
+    decision_raw = approval_handler(approval_request) if approval_handler else _prompt_for_stage_approval(approval_request)
+    decision = _normalize_approval_decision(decision_raw)
+    append_event(
+        run_dir,
+        {
+            "type": "approval_decision",
+            "run_id": approval_request.get("run_id", run_state.get("run_id", "unknown")),
+            "from_stage": approval_request.get("from_stage"),
+            "to_stage": approval_request.get("to_stage"),
+            "decision": decision,
+            "timestamp": _utc_now(),
+        },
+    )
+
+    if decision == "approved":
+        run_state["pending_approval"] = {}
+        run_state["updated_at"] = _utc_now()
+        return None
+
+    blocked_state = dict(approval_request)
+    blocked_state["decision"] = decision
+    blocked_state["requested_at"] = blocked_state.get("requested_at", _utc_now())
+    blocked_state["updated_at"] = _utc_now()
+    run_state["pending_approval"] = blocked_state
+    finalize_run_state(run_state, "cancelled" if decision == "cancelled" else "blocked")
+    return run_state
+
+
+def _maybe_resume_pending_approval(
+    run_dir: Path,
+    run_state: Dict[str, object],
+    approval_mode: str,
+    approval_handler: Optional[StageApprovalHandler],
+    next_stage_id: Optional[str],
+) -> Optional[Dict[str, object]]:
+    pending = run_state.get("pending_approval", {})
+    if not isinstance(pending, dict) or not pending:
+        return None
+
+    pending_to_stage = pending.get("to_stage")
+    if next_stage_id and pending_to_stage not in {next_stage_id, None, ""}:
+        return None
+
+    return _request_stage_transition_approval(
+        run_dir=run_dir,
+        run_state=run_state,
+        approval_request=pending,
+        approval_mode=approval_mode,
+        approval_handler=approval_handler,
+    )
+
+
 def run_milestone1(
     request: str,
     policy: Optional[Dict[str, object]] = None,
@@ -223,6 +343,8 @@ def run_milestone1(
     resume_run_id: Optional[str] = None,
     resume_choice: Optional[str] = None,
     live_progress: bool = False,
+    approval_mode: Optional[str] = None,
+    approval_handler: Optional[StageApprovalHandler] = None,
 ) -> Dict[str, object]:
     """Run policy-driven orchestration across all configured stages."""
     if policy is None:
@@ -237,6 +359,8 @@ def run_milestone1(
             "Resume requested but no operator choice was provided. "
             "Use resume_choice='restart_from_beginning' or 'resume_from_last_completed'."
         )
+
+    effective_approval_mode = _normalize_approval_mode(approval_mode)
 
     run_id = resume_run_id or f"run_{uuid.uuid4().hex[:12]}"
     run_dir = ensure_run_dirs(run_root, run_id)
@@ -257,8 +381,11 @@ def run_milestone1(
         run_state = load_run_state(run_dir)
         run_state["resume_source_run_id"] = resume_run_id
         run_state["status"] = "running"
+        if approval_mode is None and isinstance(run_state.get("approval_mode"), str):
+            effective_approval_mode = _normalize_approval_mode(str(run_state.get("approval_mode")))
     else:
-        run_state = initialize_run_state(run_id=run_id, request=request)
+        run_state = initialize_run_state(run_id=run_id, request=request, approval_mode=effective_approval_mode)
+    run_state["approval_mode"] = effective_approval_mode
     run_state["sandbox_dir"] = str(sandbox_repo.as_posix())
     validator.validate("run_state", run_state)
     write_run_state(run_dir, run_state)
@@ -295,6 +422,19 @@ def run_milestone1(
             current_stage_id = stage_order[0]
     else:
         current_stage_id = stage_order[0]
+
+    pending_resume_result = _maybe_resume_pending_approval(
+        run_dir=run_dir,
+        run_state=run_state,
+        approval_mode=effective_approval_mode,
+        approval_handler=approval_handler,
+        next_stage_id=current_stage_id,
+    )
+    if pending_resume_result is not None:
+        validator.validate("run_state", run_state)
+        write_run_state(run_dir, run_state)
+        return pending_resume_result
+
     visited = 0
 
     try:
@@ -396,6 +536,27 @@ def run_milestone1(
                 handoff_path = handoff_dir / f"{current_stage_id}_to_{nxt}.json"
                 handoff_path.write_text(json.dumps(handoff_packet, indent=2), encoding="utf-8")
 
+                approval_result = _request_stage_transition_approval(
+                    run_dir=run_dir,
+                    run_state=run_state,
+                    approval_request={
+                        "run_id": run_id,
+                        "from_stage": current_stage_id,
+                        "to_stage": nxt,
+                        "requested_at": _utc_now(),
+                        "review_artifacts": [
+                            str((run_dir / "run.json").as_posix()),
+                            str(handoff_path.as_posix()),
+                        ],
+                    },
+                    approval_mode=effective_approval_mode,
+                    approval_handler=approval_handler,
+                )
+                if approval_result is not None:
+                    validator.validate("run_state", run_state)
+                    write_run_state(run_dir, run_state)
+                    return approval_result
+
             current_stage_id = nxt
             validator.validate("run_state", run_state)
             write_run_state(run_dir, run_state)
@@ -417,6 +578,7 @@ def run_milestone1(
         return run_state
 
     run_state["context_metrics"] = context_mgr.summary()
+    run_state["pending_approval"] = {}
     finalize_run_state(run_state, "completed")
     validator.validate("run_state", run_state)
     write_run_state(run_dir, run_state)
@@ -448,6 +610,12 @@ def _parse_args() -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Print a compact traffic-light line after each stage while the run is executing.",
+    )
+    parser.add_argument(
+        "--approval-mode",
+        choices=["auto", "per_stage"],
+        default=None,
+        help="Require explicit operator approval at each stage transition when set to 'per_stage'.",
     )
     return parser.parse_args()
 
@@ -499,6 +667,7 @@ def main() -> None:
         resume_run_id=args.resume_run_id,
         resume_choice=args.resume_choice,
         live_progress=args.live_progress,
+        approval_mode=args.approval_mode,
     )
     if args.output in {"summary", "both"}:
         print(_build_cli_summary(run_state))

@@ -9,6 +9,7 @@
     "request",
     "status",
     "current_stage",
+    "approval_mode",
     "stage_history",
     "created_at",
     "updated_at"
@@ -35,6 +36,17 @@
     "current_stage": {
       "type": "string",
       "minLength": 1
+    },
+    "approval_mode": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "per_stage"
+      ]
+    },
+    "pending_approval": {
+      "type": "object",
+      "additionalProperties": true
     },
     "stage_history": {
       "type": "array",

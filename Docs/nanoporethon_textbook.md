@@ -1169,6 +1169,13 @@ Live task-progress indicator:
 - default is enabled via `--live-progress` (disable with `--no-live-progress`),
 - indicator format includes stage id, estimated context usage, utilization %, gate pass/fail, and whether payload compaction occurred.
 
+Operator approval mode:
+
+- pass `--approval-mode per_stage` to pause between completed stages before the next stage begins,
+- the runtime writes the handoff artifact first so the operator has something concrete to review,
+- if the operator rejects or quits, the run is marked `blocked`/`cancelled` with `pending_approval` persisted in `run.json`,
+- resuming with `--resume-run-id ... --resume-choice resume_from_last_completed` re-opens that pending transition instead of silently skipping it.
+
 Current behavior:
 
 - creates a new `run_id`,
@@ -1271,6 +1278,19 @@ Follow this order:
 2. If unavoidable, apply waiver only with approved operator.
 3. Ensure waiver is recorded in run artifacts.
 4. Re-check downstream stages before closing run.
+
+#### 15.15.6a If approval mode is enabled
+
+When running with `--approval-mode per_stage`, expect an explicit prompt before each stage transition.
+
+Recommended operator behavior:
+
+1. Review the just-written handoff artifact and `run.json`.
+2. Approve when the stage output is good enough to continue.
+3. Reject when you want to stop and inspect or patch the workflow.
+4. Resume later with `--resume-run-id <run_id> --resume-choice resume_from_last_completed` once you are ready to continue.
+
+This is the current terminal-runtime equivalent of a “keep changes and continue?” checkpoint.
 
 #### 15.15.7 If execution is interrupted
 
