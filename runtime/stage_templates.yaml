@@ -26,6 +26,8 @@ templates:
       - implementation_summary
       - test_updates
       - unresolved_risks
+      - noop_justified
+      - actions
     handoff_packet: handoff_packet
 
   verify:
@@ -35,9 +37,10 @@ templates:
       - acceptance_criteria
     required_outputs:
       - checks_run
-      - gate_results
       - quality_signals
       - failures_or_warnings
+      - tests_exit_code
+      - coverage_exit_code
     handoff_packet: handoff_packet
 
   refactor_or_docsync:
@@ -70,6 +73,8 @@ templates:
       - checks_run
       - quality_signals
       - failures_or_warnings
+      - tests_exit_code
+      - coverage_exit_code
     handoff_packet: handoff_packet
 
   doc_sync:
@@ -82,6 +87,11 @@ templates:
       - docs_updated
       - doc_change_summary
       - request_log_entry
+      - request_log_updated
+      - contract_change_required
+      - user_workflow_change_required
+      - changed_files
+      - actions
     handoff_packet: handoff_packet
 
   memory_sync:

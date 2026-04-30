@@ -183,12 +183,21 @@ Primary package location: `src/nanoporethon/`.
 - **Key behavior**:
   - Declares specialist registry and stage ownership.
   - Executes full policy-driven stage graph with conditional routing (`refactor_or_docsync`).
+  - Parses specialist model output as structured JSON stage payloads, validates required stage fields, and falls back to deterministic payloads when parsing/validation fails.
+  - Applies model-authored sandbox edit intents (`write_file`, `append_file`, `replace_in_file`) inside policy edit-scope boundaries.
   - Defines conditional route to refactor stage when verification quality signals require it.
   - Enforces gate checks for plan/build/verify/doc-sync/memory-sync transitions.
   - Executes implementation/doc-sync work inside a sandbox repository copy before touching the main workspace.
+  - Requires a clean git working tree before starting a fresh run when the repository root is a git checkout.
+  - Captures base commit/branch metadata plus a start-of-run file-hash snapshot for promotion guardrails.
+  - Executes verification commands from policy (`gates.verify.commands`) inside the sandbox workspace rather than fixed hardcoded test commands.
+  - Enforces implementation gate merge-marker checks by scanning changed sandbox files for unresolved conflict markers.
+  - Supports policy-controlled handling for pytest code `5` (`allow_no_tests_collected`) instead of always treating it as pass.
   - Defines waiver structure for explicit, auditable gate bypasses, restricted to approved operators.
   - Validates handoff, stage-result, gate-result, and run-state artifacts against JSON schemas at stage boundaries.
   - Writes repository-memory synchronization targets directly to `memories/repo/` in the repository.
+  - Emits startup warnings when users run from `main`/`master` or detached HEAD, strongly recommending a dedicated feature branch inside the local clone.
+  - Supports optional operator-gated sandbox promotion after closeout, with a recorded `promotion_diff.json` artifact, explicit approve/reject decision, and refusal when target files changed in the real local repository after run start.
   - Applies per-stage context budgets from policy and compacts oversized stage payloads before artifact write/model handoff.
   - Stores context utilization metrics in stage results and final run state for budget tuning.
   - Supports local specialist prompting through Ollama adapter + specialist `prompt_file`/`prompt_inline` contexts.

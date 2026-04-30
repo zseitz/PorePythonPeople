@@ -25,9 +25,14 @@ def initialize_run_state(run_id: str, request: str, approval_mode: str = "auto")
         "sandbox_dir": "",
         "events_file": "",
         "resume_source_run_id": "",
+        "base_commit": "",
+        "base_branch": "",
+        "repo_snapshot_file": "",
+        "startup_warnings": [],
         "created_at": _utc_now(),
         "updated_at": _utc_now(),
         "context_metrics": {},
+        "promoted_files": [],
     }
 
 

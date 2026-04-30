@@ -30,3 +30,22 @@ Return:
 1. Docs updated.
 2. What changed in each doc.
 3. Any missing technical details needed from developers.
+
+## Runtime response contract (required)
+
+Return **only valid JSON** (no markdown, no prose outside JSON).
+
+For `doc_sync` stage payloads include:
+- `docs_updated` (array[string])
+- `doc_change_summary` (string)
+- `request_log_entry` (string)
+- `request_log_updated` (boolean)
+- `contract_change_required` (boolean)
+- `user_workflow_change_required` (boolean)
+- `changed_files` (array[string])
+- `actions` (array of edit intents; optional)
+
+Supported action intents:
+- `{"type": "write_file", "path": "relative/path", "content": "..."}`
+- `{"type": "append_file", "path": "relative/path", "content": "..."}`
+- `{"type": "replace_in_file", "path": "relative/path", "old": "...", "new": "..."}`

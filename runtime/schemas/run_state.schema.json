@@ -87,6 +87,19 @@
     "resume_source_run_id": {
       "type": "string"
     },
+    "base_commit": {
+      "type": "string"
+    },
+    "base_branch": {
+      "type": "string"
+    },
+    "repo_snapshot_file": {
+      "type": "string"
+    },
+    "startup_warnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
     "created_at": {
       "type": "string",
       "format": "date-time"
@@ -98,6 +111,10 @@
     "context_metrics": {
       "type": "object",
       "additionalProperties": true
+    },
+    "promoted_files": {
+      "type": "array",
+      "items": { "type": "string" }
     }
   }
 }

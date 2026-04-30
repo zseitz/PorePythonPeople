@@ -1,21 +1,28 @@
 import json
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from runtime.executor import SpecialistExecutor
+import runtime.orchestrator as orchestrator_module
+from runtime.executor import SpecialistExecutor, build_gate_evidence
 from runtime.gates import evaluate_stage_gates
 from runtime.orchestrator import _build_cli_summary, _build_executor, run_milestone1
 from runtime.planner import build_triage_plan, classify_complexity
 from runtime.context_manager import ContextBudgetManager
+from runtime.repo_ops import RepoSandboxManager
 
 
 def _policy_with_run_root(run_root: Path):
     return {
-        "runtime": {"run_root": str(run_root)},
+        "runtime": {
+            "run_root": str(run_root),
+            "promotion": {"enabled": False, "require_approval": True},
+            "git_guardrails": {"require_clean_worktree": False, "recommend_feature_branch": False},
+        },
         "model_provider": {"adapter": "none", "model": "test"},
         "specialists": {
             "orchestrator": {"prompt_inline": "orchestrator"},
@@ -65,14 +72,20 @@ def _policy_with_run_root(run_root: Path):
                     {"id": "tests_pass"},
                     {"id": "no_new_errors"},
                     {"id": "coverage_meets_policy"},
-                ]
+                ],
+                "commands": {
+                    "tests": "pytest -q tests/test_runtime_milestone1.py::test_classify_complexity_large_for_contract_migration",
+                },
             },
             "verify_after_refactor": {
                 "required_checks": [
                     {"id": "tests_pass"},
                     {"id": "no_new_errors"},
                     {"id": "coverage_meets_policy"},
-                ]
+                ],
+                "commands": {
+                    "tests": "pytest -q tests/test_runtime_milestone1.py::test_classify_complexity_large_for_contract_migration",
+                },
             },
             "doc_sync": {
                 "required_checks": [
@@ -88,6 +101,23 @@ def _policy_with_run_root(run_root: Path):
             },
         },
     }
+
+
+def _init_git_repo(repo_dir: Path, branch: str = "feature/runtime-guardrails") -> Path:
+    repo_dir.mkdir(parents=True, exist_ok=True)
+    (repo_dir / "README.md").write_text("initial\n", encoding="utf-8")
+
+    init_cmd = ["git", "init", "-b", branch]
+    init_result = subprocess.run(init_cmd, cwd=repo_dir, capture_output=True, text=True, check=False)
+    if init_result.returncode != 0:
+        subprocess.run(["git", "init"], cwd=repo_dir, capture_output=True, text=True, check=True)
+        subprocess.run(["git", "checkout", "-b", branch], cwd=repo_dir, capture_output=True, text=True, check=True)
+
+    subprocess.run(["git", "config", "user.email", "tests@example.com"], cwd=repo_dir, capture_output=True, text=True, check=True)
+    subprocess.run(["git", "config", "user.name", "Runtime Tests"], cwd=repo_dir, capture_output=True, text=True, check=True)
+    subprocess.run(["git", "add", "README.md"], cwd=repo_dir, capture_output=True, text=True, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo_dir, capture_output=True, text=True, check=True)
+    return repo_dir
 
 
 def _stage_ids_from_run_state(run_state):
@@ -191,6 +221,8 @@ def test_run_state_artifact_contract_written(tmp_path):
     assert persisted["artifacts_dir"].endswith("/artifacts")
     assert persisted["events_file"].endswith("/events.jsonl")
     assert persisted["sandbox_dir"].endswith("/sandbox/repo")
+    assert "repo_snapshot_file" in persisted
+    assert "startup_warnings" in persisted
 
 
 def test_run_applies_approved_waiver(tmp_path):
@@ -240,6 +272,8 @@ def test_memory_sync_writes_directly_to_repo_memory(tmp_path):
     shutil.copytree(fixture_repo, temp_repo)
 
     policy = _policy_with_run_root(tmp_path)
+    policy["gates"]["verify"]["commands"] = {"tests": "python -m pytest --help"}
+    policy["gates"]["verify_after_refactor"]["commands"] = {"tests": "python -m pytest --help"}
     policy["repo_memory"] = {
         "target_files": ["memories/repo/testing.md", "memories/repo/orchestrator-runtime.md"]
     }
@@ -255,7 +289,58 @@ def test_memory_sync_writes_directly_to_repo_memory(tmp_path):
     assert run_state["status"] == "completed"
     memory_file = temp_repo / "memories" / "repo" / "testing.md"
     assert memory_file.exists()
-    assert "schema-validated stage and gate boundaries" in memory_file.read_text(encoding="utf-8")
+    run_dir = tmp_path / run_state["run_id"]
+    payload = json.loads((run_dir / "artifacts" / "stages" / "memory_sync_payload.json").read_text(encoding="utf-8"))
+    assert "memories/repo/testing.md" in payload.get("changed_files", [])
+
+
+def test_verify_treats_pytest_no_tests_collected_as_pass(tmp_path):
+    policy = _policy_with_run_root(tmp_path)
+    # Force pytest to collect zero tests (exit code 5).
+    policy["gates"]["verify"]["commands"] = {
+        "tests": "pytest -q -k definitely_no_test_should_match tests/test_runtime_milestone1.py",
+    }
+    policy["gates"]["verify_after_refactor"]["commands"] = {
+        "tests": "pytest -q -k definitely_no_test_should_match tests/test_runtime_milestone1.py",
+    }
+
+    run_state = run_milestone1(
+        request="No-tests-collected verify command",
+        policy=policy,
+        executor=SpecialistExecutor(),
+        repo_root=Path(__file__).resolve().parents[1],
+    )
+
+    assert run_state["status"] == "completed"
+
+
+def test_promotion_applies_doc_sync_changes_to_repo(tmp_path):
+    fixture_repo = Path(__file__).resolve().parent / "fixtures" / "runtime_fixture_repo"
+    temp_repo = tmp_path / "fixture_repo"
+    shutil.copytree(fixture_repo, temp_repo)
+
+    policy = _policy_with_run_root(tmp_path)
+    policy["runtime"]["promotion"] = {"enabled": True, "require_approval": False}
+    policy["runtime"]["git_guardrails"] = {"require_clean_worktree": False, "recommend_feature_branch": False}
+    # Keep verify deterministic and quick for this promotion-path test.
+    policy["gates"]["verify"]["commands"] = {"tests": "python -m pytest --help"}
+    policy["gates"]["verify_after_refactor"]["commands"] = {"tests": "python -m pytest --help"}
+
+    run_state = run_milestone1(
+        request="Promotion path test",
+        policy=policy,
+        executor=None,
+        repo_root=temp_repo,
+    )
+
+    assert run_state["status"] == "completed"
+    promoted = run_state.get("promoted_files", [])
+    assert isinstance(promoted, list)
+    assert "Docs/agent_logs/REQUEST_LOG.md" in promoted
+
+    request_log = temp_repo / "Docs" / "agent_logs" / "REQUEST_LOG.md"
+    assert request_log.exists()
+    assert "Runtime doc sync fallback entry" in request_log.read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -547,4 +632,432 @@ def test_executor_uses_owner_specific_adapter_when_present():
 
     assert doc_response == "from-doc"
     assert verify_response == "from-default"
+
+
+def test_executor_applies_llm_json_actions_in_sandbox(tmp_path):
+    class FakeAdapter:
+        def chat(self, _system_prompt, _messages):
+            return json.dumps(
+                {
+                    "changed_files": [],
+                    "implementation_summary": "Implemented from model payload",
+                    "test_updates": ["Added regression coverage"],
+                    "unresolved_risks": [],
+                    "noop_justified": False,
+                    "actions": [
+                        {
+                            "type": "write_file",
+                            "path": "runtime/generated_from_model.txt",
+                            "content": "hello from llm json\n",
+                        }
+                    ],
+                }
+            )
+
+    repo_root = Path(__file__).resolve().parents[1]
+    sandbox = RepoSandboxManager(repo_root=repo_root, sandbox_root=tmp_path / "sandbox")
+    sandbox.prepare()
+
+    executor = SpecialistExecutor(
+        specialists={"feature_builder": {"prompt_inline": "feature"}},
+        model_adapter=FakeAdapter(),
+        repo_root=repo_root,
+        repo_ops=sandbox,
+        policy=_policy_with_run_root(tmp_path),
+    )
+
+    result = executor.run_stage(
+        run_id="run_test",
+        stage_id="implement",
+        owner="feature_builder",
+        request="Generate file",
+        context={"request": "Generate file"},
+        artifacts_dir=tmp_path / "artifacts",
+    )
+
+    payload_path = Path(result["artifacts"][0]["path"])
+    payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    assert "runtime/generated_from_model.txt" in payload["changed_files"]
+    assert payload["llm_integration"]["used_llm_payload"] is True
+    assert (sandbox.sandbox_repo / "runtime/generated_from_model.txt").exists()
+
+
+def test_executor_falls_back_when_llm_payload_is_invalid(tmp_path):
+    class FakeAdapter:
+        def chat(self, _system_prompt, _messages):
+            return "this is not json"
+
+    repo_root = Path(__file__).resolve().parents[1]
+    sandbox = RepoSandboxManager(repo_root=repo_root, sandbox_root=tmp_path / "sandbox")
+    sandbox.prepare()
+
+    executor = SpecialistExecutor(
+        specialists={"feature_builder": {"prompt_inline": "feature"}},
+        model_adapter=FakeAdapter(),
+        repo_root=repo_root,
+        repo_ops=sandbox,
+        policy=_policy_with_run_root(tmp_path),
+    )
+
+    result = executor.run_stage(
+        run_id="run_test",
+        stage_id="implement",
+        owner="feature_builder",
+        request="Generate file",
+        context={"request": "Generate file"},
+        artifacts_dir=tmp_path / "artifacts",
+    )
+
+    payload_path = Path(result["artifacts"][0]["path"])
+    payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    assert payload["noop_justified"] is True
+    assert payload["llm_integration"]["fallback_used"] is True
+
+
+def test_repo_ops_blocks_shell_control_tokens(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    sandbox = RepoSandboxManager(repo_root=repo_root, sandbox_root=tmp_path / "sandbox")
+    sandbox.prepare()
+
+    try:
+        sandbox.run_command(
+            "pytest -q; echo hacked",
+            allowlist=["pytest"],
+            blocklist=["rm -rf /"],
+        )
+    except PermissionError as exc:
+        assert "disallowed shell control characters" in str(exc)
+    else:
+        raise AssertionError("Expected shell control token command to be blocked")
+
+
+def test_promotion_rejected_by_operator_records_skip_event(tmp_path):
+    policy = _policy_with_run_root(tmp_path)
+    policy["runtime"]["promotion"] = {"enabled": True, "require_approval": True}
+
+    def approval_handler(request):
+        if "from_stage" in request:
+            return "approve"
+        return "reject"
+
+    run_state = run_milestone1(
+        request="Create changes but reject promotion",
+        policy=policy,
+        executor=None,
+        repo_root=Path(__file__).resolve().parents[1],
+        approval_handler=approval_handler,
+    )
+
+    assert run_state["status"] == "completed"
+    events_path = tmp_path / run_state["run_id"] / "events.jsonl"
+    events_text = events_path.read_text(encoding="utf-8")
+    assert '"type": "promotion_requested"' in events_text
+    assert '"type": "promotion_skipped"' in events_text
+
+
+def test_run_records_git_baseline_and_feature_branch_warning(tmp_path, capsys):
+    repo_root = _init_git_repo(tmp_path / "git_repo", branch="main")
+    policy = _policy_with_run_root(tmp_path / "runs")
+    policy["runtime"]["git_guardrails"] = {"require_clean_worktree": True, "recommend_feature_branch": True}
+    policy["gates"]["verify"]["commands"] = {"tests": "python -m pytest --help"}
+    policy["gates"]["verify_after_refactor"]["commands"] = {"tests": "python -m pytest --help"}
+    policy["repo_memory"] = {"target_files": ["memories/repo/testing.md"]}
+
+    run_state = run_milestone1(
+        request="Record git baseline metadata",
+        policy=policy,
+        repo_root=repo_root,
+    )
+
+    assert run_state["status"] == "completed"
+    assert run_state["base_commit"]
+    assert run_state["base_branch"] == "main"
+    assert run_state["repo_snapshot_file"].endswith("repo_start_snapshot.json")
+    assert run_state["startup_warnings"]
+    out = capsys.readouterr().out
+    assert "feature branch" in out
+
+
+def test_run_refuses_dirty_git_worktree_before_start(tmp_path):
+    repo_root = _init_git_repo(tmp_path / "dirty_repo")
+    (repo_root / "README.md").write_text("dirty change\n", encoding="utf-8")
+
+    policy = _policy_with_run_root(tmp_path / "runs")
+    policy["runtime"]["git_guardrails"] = {"require_clean_worktree": True, "recommend_feature_branch": False}
+    run_state = run_milestone1(
+        request="Reject dirty repo",
+        policy=policy,
+        repo_root=repo_root,
+        executor=SpecialistExecutor(),
+    )
+
+    assert run_state["status"] == "failed"
+    run_dir = Path(policy["runtime"]["run_root"]) / run_state["run_id"]
+    assert (run_dir / "run.json").exists()
+    events_text = (run_dir / "events.jsonl").read_text(encoding="utf-8")
+    assert '"type": "startup_error"' in events_text
+
+
+def test_promotion_blocked_when_target_file_changes_during_run(tmp_path, monkeypatch):
+    class PromotionChangeExecutor(SpecialistExecutor):
+        def _stage_payload(self, run_id, stage_id, request, context):
+            payload = super()._stage_payload(run_id, stage_id, request, context)
+            if stage_id == "implement":
+                payload.update(
+                    {
+                        "changed_files": [],
+                        "implementation_summary": "Modify README in sandbox",
+                        "test_updates": [],
+                        "unresolved_risks": [],
+                        "noop_justified": False,
+                        "actions": [
+                            {
+                                "type": "write_file",
+                                "path": "README.md",
+                                "content": "sandbox change\n",
+                            }
+                        ],
+                    }
+                )
+            return payload
+
+    repo_root = _init_git_repo(tmp_path / "promotion_repo")
+    policy = _policy_with_run_root(tmp_path / "runs")
+    policy["runtime"]["promotion"] = {"enabled": True, "require_approval": True}
+    policy["runtime"]["git_guardrails"] = {"require_clean_worktree": True, "recommend_feature_branch": False}
+    policy["gates"]["verify"]["commands"] = {"tests": "python -m pytest --help"}
+    policy["gates"]["verify_after_refactor"]["commands"] = {"tests": "python -m pytest --help"}
+    policy["repo_memory"] = {"target_files": ["memories/repo/testing.md"]}
+
+    def fake_build_executor(policy, repo_root, repo_ops, memory_writer, context_manager):
+        return PromotionChangeExecutor(
+            repo_root=repo_root,
+            repo_ops=repo_ops,
+            memory_writer=memory_writer,
+            policy=policy,
+            context_manager=context_manager,
+        )
+
+    monkeypatch.setattr(orchestrator_module, "_build_executor", fake_build_executor)
+
+    def approval_handler(request):
+        if request.get("from_stage") == "memory_sync" and request.get("to_stage") == "closeout":
+            (repo_root / "README.md").write_text("real repo drift\n", encoding="utf-8")
+        return "approve"
+
+    run_state = run_milestone1(
+        request="Block promotion on target drift",
+        policy=policy,
+        repo_root=repo_root,
+        executor=None,
+        approval_mode="per_stage",
+        approval_handler=approval_handler,
+    )
+
+    assert run_state["status"] == "completed"
+    assert run_state["promoted_files"] == []
+    run_dir = Path(policy["runtime"]["run_root"]) / run_state["run_id"]
+    promotion_payload = json.loads((run_dir / "artifacts" / "promotion_diff.json").read_text(encoding="utf-8"))
+    guardrails = promotion_payload["repo_guardrails"]
+    assert "README.md" in guardrails["conflicting_files"]
+    events_text = (run_dir / "events.jsonl").read_text(encoding="utf-8")
+    assert '"type": "promotion_blocked"' in events_text
+
+
+def test_implement_gate_fails_when_merge_markers_found():
+    evidence = build_gate_evidence(
+        "implement",
+        {
+            "changed_files": ["src/example.py"],
+            "noop_justified": False,
+            "merge_markers_found": True,
+        },
+    )
+    assert evidence["changeset_nonempty_or_noop_justified"] is True
+    assert evidence["no_unresolved_merge_markers"] is False
+
+
+def test_verify_uses_sandbox_default_cwd(tmp_path):
+    class CapturingRepoOps:
+        sandbox_repo = Path("/tmp/sandbox")
+
+        def run_command(self, _command, _allowlist, _blocklist, cwd=None, timeout=120):
+            self.captured_cwd = cwd
+            return {"command": "pytest -q", "exit_code": 0, "stdout": "", "stderr": ""}
+
+        def changed_files(self):
+            return []
+
+    repo_ops = CapturingRepoOps()
+    policy = _policy_with_run_root(tmp_path)
+    policy["gates"]["verify"] = {"required_checks": [], "commands": {"tests": "pytest -q"}}
+    executor = SpecialistExecutor(policy=policy, repo_ops=repo_ops)
+
+    payload = executor._run_verify_commands("verify", context={})
+    assert payload["tests_exit_code"] == 0
+    assert getattr(repo_ops, "captured_cwd", "sentinel") is None
+
+
+def test_no_tests_collected_fails_without_opt_in(tmp_path):
+    class ExitFiveRepoOps:
+        sandbox_repo = Path("/tmp/sandbox")
+
+        def run_command(self, _command, _allowlist, _blocklist, cwd=None, timeout=120):
+            return {"command": "pytest -q", "exit_code": 5, "stdout": "", "stderr": "no tests collected"}
+
+        def changed_files(self):
+            return []
+
+    policy = _policy_with_run_root(tmp_path)
+    policy["gates"]["verify"] = {
+        "required_checks": [{"id": "tests_pass"}],
+        "commands": {"tests": "pytest -q"},
+        "allow_no_tests_collected": False,
+    }
+    executor = SpecialistExecutor(policy=policy, repo_ops=ExitFiveRepoOps())
+    payload = executor._run_verify_commands("verify", context={})
+    evidence = build_gate_evidence("verify", payload)
+    assert payload["tests_exit_code"] == 5
+    assert evidence["tests_pass"] is False
+
+
+def test_no_tests_collected_passes_with_opt_in(tmp_path):
+    class ExitFiveRepoOps:
+        sandbox_repo = Path("/tmp/sandbox")
+
+        def run_command(self, _command, _allowlist, _blocklist, cwd=None, timeout=120):
+            return {"command": "pytest -q", "exit_code": 5, "stdout": "", "stderr": "no tests collected"}
+
+        def changed_files(self):
+            return []
+
+    policy = _policy_with_run_root(tmp_path)
+    policy["gates"]["verify"] = {
+        "required_checks": [{"id": "tests_pass"}],
+        "commands": {"tests": "pytest -q"},
+        "allow_no_tests_collected": True,
+    }
+    executor = SpecialistExecutor(policy=policy, repo_ops=ExitFiveRepoOps())
+    payload = executor._run_verify_commands("verify", context={})
+    evidence = build_gate_evidence("verify", payload)
+    assert payload["tests_exit_code"] == 0
+    assert evidence["tests_pass"] is True
+
+
+def test_valid_json_missing_required_fields_falls_back(tmp_path):
+    class FakeAdapter:
+        def chat(self, _system_prompt, _messages):
+            return json.dumps({"implementation_summary": "partial"})
+
+    repo_root = Path(__file__).resolve().parents[1]
+    sandbox = RepoSandboxManager(repo_root=repo_root, sandbox_root=tmp_path / "sandbox")
+    sandbox.prepare()
+
+    executor = SpecialistExecutor(
+        specialists={"feature_builder": {"prompt_inline": "feature"}},
+        model_adapter=FakeAdapter(),
+        repo_root=repo_root,
+        repo_ops=sandbox,
+        policy=_policy_with_run_root(tmp_path),
+    )
+
+    result = executor.run_stage(
+        run_id="run_test",
+        stage_id="implement",
+        owner="feature_builder",
+        request="Generate file",
+        context={"request": "Generate file"},
+        artifacts_dir=tmp_path / "artifacts",
+    )
+
+    payload_path = Path(result["artifacts"][0]["path"])
+    payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    assert payload["noop_justified"] is True
+    assert payload["llm_integration"]["fallback_used"] is True
+
+
+def test_executor_supports_replace_in_file_action(tmp_path):
+    class FakeAdapter:
+        def chat(self, _system_prompt, _messages):
+            return json.dumps(
+                {
+                    "changed_files": [],
+                    "implementation_summary": "Replace text via model action",
+                    "test_updates": [],
+                    "unresolved_risks": [],
+                    "noop_justified": False,
+                    "actions": [
+                        {
+                            "type": "replace_in_file",
+                            "path": "runtime/replace_target.txt",
+                            "old": "OLD_VALUE",
+                            "new": "NEW_VALUE",
+                        }
+                    ],
+                }
+            )
+
+    repo_root = Path(__file__).resolve().parents[1]
+    sandbox = RepoSandboxManager(repo_root=repo_root, sandbox_root=tmp_path / "sandbox")
+    sandbox.prepare()
+    sandbox.write_file("runtime/replace_target.txt", "key=OLD_VALUE\n")
+
+    executor = SpecialistExecutor(
+        specialists={"feature_builder": {"prompt_inline": "feature"}},
+        model_adapter=FakeAdapter(),
+        repo_root=repo_root,
+        repo_ops=sandbox,
+        policy=_policy_with_run_root(tmp_path),
+    )
+
+    executor.run_stage(
+        run_id="run_test",
+        stage_id="implement",
+        owner="feature_builder",
+        request="Replace value",
+        context={"request": "Replace value"},
+        artifacts_dir=tmp_path / "artifacts",
+    )
+
+    text = (sandbox.sandbox_repo / "runtime/replace_target.txt").read_text(encoding="utf-8")
+    assert "NEW_VALUE" in text
+    assert "OLD_VALUE" not in text
+
+
+def test_verify_sets_require_refactor_when_unresolved_risks_exist(tmp_path):
+    class PassingRepoOps:
+        sandbox_repo = Path("/tmp/sandbox")
+
+        def run_command(self, _command, _allowlist, _blocklist, cwd=None, timeout=120):
+            return {"command": "pytest -q", "exit_code": 0, "stdout": "", "stderr": ""}
+
+        def changed_files(self):
+            return []
+
+    policy = _policy_with_run_root(tmp_path)
+    policy["gates"]["verify"] = {"required_checks": [], "commands": {"tests": "pytest -q"}}
+    executor = SpecialistExecutor(policy=policy, repo_ops=PassingRepoOps())
+
+    payload = executor._run_verify_commands(
+        "verify",
+        context={"implement": {"unresolved_risks": ["cleanup needed"]}},
+    )
+    assert payload["quality_signals"]["require_refactor"] is True
+
+
+def test_repo_ops_allowlist_token_matching_blocks_prefix_spoof(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    sandbox = RepoSandboxManager(repo_root=repo_root, sandbox_root=tmp_path / "sandbox")
+    sandbox.prepare()
+
+    try:
+        sandbox.run_command(
+            "pytestx -q",
+            allowlist=["pytest", "python -m pytest"],
+            blocklist=["rm -rf /"],
+        )
+    except PermissionError as exc:
+        assert "Command not allowed by policy" in str(exc)
+    else:
+        raise AssertionError("Expected prefix-spoofed command to be blocked")
 

@@ -1125,6 +1125,8 @@ Use this as a fast operational reference during a live runtime execution.
 
 Before launching a run, verify:
 
+- you are in your own local clone on a dedicated feature branch (strongly recommended; avoid running from `main`/`master`),
+- the local working tree is clean before the runtime starts,
 - runtime policy file is present and readable (`runtime/policies.yaml`),
 - stage templates and schemas are present,
 - test environment is available,
@@ -1179,14 +1181,24 @@ Operator approval mode:
 Current behavior:
 
 - creates a new `run_id`,
+- requires a clean git working tree before a fresh run starts when the repository root is a git checkout,
 - creates a sandbox copy of the repository under the run artifacts before implementation/doc-sync actions,
+- records the base commit hash, current branch, and a start-of-run repository snapshot when the sandbox is created,
+- consumes specialist responses as JSON stage payloads when possible, validates required stage fields, and falls back to deterministic payload templates when model output is invalid/unavailable,
+- applies supported model-authored edit intents (`write_file`, `append_file`, `replace_in_file`) inside the sandbox under policy edit-scope controls,
 - writes `.nanopore-runtime/runs/<run_id>/run.json`,
 - appends stage/gate events to `.nanopore-runtime/runs/<run_id>/events.jsonl`,
 - emits stage-to-stage handoff artifacts in `.nanopore-runtime/runs/<run_id>/artifacts/handoffs/`,
 - records approved waivers in `.nanopore-runtime/runs/<run_id>/artifacts/waivers.jsonl`,
+- emits a startup warning when the runtime is launched from `main`/`master` or detached HEAD, strongly recommending a feature branch in the user’s local clone,
 - applies stage-specific context budgets from policy and compacts oversized payloads automatically,
 - records per-stage context utilization in stage results and aggregate context metrics in `run.json`,
 - writes repository memory updates directly into `memories/repo/` when memory sync runs,
+- executes verification commands from policy (`gates.verify.commands.tests` and optional coverage command) in the sandbox workspace instead of fixed test targets,
+- enforces implementation gate merge-marker checks by scanning changed sandbox files for unresolved conflict markers,
+- supports policy-controlled handling of pytest code `5` (`allow_no_tests_collected`) instead of always treating no-tests-collected as pass,
+- checks whether the real local repository changed since run start before promotion and refuses promotion when target files drifted in the real repo,
+- supports optional operator-gated sandbox promotion after closeout and records promotion request/apply/skip/block events,
 - validates `HandoffPacket`, `StageResult`, `GateResult`, and `RunState` against runtime schemas,
 - halts early if a required gate fails.
 
@@ -1223,6 +1235,7 @@ Use this runbook when you want to:
 
 Current recommended defaults:
 
+- run the runtime from a dedicated feature branch inside your own local clone,
 - sandbox-copy execution for implementation/doc-sync actions,
 - waiver approval limited to the configured operator,
 - explicit operator choice on resume,
@@ -1352,9 +1365,9 @@ This section defines the practical model map for Local Specialist runtime runs i
 
 Rationale:
 
-- implementation/refactor/verification tasks keep stronger coding depth,
-- documentation/memory summarization tasks use a smaller and faster local model,
-- orchestrator and routing remain on the stronger global model unless explicitly overridden.
+- keeps local runtime behavior consistent across stages while specialist-level override hooks remain available,
+- reduces configuration drift risk between policy and operator expectations,
+- still allows per-specialist model divergence later if throughput/quality tradeoffs are needed.
 
 #### 15.16.2 Context-window estimates by specialist (operational guidance)
 

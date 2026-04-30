@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import fnmatch
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .context_manager import ContextBudgetManager
 from .memory_writer import MemoryWriter
@@ -15,6 +16,28 @@ from .repo_ops import RepoSandboxManager
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+_STAGE_REQUIRED_FIELDS: Dict[str, List[str]] = {
+    "triage_plan": ["complexity", "staged_plan", "acceptance_criteria", "impacted_components"],
+    "implement": ["changed_files", "implementation_summary", "test_updates", "unresolved_risks", "noop_justified", "actions"],
+    "verify": ["checks_run", "quality_signals", "failures_or_warnings", "tests_exit_code"],
+    "verify_after_refactor": ["checks_run", "quality_signals", "failures_or_warnings", "tests_exit_code"],
+    "refactor_or_docsync": ["route_decision"],
+    "refactor": ["refactor_candidates", "selected_refactor", "changed_files", "behavior_preservation_notes", "checks_run"],
+    "doc_sync": [
+        "docs_updated",
+        "doc_change_summary",
+        "request_log_entry",
+        "request_log_updated",
+        "contract_change_required",
+        "user_workflow_change_required",
+        "changed_files",
+        "actions",
+    ],
+    "memory_sync": ["memory_updates", "reusable_patterns", "followup_constraints", "changed_files"],
+    "closeout": ["final_summary", "artifacts_index"],
+}
 
 
 class SpecialistExecutor:
@@ -54,10 +77,65 @@ class SpecialistExecutor:
         artifacts_dir: Path,
     ) -> Dict[str, object]:
         started_at = _utc_now()
-        payload = self._stage_payload(run_id, stage_id, request, context)
+
+        before_changed: set[str] = set()
+        if self.repo_ops is not None:
+            before_changed = set(self.repo_ops.changed_files())
+
+        fallback_payload = self._stage_payload(run_id, stage_id, request, context)
+        payload = dict(fallback_payload)
+
         llm_response = self._try_model_response(owner, stage_id, request, context)
+        parse_warning: Optional[str] = None
+        used_llm_payload = False
+        fallback_used = False
+
         if llm_response:
-            payload["model_response"] = llm_response
+            llm_payload, parse_warning = self._parse_model_payload(llm_response)
+            if llm_payload is not None:
+                valid_payload, validation_warning = self._validate_stage_payload(stage_id, llm_payload)
+                if valid_payload:
+                    payload = self._merge_payload(fallback_payload, llm_payload)
+                    used_llm_payload = True
+                else:
+                    payload = dict(fallback_payload)
+                    fallback_used = True
+                    parse_warning = validation_warning
+            else:
+                fallback_used = True
+
+        action_warnings: List[str] = []
+        applied_actions: List[str] = []
+        if stage_id in {"implement", "doc_sync", "refactor"}:
+            applied_actions, action_warnings = self._apply_actions(payload)
+
+        if self.repo_ops is not None:
+            after_changed = set(self.repo_ops.changed_files())
+            stage_changed = sorted(after_changed - before_changed)
+            payload_changed = payload.get("changed_files", [])
+            if not isinstance(payload_changed, list):
+                payload_changed = []
+            payload["changed_files"] = sorted(set(str(p) for p in payload_changed + stage_changed))
+
+        if stage_id == "implement" and self.repo_ops is not None:
+            changed_files = payload.get("changed_files", [])
+            if not isinstance(changed_files, list):
+                changed_files = []
+            merge_markers_found = self._has_unresolved_merge_markers([str(path) for path in changed_files])
+            payload["merge_markers_found"] = merge_markers_found
+
+        meta_warnings: List[str] = []
+        if parse_warning:
+            meta_warnings.append(parse_warning)
+        meta_warnings.extend(action_warnings)
+        if llm_response:
+            payload["llm_integration"] = {
+                "response_received": True,
+                "used_llm_payload": used_llm_payload,
+                "fallback_used": fallback_used,
+                "applied_actions": applied_actions,
+                "warnings": meta_warnings,
+            }
 
         # --- context budget compaction + metrics recording ---
         context_metrics: Dict[str, object] = {}
@@ -100,6 +178,289 @@ class SpecialistExecutor:
             result["context_metrics"] = context_metrics
         return result
 
+    def _merge_payload(self, fallback_payload: Dict[str, object], llm_payload: Dict[str, object]) -> Dict[str, object]:
+        merged = dict(fallback_payload)
+        merged.update(llm_payload)
+        return merged
+
+    def _parse_model_payload(self, llm_response: str) -> Tuple[Optional[Dict[str, object]], Optional[str]]:
+        text = llm_response.strip()
+        if not text:
+            return None, "Model returned empty payload; using deterministic fallback."
+
+        candidates = [text]
+        if text.startswith("```"):
+            lines = text.splitlines()
+            if len(lines) >= 3:
+                candidates.append("\n".join(lines[1:-1]).strip())
+
+        for candidate in candidates:
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                return parsed, None
+
+        return None, "Model payload was not valid JSON; using deterministic fallback."
+
+    def _validate_stage_payload(self, stage_id: str, payload: Dict[str, object]) -> Tuple[bool, Optional[str]]:
+        required = _STAGE_REQUIRED_FIELDS.get(stage_id, [])
+        missing = [field for field in required if field not in payload]
+        if missing:
+            return False, (
+                f"Model payload missing required fields for stage '{stage_id}': {', '.join(missing)}; "
+                "using deterministic fallback."
+            )
+
+        # Minimal semantic checks for known structured fields.
+        list_fields = {"changed_files", "checks_run", "actions", "acceptance_criteria", "memory_updates", "reusable_patterns"}
+        for key in list_fields:
+            if key in payload and not isinstance(payload.get(key), list):
+                return False, f"Model payload field '{key}' must be a list; using deterministic fallback."
+
+        if stage_id in {"verify", "verify_after_refactor"}:
+            quality = payload.get("quality_signals", {})
+            if not isinstance(quality, dict):
+                return False, "Model payload field 'quality_signals' must be an object; using deterministic fallback."
+
+        return True, None
+
+    def _allowed_edit_globs(self) -> List[str]:
+        if not isinstance(self.policy, dict):
+            return []
+        globs = self.policy.get("policies", {}).get("edit_scope", {}).get("default_paths", [])
+        if isinstance(globs, list):
+            return [str(g) for g in globs if isinstance(g, str)]
+        return []
+
+    def _normalize_relative_path(self, raw_path: str) -> str:
+        rel = Path(raw_path)
+        if rel.is_absolute() or ".." in rel.parts:
+            raise ValueError(f"Unsafe action path: {raw_path}")
+        return rel.as_posix().lstrip("/")
+
+    def _is_path_allowed(self, relative_path: str) -> bool:
+        globs = self._allowed_edit_globs()
+        if not globs:
+            return True
+        normalized = relative_path.lstrip("/")
+        return any(fnmatch.fnmatch(normalized, pattern) for pattern in globs)
+
+    def _append_relative_file(self, relative_path: str, content: str) -> Path:
+        if self.repo_ops is None:
+            raise RuntimeError("Sandbox repository manager is required for append actions")
+        path = self.repo_ops.sandbox_repo / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(content)
+        return path
+
+    def _replace_in_relative_file(self, relative_path: str, old: str, new: str) -> Path:
+        if self.repo_ops is None:
+            raise RuntimeError("Sandbox repository manager is required for replace actions")
+        path = self.repo_ops.sandbox_repo / relative_path
+        if not path.exists() or not path.is_file():
+            raise FileNotFoundError(f"replace_in_file target missing: {relative_path}")
+        text = path.read_text(encoding="utf-8")
+        if old not in text:
+            raise ValueError(f"replace_in_file old string not found in: {relative_path}")
+        path.write_text(text.replace(old, new), encoding="utf-8")
+        return path
+
+    def _has_unresolved_merge_markers(self, relative_paths: List[str]) -> bool:
+        if self.repo_ops is None:
+            return False
+        markers = ("<<<<<<< ", "=======", ">>>>>>> ")
+        for relative in relative_paths:
+            candidate = self.repo_ops.sandbox_repo / relative
+            if not candidate.exists() or not candidate.is_file():
+                continue
+            try:
+                text = candidate.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            if any(marker in text for marker in markers):
+                return True
+        return False
+
+    def _allow_no_tests_collected(self, stage_id: str) -> bool:
+        if not isinstance(self.policy, dict):
+            return False
+        gates = self.policy.get("gates", {})
+        if not isinstance(gates, dict):
+            return False
+        key = "verify_after_refactor" if stage_id == "verify_after_refactor" else "verify"
+        cfg = gates.get(key, {})
+        if not isinstance(cfg, dict):
+            return False
+        return bool(cfg.get("allow_no_tests_collected", False))
+
+    def _apply_actions(self, payload: Dict[str, object]) -> Tuple[List[str], List[str]]:
+        if self.repo_ops is None:
+            return [], []
+
+        raw_actions = payload.get("actions", [])
+        if not isinstance(raw_actions, list):
+            return [], ["Actions field was not a list; ignored."]
+
+        applied: List[str] = []
+        warnings: List[str] = []
+
+        for idx, action in enumerate(raw_actions):
+            if not isinstance(action, dict):
+                warnings.append(f"Action #{idx + 1} was not an object and was skipped.")
+                continue
+
+            action_type = str(action.get("type", "")).strip()
+            raw_path = action.get("path")
+            if not isinstance(raw_path, str) or not raw_path.strip():
+                warnings.append(f"Action #{idx + 1} missing valid path and was skipped.")
+                continue
+
+            try:
+                relative_path = self._normalize_relative_path(raw_path)
+            except ValueError as exc:
+                warnings.append(str(exc))
+                continue
+
+            if not self._is_path_allowed(relative_path):
+                warnings.append(f"Action path not allowed by policy edit scope: {relative_path}")
+                continue
+
+            if action_type == "write_file":
+                content = action.get("content")
+                if not isinstance(content, str):
+                    warnings.append(f"write_file missing string content for: {relative_path}")
+                    continue
+                self.repo_ops.write_file(relative_path, content)
+                applied.append(f"write_file:{relative_path}")
+                continue
+
+            if action_type == "append_file":
+                content = action.get("content")
+                if not isinstance(content, str):
+                    warnings.append(f"append_file missing string content for: {relative_path}")
+                    continue
+                self._append_relative_file(relative_path, content)
+                applied.append(f"append_file:{relative_path}")
+                continue
+
+            if action_type == "replace_in_file":
+                old = action.get("old")
+                new = action.get("new")
+                if not isinstance(old, str) or not isinstance(new, str):
+                    warnings.append(f"replace_in_file requires string old/new fields for: {relative_path}")
+                    continue
+                try:
+                    self._replace_in_relative_file(relative_path, old, new)
+                except (FileNotFoundError, ValueError) as exc:
+                    warnings.append(str(exc))
+                    continue
+                applied.append(f"replace_in_file:{relative_path}")
+                continue
+
+            warnings.append(f"Unsupported action type '{action_type}' for path {relative_path}; skipped.")
+
+        return applied, warnings
+
+    def _verify_commands(self, stage_id: str) -> Dict[str, str]:
+        default_tests = "pytest -q"
+        commands: Dict[str, str] = {"tests": default_tests}
+        if not isinstance(self.policy, dict):
+            return commands
+
+        gates = self.policy.get("gates", {})
+        if not isinstance(gates, dict):
+            return commands
+
+        verify_cfg = gates.get("verify", {})
+        if isinstance(verify_cfg, dict):
+            raw = verify_cfg.get("commands", {})
+            if isinstance(raw, dict):
+                tests_cmd = raw.get("tests")
+                coverage_cmd = raw.get("coverage")
+                if isinstance(tests_cmd, str) and tests_cmd.strip():
+                    commands["tests"] = tests_cmd.strip()
+                if isinstance(coverage_cmd, str) and coverage_cmd.strip():
+                    commands["coverage"] = coverage_cmd.strip()
+
+        # Allow an explicit verify_after_refactor override if configured.
+        if stage_id == "verify_after_refactor":
+            after_cfg = gates.get("verify_after_refactor", {})
+            if isinstance(after_cfg, dict):
+                raw = after_cfg.get("commands", {})
+                if isinstance(raw, dict):
+                    tests_cmd = raw.get("tests")
+                    coverage_cmd = raw.get("coverage")
+                    if isinstance(tests_cmd, str) and tests_cmd.strip():
+                        commands["tests"] = tests_cmd.strip()
+                    if isinstance(coverage_cmd, str) and coverage_cmd.strip():
+                        commands["coverage"] = coverage_cmd.strip()
+
+        return commands
+
+    def _run_verify_commands(self, stage_id: str, context: Dict[str, object]) -> Dict[str, object]:
+        commands = self._verify_commands(stage_id)
+        checks_run: List[str] = []
+        failures_or_warnings: List[str] = []
+        tests_exit_code: Optional[int] = None
+        coverage_exit_code: Optional[int] = None
+
+        if self.repo_ops is None:
+            checks_run.append(f"{commands['tests']} (planned)")
+            return {
+                "checks_run": checks_run,
+                "quality_signals": {"require_refactor": False},
+                "failures_or_warnings": failures_or_warnings,
+                "tests_exit_code": 0,
+                "coverage_exit_code": coverage_exit_code,
+            }
+
+        allowlist = self._command_allowlist()
+        blocklist = self._command_blocklist()
+
+        tests_result = self.repo_ops.run_command(
+            commands["tests"], allowlist, blocklist
+        )
+        tests_exit_code = int(tests_result.get("exit_code", 1))
+        if tests_exit_code == 5 and self._allow_no_tests_collected(stage_id):
+            checks_run.append(f"{tests_result.get('command')} -> {tests_exit_code} (no tests collected; policy-allowed)")
+            tests_exit_code = 0
+        else:
+            checks_run.append(f"{tests_result.get('command')} -> {tests_exit_code}")
+            if tests_exit_code != 0:
+                stderr = str(tests_result.get("stderr", "")).strip()
+                failures_or_warnings.append(f"tests failed ({tests_exit_code}): {stderr[:400]}")
+
+        coverage_command = commands.get("coverage")
+        if isinstance(coverage_command, str) and coverage_command.strip():
+            coverage_result = self.repo_ops.run_command(
+                coverage_command, allowlist, blocklist
+            )
+            coverage_exit_code = int(coverage_result.get("exit_code", 1))
+            checks_run.append(f"{coverage_result.get('command')} -> {coverage_exit_code}")
+            if coverage_exit_code != 0:
+                stderr = str(coverage_result.get("stderr", "")).strip()
+                failures_or_warnings.append(f"coverage failed ({coverage_exit_code}): {stderr[:400]}")
+
+        require_refactor = False
+        if stage_id == "verify" and tests_exit_code == 0:
+            implement_ctx = context.get("implement", {})
+            if isinstance(implement_ctx, dict):
+                unresolved = implement_ctx.get("unresolved_risks", [])
+                llm_meta = implement_ctx.get("llm_integration", {})
+                llm_warnings = llm_meta.get("warnings", []) if isinstance(llm_meta, dict) else []
+                require_refactor = bool(unresolved) or bool(llm_warnings)
+
+        return {
+            "checks_run": checks_run,
+            "quality_signals": {"require_refactor": require_refactor},
+            "failures_or_warnings": failures_or_warnings,
+            "tests_exit_code": tests_exit_code,
+            "coverage_exit_code": coverage_exit_code,
+        }
+
     def _stage_payload(
         self, run_id: str, stage_id: str, request: str, context: Dict[str, object]
     ) -> Dict[str, object]:
@@ -107,36 +468,20 @@ class SpecialistExecutor:
             return build_triage_plan(request)
 
         if stage_id == "implement":
-            changed_files: List[str] = []
-            if self.repo_ops is not None:
-                plan_path = self.repo_ops.write_file(
-                    "runtime_implementation_note.txt",
-                    f"Implement stage sandbox note for request: {request}\n",
-                )
-                changed_files = [str(plan_path.relative_to(self.repo_ops.sandbox_repo).as_posix())]
             return {
-                "changed_files": changed_files,
+                "changed_files": [],
                 "implementation_summary": (
-                    "Local Specialist sandbox mode: implementation writes occur only in the safe sandbox copy."
+                    "Deterministic fallback mode: implementation actions were not model-authored."
                 ),
                 "test_updates": [],
                 "unresolved_risks": [],
-                "noop_justified": not bool(changed_files),
+                "noop_justified": True,
                 "checks_run": [],
+                "actions": [],
             }
 
         if stage_id in {"verify", "verify_after_refactor"}:
-            checks_run = ["pytest -q (planned)"]
-            if self.repo_ops is not None:
-                allowlist = self._command_allowlist()
-                blocklist = self._command_blocklist()
-                result = self.repo_ops.run_command("pytest -q tests/test_runtime_milestone1.py", allowlist, blocklist)
-                checks_run = [f"{result['command']} -> {result['exit_code']}"]
-            return {
-                "checks_run": checks_run,
-                "quality_signals": {"require_refactor": False},
-                "failures_or_warnings": [],
-            }
+            return self._run_verify_commands(stage_id, context)
 
         if stage_id == "refactor_or_docsync":
             quality = context.get("quality_signals", {})
@@ -158,18 +503,24 @@ class SpecialistExecutor:
 
         if stage_id == "doc_sync":
             changed_files: List[str] = []
+            request_log_entry = f"| {_utc_now()[:10]} | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |\n"
+            request_log_updated = False
             if self.repo_ops is not None:
-                doc_path = self.repo_ops.write_file(
-                    "Docs/runtime_doc_sync_note.md",
-                    f"Runtime doc sync placeholder for request: {request}\n",
-                )
-                changed_files = [doc_path.relative_to(self.repo_ops.sandbox_repo).as_posix()]
+                path = self._append_relative_file("Docs/agent_logs/REQUEST_LOG.md", request_log_entry)
+                changed_files = [path.relative_to(self.repo_ops.sandbox_repo).as_posix()]
+                request_log_updated = bool(changed_files)
+            else:
+                request_log_updated = True
             return {
                 "docs_updated": changed_files,
-                "doc_change_summary": "Sandbox documentation sync note written.",
-                "request_log_entry": "No-op documented by runtime run artifacts.",
+                "doc_change_summary": "Fallback doc sync appended a request-log entry in sandbox.",
+                "request_log_entry": request_log_entry.strip(),
+                "request_log_updated": request_log_updated,
+                "contract_change_required": False,
+                "user_workflow_change_required": False,
                 "checks_run": [],
                 "changed_files": changed_files,
+                "actions": [],
             }
 
         if stage_id == "memory_sync":
@@ -223,11 +574,39 @@ class SpecialistExecutor:
         if not system_prompt:
             system_prompt = f"You are the {owner} specialist for stage {stage_id}."
 
-        user_payload = {
+        user_payload: Dict[str, object] = {
             "stage": stage_id,
             "request": request,
             "context_keys": sorted(list(context.keys())),
         }
+
+        # For the implement stage, enrich the payload so the LLM can produce
+        # a valid "actions" list that _apply_actions() knows how to execute.
+        if stage_id == "implement":
+            triage_ctx = context.get("triage_plan", {})
+            if isinstance(triage_ctx, dict):
+                user_payload["acceptance_criteria"] = triage_ctx.get("acceptance_criteria", [])
+                user_payload["impacted_components"] = triage_ctx.get("impacted_components", [])
+            user_payload["response_format"] = (
+                "Return ONLY a raw JSON object (no markdown fences) with an 'actions' list. "
+                "Each action: {\"type\": \"write_file\"|\"append_file\", \"path\": \"relative/path\", \"content\": \"...\"}. "
+                "Allowed root paths: src/, tests/, Docs/, runtime/. "
+                "Use write_file to create/replace a file; append_file to add lines to an existing file."
+            )
+
+        # For doc_sync, tell the LLM about the implementation results so it can
+        # write a meaningful REQUEST_LOG row via an append_file action.
+        if stage_id == "doc_sync":
+            impl_ctx = context.get("implement", {})
+            if isinstance(impl_ctx, dict):
+                user_payload["implementation_summary"] = impl_ctx.get("implementation_summary", "")
+                user_payload["changed_files"] = impl_ctx.get("changed_files", [])
+            user_payload["response_format"] = (
+                "Return ONLY a raw JSON object with an 'actions' list containing one append_file action "
+                "targeting 'Docs/agent_logs/REQUEST_LOG.md'. The content must be a single Markdown table row: "
+                "| DATE | team | OBJECTIVE | orchestrator | FILES | completed | NOTES |\\n"
+            )
+
         return adapter.chat(system_prompt, [{"role": "user", "content": json.dumps(user_payload)}])
 
     def _load_specialist_prompt(self, specialist_cfg: Dict[str, object]) -> str:
@@ -265,32 +644,54 @@ def build_gate_evidence(stage_id: str, stage_artifacts: Dict[str, object]) -> Di
     if stage_id == "implement":
         changed_files = stage_artifacts.get("changed_files", [])
         noop_justified = bool(stage_artifacts.get("noop_justified", False))
+        merge_markers_found = bool(stage_artifacts.get("merge_markers_found", False))
         return {
             "changeset_nonempty_or_noop_justified": bool(changed_files) or noop_justified,
-            "no_unresolved_merge_markers": True,
+            "no_unresolved_merge_markers": not merge_markers_found,
         }
 
     if stage_id == "verify":
-        checks_run = stage_artifacts.get("checks_run", [])
+        tests_exit = stage_artifacts.get("tests_exit_code")
+        coverage_exit = stage_artifacts.get("coverage_exit_code")
+        failures = stage_artifacts.get("failures_or_warnings", [])
+        tests_pass = tests_exit == 0 if isinstance(tests_exit, int) else False
+        coverage_meets = tests_pass if coverage_exit is None else coverage_exit == 0
         return {
-            "tests_pass": bool(checks_run),
-            "no_new_errors": True,
-            "coverage_meets_policy": True,
+            "tests_pass": tests_pass,
+            "no_new_errors": tests_pass and not bool(failures),
+            "coverage_meets_policy": coverage_meets,
         }
 
     if stage_id == "verify_after_refactor":
-        checks_run = stage_artifacts.get("checks_run", [])
+        tests_exit = stage_artifacts.get("tests_exit_code")
+        coverage_exit = stage_artifacts.get("coverage_exit_code")
+        failures = stage_artifacts.get("failures_or_warnings", [])
+        tests_pass = tests_exit == 0 if isinstance(tests_exit, int) else False
+        coverage_meets = tests_pass if coverage_exit is None else coverage_exit == 0
         return {
-            "tests_pass": bool(checks_run),
-            "no_new_errors": True,
-            "coverage_meets_policy": True,
+            "tests_pass": tests_pass,
+            "no_new_errors": tests_pass and not bool(failures),
+            "coverage_meets_policy": coverage_meets,
         }
 
     if stage_id == "doc_sync":
+        changed_files = stage_artifacts.get("changed_files", [])
+        if not isinstance(changed_files, list):
+            changed_files = []
+        normalized = [str(path) for path in changed_files]
+        contract_required = bool(stage_artifacts.get("contract_change_required", False))
+        workflow_required = bool(stage_artifacts.get("user_workflow_change_required", False))
+
+        components_updated = any(path == "Docs/components.md" for path in normalized)
+        textbook_updated = any(path == "Docs/nanoporethon_textbook.md" for path in normalized)
+        request_log_updated = bool(stage_artifacts.get("request_log_updated", False)) or any(
+            path == "Docs/agent_logs/REQUEST_LOG.md" for path in normalized
+        )
+
         return {
-            "components_updated_if_contract_changed": True,
-            "textbook_updated_if_user_workflow_changed": True,
-            "request_log_appended": bool(stage_artifacts.get("request_log_entry")),
+            "components_updated_if_contract_changed": (not contract_required) or components_updated,
+            "textbook_updated_if_user_workflow_changed": (not workflow_required) or textbook_updated,
+            "request_log_appended": request_log_updated,
         }
 
     if stage_id == "memory_sync":

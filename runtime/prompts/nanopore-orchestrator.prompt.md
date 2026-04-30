@@ -85,3 +85,15 @@ Return:
 4. Verification results (tests/lint/manual checks).
 5. Documentation/log updates completed.
 6. Any follow-up tasks.
+
+## Runtime response contract (required)
+
+Return **only valid JSON** (no markdown, no prose outside JSON).
+
+When this prompt is used by runtime stages, include the stage-required keys from
+`runtime/stage_templates.yaml` and use this optional action schema when edits are needed:
+
+- `actions`: array of objects
+  - `{"type": "write_file", "path": "relative/path", "content": "..."}`
+  - `{"type": "append_file", "path": "relative/path", "content": "..."}`
+  - `{"type": "replace_in_file", "path": "relative/path", "old": "...", "new": "..."}`

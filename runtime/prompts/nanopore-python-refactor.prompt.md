@@ -57,3 +57,20 @@ Return:
 2. A brief summary of refactors performed (or explicit no-op decision).
 3. List of files changed and purpose of each change.
 4. Verification results (tests/lint) and any follow-up suggestions.
+
+## Runtime response contract (required)
+
+Return **only valid JSON** (no markdown, no prose outside JSON).
+
+For `refactor` stage payloads include:
+- `refactor_candidates` (array[string])
+- `selected_refactor` (string)
+- `changed_files` (array[string])
+- `behavior_preservation_notes` (string)
+- `checks_run` (array[string])
+- `actions` (array of edit intents; optional)
+
+Supported action intents:
+- `{"type": "write_file", "path": "relative/path", "content": "..."}`
+- `{"type": "append_file", "path": "relative/path", "content": "..."}`
+- `{"type": "replace_in_file", "path": "relative/path", "old": "...", "new": "..."}`

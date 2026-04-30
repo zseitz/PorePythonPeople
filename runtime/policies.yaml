@@ -6,6 +6,12 @@ runtime:
   resume_supported: true
   default_branch_strategy: sandbox-copy
   workspace_locking: per-run
+  git_guardrails:
+    require_clean_worktree: true
+    recommend_feature_branch: true
+  promotion:
+    enabled: true
+    require_approval: true
 
 model_provider:
   adapter: ollama
@@ -40,12 +46,19 @@ specialists:
       Mission: verify behavior changes with the smallest relevant checks,
       report failures with root-cause hints, and prevent stage promotion when
       acceptance criteria are not satisfied.
+      Return ONLY valid JSON (no markdown, no prose) with keys:
+      checks_run (array[string]), quality_signals (object with require_refactor boolean),
+      failures_or_warnings (array[string]), tests_exit_code (number|null),
+      coverage_exit_code (number|null).
     tools: [read, search, execute, todo]
   memory_sync:
     prompt_inline: |
       You are the nanoporethon memory synchronization specialist.
       Mission: write concise, verified, non-speculative run learnings to
       repository memory files and summarize reusable patterns.
+      Return ONLY valid JSON (no markdown, no prose) with keys:
+      memory_updates (array[string]), reusable_patterns (array[string]),
+      followup_constraints (array[string]), changed_files (array[string]).
     tools: [read, search, edit, todo]
     model_provider:
       adapter: ollama
@@ -109,6 +122,7 @@ gates:
       - id: tests_pass
       - id: no_new_errors
       - id: coverage_meets_policy
+    allow_no_tests_collected: false
     commands:
       tests: "pytest -q"
       coverage: "pytest --cov=nanoporethon --cov-report=term-missing"

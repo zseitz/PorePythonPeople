@@ -34,3 +34,20 @@ Return:
 2. Files changed and purpose.
 3. Verification results.
 4. Any follow-up tasks.
+
+## Runtime response contract (required)
+
+Return **only valid JSON** (no markdown, no prose outside JSON).
+
+For `implement` stage payloads include:
+- `changed_files` (array[string])
+- `implementation_summary` (string)
+- `test_updates` (array[string])
+- `unresolved_risks` (array[string])
+- `noop_justified` (boolean)
+- `actions` (array of edit intents; optional)
+
+Supported action intents:
+- `{"type": "write_file", "path": "relative/path", "content": "..."}`
+- `{"type": "append_file", "path": "relative/path", "content": "..."}`
+- `{"type": "replace_in_file", "path": "relative/path", "old": "...", "new": "..."}`

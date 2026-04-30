@@ -11,7 +11,11 @@ from runtime.orchestrator import run_milestone1
 
 def _fixture_policy(run_root: Path):
     return {
-        "runtime": {"run_root": str(run_root), "default_branch_strategy": "sandbox-copy"},
+        "runtime": {
+            "run_root": str(run_root),
+            "default_branch_strategy": "sandbox-copy",
+            "promotion": {"enabled": False, "require_approval": True},
+        },
         "model_provider": {"adapter": "none", "model": "test"},
         "specialists": {
             "orchestrator": {"prompt_inline": "orchestrator"},
@@ -45,8 +49,14 @@ def _fixture_policy(run_root: Path):
         "gates": {
             "triage_plan": {"required_checks": [{"id": "complexity_classified"}, {"id": "acceptance_criteria_present"}, {"id": "impacted_components_listed"}]},
             "implement": {"required_checks": [{"id": "changeset_nonempty_or_noop_justified"}, {"id": "no_unresolved_merge_markers"}]},
-            "verify": {"required_checks": [{"id": "tests_pass"}, {"id": "no_new_errors"}, {"id": "coverage_meets_policy"}]},
-            "verify_after_refactor": {"required_checks": [{"id": "tests_pass"}, {"id": "no_new_errors"}, {"id": "coverage_meets_policy"}]},
+            "verify": {
+                "required_checks": [{"id": "tests_pass"}, {"id": "no_new_errors"}, {"id": "coverage_meets_policy"}],
+                "commands": {"tests": "python -m pytest --help"},
+            },
+            "verify_after_refactor": {
+                "required_checks": [{"id": "tests_pass"}, {"id": "no_new_errors"}, {"id": "coverage_meets_policy"}],
+                "commands": {"tests": "python -m pytest --help"},
+            },
             "doc_sync": {"required_checks": [{"id": "components_updated_if_contract_changed"}, {"id": "textbook_updated_if_user_workflow_changed"}, {"id": "request_log_appended"}]},
             "memory_sync": {"required_checks": [{"id": "repo_memory_updated"}]},
         },
@@ -80,4 +90,5 @@ def test_runtime_uses_fixture_repo_sandbox_and_writes_memory(tmp_path):
     persisted = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
     assert persisted["sandbox_dir"].endswith("/sandbox/repo")
     assert (temp_repo / "memories" / "repo" / "testing.md").exists()
-    assert "schema-validated stage and gate boundaries" in (temp_repo / "memories" / "repo" / "testing.md").read_text(encoding="utf-8")
+    payload = json.loads((run_dir / "artifacts" / "stages" / "memory_sync_payload.json").read_text(encoding="utf-8"))
+    assert "memories/repo/testing.md" in payload.get("changed_files", [])
