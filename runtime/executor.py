@@ -117,7 +117,7 @@ class SpecialistExecutor:
             return {
                 "changed_files": changed_files,
                 "implementation_summary": (
-                    "Tier-2 sandbox mode: implementation writes occur only in the safe sandbox copy."
+                    "Local Specialist sandbox mode: implementation writes occur only in the safe sandbox copy."
                 ),
                 "test_updates": [],
                 "unresolved_risks": [],

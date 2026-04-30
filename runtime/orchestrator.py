@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import urllib.error
+import urllib.request
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -67,7 +69,7 @@ def _build_executor(
     def _build_ollama_adapter(provider_cfg: Dict[str, object]) -> Optional[OllamaAdapter]:
         if provider_cfg.get("adapter") != "ollama":
             return None
-        model = str(provider_cfg.get("model", "qwen2.5-coder:14b"))
+        model = str(provider_cfg.get("model", "qwen3:4b"))
         base_url = str(provider_cfg.get("base_url", "http://localhost:11434"))
         return OllamaAdapter(model=model, base_url=base_url)
 
@@ -101,6 +103,151 @@ def _build_executor(
         policy=policy,
         context_manager=context_manager,
     )
+
+
+def _collect_ollama_targets(policy: Dict[str, object]) -> List[Dict[str, str]]:
+    """Collect effective Ollama model targets used by runtime specialists."""
+    targets: List[Dict[str, str]] = []
+    global_provider = policy.get("model_provider", {})
+    if not isinstance(global_provider, dict):
+        global_provider = {}
+
+    specialists = policy.get("specialists", {})
+    if not isinstance(specialists, dict):
+        specialists = {}
+
+    def _effective_provider(override: Optional[Dict[str, object]]) -> Dict[str, object]:
+        merged: Dict[str, object] = {}
+        merged.update(global_provider)
+        if isinstance(override, dict):
+            merged.update(override)
+        return merged
+
+    # Global target (if configured) for visibility.
+    if global_provider.get("adapter") == "ollama":
+        targets.append(
+            {
+                "owner": "global",
+                "model": str(global_provider.get("model", "")),
+                "base_url": str(global_provider.get("base_url", "http://localhost:11434")),
+            }
+        )
+
+    # Specialist effective targets (inherit global provider unless overridden).
+    for owner, cfg in specialists.items():
+        if not isinstance(owner, str) or not isinstance(cfg, dict):
+            continue
+        effective = _effective_provider(cfg.get("model_provider") if isinstance(cfg.get("model_provider"), dict) else None)
+        if effective.get("adapter") != "ollama":
+            continue
+        targets.append(
+            {
+                "owner": owner,
+                "model": str(effective.get("model", "")),
+                "base_url": str(effective.get("base_url", "http://localhost:11434")),
+            }
+        )
+
+    return [t for t in targets if t.get("model")]
+
+
+def _ollama_show(base_url: str, model: str, timeout: int = 3) -> Dict[str, object]:
+    payload = {"model": model}
+    req = urllib.request.Request(
+        url=f"{base_url.rstrip('/')}/api/show",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        raw = json.loads(response.read().decode("utf-8"))
+        return raw if isinstance(raw, dict) else {}
+
+
+def _extract_quantization(show_payload: Dict[str, object]) -> str:
+    details = show_payload.get("details", {})
+    if isinstance(details, dict):
+        q = details.get("quantization_level")
+        if isinstance(q, str) and q.strip():
+            return q.strip()
+
+    q_top = show_payload.get("quantization")
+    if isinstance(q_top, str) and q_top.strip():
+        return q_top.strip()
+
+    return ""
+
+
+def _emit_ollama_startup_warnings(policy: Dict[str, object]) -> None:
+    """Best-effort startup checks for configured Ollama models.
+
+    This is intentionally non-blocking and warning-only.
+    """
+    targets = _collect_ollama_targets(policy)
+    if not targets:
+        return
+
+    # Deduplicate model/base_url checks while preserving owner visibility.
+    grouped: Dict[str, Dict[str, object]] = {}
+    for target in targets:
+        key = f"{target['base_url']}::{target['model']}"
+        entry = grouped.setdefault(
+            key,
+            {
+                "base_url": target["base_url"],
+                "model": target["model"],
+                "owners": [],
+            },
+        )
+        owners = entry.get("owners", [])
+        if isinstance(owners, list):
+            owners.append(target["owner"])
+
+    for entry in grouped.values():
+        base_url = str(entry.get("base_url", "http://localhost:11434"))
+        model = str(entry.get("model", ""))
+        owners = entry.get("owners", [])
+        owners_label = ", ".join(str(o) for o in owners) if isinstance(owners, list) else "unknown"
+
+        try:
+            show_payload = _ollama_show(base_url=base_url, model=model)
+        except urllib.error.HTTPError as exc:
+            print(
+                "[runtime startup warning] "
+                f"Configured Ollama model '{model}' (owners: {owners_label}) was not available at {base_url} "
+                f"(HTTP {exc.code})."
+            )
+            continue
+        except urllib.error.URLError:
+            print(
+                "[runtime startup warning] "
+                f"Could not reach Ollama at {base_url} to validate model '{model}' "
+                f"(owners: {owners_label})."
+            )
+            continue
+        except TimeoutError:
+            print(
+                "[runtime startup warning] "
+                f"Timed out validating Ollama model '{model}' at {base_url} "
+                f"(owners: {owners_label})."
+            )
+            continue
+
+        quant = _extract_quantization(show_payload)
+        if not quant:
+            print(
+                "[runtime startup warning] "
+                f"Could not determine quantization for model '{model}' (owners: {owners_label})."
+            )
+            continue
+
+        quant_upper = quant.upper()
+        if not quant_upper.startswith("Q"):
+            print(
+                "[runtime startup warning] "
+                f"Model '{model}' reports quantization '{quant}' (owners: {owners_label}); "
+                "this may be unquantized and use more RAM."
+            )
 
 
 def _get_stage_map(policy: Dict[str, object]) -> Dict[str, Dict[str, object]]:
@@ -371,6 +518,9 @@ def run_milestone1(
     memory_writer = MemoryWriter(repo_root=repo_root)
 
     context_mgr = ContextBudgetManager.from_policy(policy if isinstance(policy, dict) else {})
+
+    if executor is None and isinstance(policy, dict):
+        _emit_ollama_startup_warnings(policy)
 
     if executor is None:
         executor = _build_executor(policy, repo_root, sandbox_manager, memory_writer, context_mgr)

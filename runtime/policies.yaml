@@ -9,7 +9,7 @@ runtime:
 
 model_provider:
   adapter: ollama
-  model: qwen2.5-coder:14b
+  model: qwen3:4b
   base_url: http://localhost:11434
   temperature: 0.1
   max_retries: 2
@@ -24,7 +24,7 @@ specialists:
     # Optional specialist-level model override (inherits global provider fields):
     # model_provider:
     #   adapter: ollama
-    #   model: qwen2.5-coder:14b
+    #   model: qwen3:4b
   refactor:
     prompt_file: runtime/prompts/nanopore-python-refactor.prompt.md
     tools: [read, search, edit, execute, todo]
@@ -33,7 +33,7 @@ specialists:
     tools: [read, search, edit, todo]
     model_provider:
       adapter: ollama
-      model: qwen2.5:7b
+      model: qwen3:4b
   verifier:
     prompt_inline: |
       You are the nanoporethon verification specialist.
@@ -49,7 +49,7 @@ specialists:
     tools: [read, search, edit, todo]
     model_provider:
       adapter: ollama
-      model: qwen2.5:7b
+      model: qwen3:4b
 
 stages:
   - id: triage_plan

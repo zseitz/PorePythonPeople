@@ -1,4 +1,4 @@
-"""Sandboxed repository operations for Tier-2 runtime."""
+"""Sandboxed repository operations for the Local Specialist runtime."""
 
 from __future__ import annotations
 
