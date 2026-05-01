@@ -1,3 +1,7 @@
+These personas mix current users, advanced edge cases, and future-facing needs.
+
+Important framing: they should not be read as a promise that the current runtime or agent layer is intended for unattended autonomous operation. The present operating model is still human-supervised, branch-local, and review-driven.
+
 ## Students:
 
 * Larry is a first year undergrad. He just joined the lab. He wants to analyze data that he collected.Larry needs the tool to be simple, but explain to him how it works. Larry is a beginner undergrad.
@@ -52,6 +56,6 @@ wants to make sure he can analyze data on his unique pore.
 
 * Rachel is the lab manager. She typically orders enzymes, reagents, and consumables necessary for the sequencing work, and sometimes interacts with the software to do regular data exports. She has limited experience with programming but can easily interact with the software through a GUI for her needs. 
 
-* Sofia is a clinical lab assistant processing biological samples. She uses nanopore sequencing as part of standardized diagnostic workflows. Sofia needs the software to produce consistent, validated outputs with minimal manual intervention. She values automation, simple reporting features, and safeguards that prevent accidental misuse.
+* Sofia is a clinical lab assistant processing biological samples. She uses nanopore sequencing as part of standardized diagnostic workflows. Sofia needs the software to produce consistent, validated outputs with clear guided steps and safeguards that prevent accidental misuse. She values simple reporting features, repeatable workflows, and supervised tooling that reduces friction without requiring unattended automation.
 
-* Lena is a lab technician responsible for routine sequencing runs. She performs daily nanopore experiments and needs to quickly process data to verify experiment quality. Lena is comfortable with running established software but prefers simple, repeatable workflows with minimal configuration. She wants fast feedback, clear error messages, and automated quality checks.
+* Lena is a lab technician responsible for routine sequencing runs. She performs daily nanopore experiments and needs to quickly process data to verify experiment quality. Lena is comfortable with running established software but prefers simple, repeatable workflows with minimal configuration. She wants fast feedback, clear error messages, and assisted quality checks that keep a human in control of interpretation and sign-off.

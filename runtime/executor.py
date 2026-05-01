@@ -39,6 +39,18 @@ _STAGE_REQUIRED_FIELDS: Dict[str, List[str]] = {
     "closeout": ["final_summary", "artifacts_index"],
 }
 
+_ACTION_REQUIRED_FIELDS: Dict[str, List[str]] = {
+    "write_file": ["type", "path", "content"],
+    "append_file": ["type", "path", "content"],
+    "replace_in_file": ["type", "path", "old", "new"],
+}
+
+_ACTION_ALLOWED_FIELDS: Dict[str, List[str]] = {
+    "write_file": ["type", "path", "content"],
+    "append_file": ["type", "path", "content"],
+    "replace_in_file": ["type", "path", "old", "new"],
+}
+
 
 class SpecialistExecutor:
     """Milestone-1 specialist executor.
@@ -223,6 +235,116 @@ class SpecialistExecutor:
             quality = payload.get("quality_signals", {})
             if not isinstance(quality, dict):
                 return False, "Model payload field 'quality_signals' must be an object; using deterministic fallback."
+
+        actions = payload.get("actions")
+        if actions is not None:
+            valid_actions, action_warning = self._validate_actions_schema(stage_id, actions)
+            if not valid_actions:
+                return False, action_warning
+
+        return True, None
+
+    def _action_limits(self) -> Dict[str, int]:
+        defaults = {
+            "max_actions_per_stage": 20,
+            "max_content_chars": 200_000,
+            "max_replace_chars": 50_000,
+        }
+        if not isinstance(self.policy, dict):
+            return defaults
+
+        raw = self.policy.get("policies", {}).get("action_limits", {})
+        if not isinstance(raw, dict):
+            return defaults
+
+        limits = dict(defaults)
+        for key in defaults:
+            value = raw.get(key)
+            if isinstance(value, int) and value > 0:
+                limits[key] = value
+        return limits
+
+    def _validate_actions_schema(
+        self, stage_id: str, actions: object
+    ) -> Tuple[bool, Optional[str]]:
+        if stage_id not in {"implement", "doc_sync", "refactor"}:
+            return False, f"Stage '{stage_id}' is not allowed to emit actions; using deterministic fallback."
+
+        if not isinstance(actions, list):
+            return False, "Model payload field 'actions' must be a list; using deterministic fallback."
+
+        limits = self._action_limits()
+        max_actions = limits["max_actions_per_stage"]
+        max_content_chars = limits["max_content_chars"]
+        max_replace_chars = limits["max_replace_chars"]
+
+        if len(actions) > max_actions:
+            return False, (
+                f"Model payload contains {len(actions)} actions, exceeding max_actions_per_stage={max_actions}; "
+                "using deterministic fallback."
+            )
+
+        for idx, action in enumerate(actions, start=1):
+            if not isinstance(action, dict):
+                return False, f"Action #{idx} must be an object; using deterministic fallback."
+
+            action_type = action.get("type")
+            if not isinstance(action_type, str) or action_type not in _ACTION_REQUIRED_FIELDS:
+                return False, f"Action #{idx} has unsupported type '{action_type}'; using deterministic fallback."
+
+            required = set(_ACTION_REQUIRED_FIELDS[action_type])
+            allowed = set(_ACTION_ALLOWED_FIELDS[action_type])
+            action_keys = set(action.keys())
+            missing = sorted(required - action_keys)
+            unexpected = sorted(action_keys - allowed)
+            if missing:
+                return False, (
+                    f"Action #{idx} of type '{action_type}' is missing required fields: {', '.join(missing)}; "
+                    "using deterministic fallback."
+                )
+            if unexpected:
+                return False, (
+                    f"Action #{idx} of type '{action_type}' contains unexpected fields: {', '.join(unexpected)}; "
+                    "using deterministic fallback."
+                )
+
+            path = action.get("path")
+            if not isinstance(path, str) or not path.strip():
+                return False, f"Action #{idx} requires a non-empty string path; using deterministic fallback."
+            try:
+                normalized = self._normalize_relative_path(path)
+            except ValueError as exc:
+                return False, f"Action #{idx} path invalid: {exc}; using deterministic fallback."
+
+            if not self._is_path_allowed(normalized):
+                return False, (
+                    f"Action #{idx} path not allowed by policy edit scope: {normalized}; using deterministic fallback."
+                )
+
+            if action_type in {"write_file", "append_file"}:
+                content = action.get("content")
+                if not isinstance(content, str):
+                    return False, (
+                        f"Action #{idx} of type '{action_type}' requires string content; using deterministic fallback."
+                    )
+                if len(content) > max_content_chars:
+                    return False, (
+                        f"Action #{idx} content exceeds max_content_chars={max_content_chars}; using deterministic fallback."
+                    )
+
+            if action_type == "replace_in_file":
+                old = action.get("old")
+                new = action.get("new")
+                if not isinstance(old, str) or not isinstance(new, str):
+                    return False, (
+                        f"Action #{idx} of type 'replace_in_file' requires string old/new fields; using deterministic fallback."
+                    )
+                if not old:
+                    return False, "replace_in_file requires a non-empty 'old' value; using deterministic fallback."
+                if len(old) > max_replace_chars or len(new) > max_replace_chars:
+                    return False, (
+                        f"Action #{idx} replace values exceed max_replace_chars={max_replace_chars}; using deterministic fallback."
+                    )
 
         return True, None
 
@@ -432,6 +554,11 @@ class SpecialistExecutor:
             if tests_exit_code != 0:
                 stderr = str(tests_result.get("stderr", "")).strip()
                 failures_or_warnings.append(f"tests failed ({tests_exit_code}): {stderr[:400]}")
+
+        if tests_exit_code == 5 and not self._allow_no_tests_collected(stage_id):
+            failures_or_warnings.append(
+                "pytest reported no tests collected (exit code 5) and policy does not allow promotion on empty test scope."
+            )
 
         coverage_command = commands.get("coverage")
         if isinstance(coverage_command, str) and coverage_command.strip():

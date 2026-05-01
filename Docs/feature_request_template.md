@@ -2,6 +2,8 @@
 
 Use this template before asking an agent to implement new functionality.
 
+Default operating-model assumption for requests: runtime-assisted work is local, branch-scoped, and human-supervised. Do not assume unattended autonomous repository operation unless explicitly approved and documented.
+
 ## Request summary
 - **Title**:
 - **Requested by**:
@@ -23,6 +25,7 @@ Use this template before asking an agent to implement new functionality.
 - **In scope**:
 - **Out of scope**:
 - **Backward compatibility requirements**:
+- **Human supervision and review expectations**: (e.g., approval points, promotion/review owner, branch workflow)
 
 ## Architecture placement
 - **Target component(s)** (C1–C10 in `Docs/components.md`):

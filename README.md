@@ -45,6 +45,30 @@ It is best understood as a **data selection and event curation toolkit**, not ye
 
 ---
 
+## How to think about the runtime and agent layer
+
+This repository also includes a local orchestrator/runtime layer for agent-assisted development work, but it should be understood in the right proportion.
+
+The intended operating model is:
+
+- **occasional use**, not continuous autonomous operation,
+- **scoped feature/refactor/doc-sync work**, not broad unattended repository management,
+- execution from a **dedicated local feature branch**,
+- and **human-reviewed approvals/promotion** before changes are treated as real repository work.
+
+In other words, the runtime is a **supervised development aid** for the main nanoporethon codebase—not the main product itself.
+
+If you use the runtime, the recommended workflow is:
+
+- run locally,
+- keep the sandbox/promotion safeguards enabled,
+- review generated edits like normal engineering changes,
+- and merge through your usual branch and commit workflow.
+
+For most users, the primary value of this repository is still the nanopore data workflow itself: search, reproducible experiment selection, trace inspection, and event-quality curation.
+
+---
+
 ## Repository layout
 
 Primary package location:
@@ -366,6 +390,8 @@ PorePythonPeople aims to provide an open, modifiable alternative to opaque nanop
 - transparency,
 - extensibility,
 - and shared lab/community development.
+
+The agent/runtime tooling exists to support that goal safely and incrementally. It is intended to help with occasional development tasks under human supervision, not to replace normal engineering judgment or run the repository as an unattended autonomous system.
 
 ---
 

@@ -6,6 +6,8 @@ Use this file as the first stop for agent tasks.
 
 To keep agent quality high **without** loading the whole repository every time.
 
+Operating-model default: treat runtime/agent behavior as supervised engineering assistance (local + branch-based + human-reviewed), not unattended autonomous platform behavior.
+
 ## Context levels
 
 ### Level 0 (always read first)
@@ -32,6 +34,7 @@ To keep agent quality high **without** loading the whole repository every time.
 - Add Level 1 only for design-heavy or new-feature tasks.
 - Add Level 2 only for files directly affected by the request.
 - Avoid full-repo reads unless debugging a cross-cutting issue.
+- Keep generated plans and edits aligned with the supervised operating model unless the user explicitly requests and approves a different mode.
 
 ## Mandatory maintenance policy
 

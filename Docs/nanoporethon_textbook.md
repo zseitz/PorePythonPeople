@@ -35,10 +35,9 @@ This document complements, but does not replace:
 - [13. Troubleshooting guide](#13-troubleshooting-guide)
 - [14. How agents should use the documentation system](#14-how-agents-should-use-the-documentation-system)
 - [15. True orchestrator runtime for specialist delegation](#15-true-orchestrator-runtime-for-specialist-delegation)
-  - [15.11 Operator checklist (stage-by-stage runbook)](#1511-operator-checklist-stage-by-stage-runbook)
-  - [15.14 Runtime entrypoint (usable now)](#1514-runtime-entrypoint-usable-now)
-  - [15.15 Concrete Local Specialist feature delivery runbook (for daily use)](#1515-concrete-local-specialist-feature-delivery-runbook-for-daily-use)
-  - [15.16 Per-specialist model routing and context-window guidance](#1516-per-specialist-model-routing-and-context-window-guidance)
+  - [15.6 Operator checklist (with example prompt)](#156-operator-checklist-with-example-prompt)
+  - [15.7 Runtime entrypoint (usable now)](#157-runtime-entrypoint-usable-now)
+  - [15.8 Per-specialist model routing and context-window guidance](#158-per-specialist-model-routing-and-context-window-guidance)
 - [16. Guidance for developers extending nanoporethon](#16-guidance-for-developers-extending-nanoporethon)
 - [17. Quick-start checklist for a new user](#17-quick-start-checklist-for-a-new-user)
 - [18. Final summary](#18-final-summary)
@@ -945,43 +944,40 @@ This ordering helps agents:
 
 ## 15. True orchestrator runtime for specialist delegation
 
-This section documents the execution-plumbing model for users and developers who want the orchestrator to **actually delegate** work across specialist roles.
+This section describes the current executable model for delegation in `nanoporethon`.
 
-### 15.1 Why this runtime exists
+### 15.1 What makes this a **true orchestrator runtime**
 
-The project supports specialist agent definitions (feature, refactor, doc sync), but chat-mode execution can still be constrained by host/runtime behavior.
+This runtime is considered “true orchestration” (not convention-only routing) because it enforces all of the following:
 
-A true orchestrator runtime is designed to solve this by making delegation explicit and executable:
+- one request enters through a single orchestrator entrypoint,
+- work executes through a policy-defined stage graph,
+- each stage has explicit specialist ownership,
+- gates must pass (or be explicitly waived with evidence),
+- stage handoffs are schema-validated,
+- run artifacts are persisted for replay/audit,
+- and closeout includes documentation + memory synchronization.
 
-- one request enters through the orchestrator,
-- the runtime stages work,
-- each stage is assigned to a specialist context,
-- and stage gates control progression.
+### 15.2 Runtime artifacts and source of truth
 
-### 15.2 Runtime artifact locations
-
-Current runtime-planning artifacts are in:
+Policy, templates, runtime code, and schemas live in:
 
 - `runtime/policies.yaml`
 - `runtime/stage_templates.yaml`
-- `runtime/orchestrator.py`
-- `runtime/planner.py`
-- `runtime/executor.py`
-- `runtime/gates.py`
-- `runtime/state.py`
+- `runtime/orchestrator.py`, `runtime/planner.py`, `runtime/executor.py`, `runtime/gates.py`, `runtime/state.py`
 - `runtime/adapters/ollama.py`
 - `runtime/schemas/handoff_packet.schema.json`
 - `runtime/schemas/stage_result.schema.json`
 - `runtime/schemas/gate_result.schema.json`
 - `runtime/schemas/run_state.schema.json`
 
-Run-time execution artifacts are expected under:
+Per-run artifacts are written under:
 
 - `.nanopore-runtime/runs/<run_id>/run.json`
 - `.nanopore-runtime/runs/<run_id>/events.jsonl`
 - `.nanopore-runtime/runs/<run_id>/artifacts/`
 
-### 15.3 Delegation model (stage ownership)
+### 15.3 Delegation model (stage ownership and routing)
 
 Default stage sequence:
 
@@ -995,423 +991,135 @@ Default stage sequence:
 8. `memory_sync` — memory specialist
 9. `closeout` — orchestrator
 
-The routing intent is:
+Routing behavior:
 
-- if quality signals indicate structural cleanup is needed, run refactor path,
-- otherwise proceed directly to doc sync.
+- if quality signals require structural cleanup, run `refactor` then `verify_after_refactor`,
+- otherwise route directly from `refactor_or_docsync` to `doc_sync`.
 
-### 15.4 Runtime architecture (lightweight)
+### 15.4 Runtime architecture (lightweight, current scope)
 
-The lightweight runtime is expected to implement these core roles:
+The current runtime is intentionally lightweight and local-first. Core roles:
 
-- **Request ingestor**: captures user request and starts a `run_id`
-- **Planner**: derives stage plan and acceptance criteria
-- **Specialist executor**: runs specialist contexts with bounded prompts/tools
-- **Gate engine**: enforces pass/fail/waived stage criteria
-- **State store**: tracks run status and stage history
-- **Repo adapter**: applies edits, runs checks, records outputs
-- **Memory updater**: writes concise verified learnings to repo memory
+- **Request ingestor**: starts `run_id` and captures request.
+- **Planner**: generates scoped plan + acceptance criteria.
+- **Specialist executor**: runs stage owners with bounded context.
+- **Gate engine**: enforces pass/fail/waived decisions.
+- **State store**: records run + stage lifecycle.
+- **Repo adapter**: applies edits/checks in sandbox and controls promotion.
+- **Memory updater**: writes concise verified learnings.
 
-### 15.5 Stage gates and quality controls
+### 15.4A Intended operating model (important reality check)
 
-The runtime policy defines mandatory checks at stage boundaries.
+This runtime should be understood as a **human-supervised feature-work assistant**, not as an always-on autonomous platform.
 
-Examples:
+In practical terms, the intended operating model is:
 
-- planning gates: complexity classification + explicit acceptance criteria
-- implementation gates: non-empty changeset or justified no-op
-- verification gates: tests pass + no new errors + coverage policy
-- documentation gates: component/textbook/log synchronization when required
-- memory gates: repository memory update completed
+- run it **occasionally**, not continuously,
+- use it primarily for **scoped implementation/refactor/doc-sync tasks**,
+- launch it from a **dedicated local feature branch**,
+- keep a **human operator in the loop** for review, approvals, and promotion,
+- and treat the runtime as **supporting infrastructure** for nanoporethon development rather than the main product itself.
 
-Waivers are allowed only when explicitly recorded with:
+What this means operationally:
 
-- waiver id,
-- gate id,
-- reason,
-- approver,
-- scope.
+- The runtime is **not meant to run unattended**.
+- Sandbox promotion should be treated as a **normal reviewed workflow**, not as blind auto-merge.
+- Strong guardrails are useful, but they should stay proportional to this repo's real use case.
+- The primary value remains the nanopore analysis and curation code; the runtime exists to make occasional development work safer and more repeatable.
 
-### 15.6 Handoff contract between specialists
+If multiple people use the runtime, the preferred pattern is still the same: each operator runs locally, on their own branch, with normal git review habits preserved.
 
-Each stage hands off structured output (schema-validated) rather than informal prose.
+### 15.5 Gates, contracts, and guarantees
 
-Core contract types:
+Gate categories include planning, implementation, verification, documentation, and memory completion.
 
-- **HandoffPacket**
-  - run id, from stage, to stage, summary, acceptance criteria, artifacts, quality signals
-- **StageResult**
-  - stage status, changed files, checks run, artifacts, timing
-- **GateResult**
-  - gate pass/fail/waived with evidence and optional waiver details
-- **RunState**
-  - resumable state for full run lifecycle
+Waivers are valid only when explicitly recorded with approver and reason.
 
-### 15.7 Repository memory update policy
+Structured handoff contracts:
 
-The runtime should persist concise, verified lessons for future agent performance.
+- **HandoffPacket** (stage-to-stage payload)
+- **StageResult** (stage outcome)
+- **GateResult** (gate evidence + decision)
+- **RunState** (full resumable lifecycle)
 
-Current policy targets:
+Operational guarantee:
 
-- `memories/repo/testing.md`
-- `memories/repo/orchestrator-runtime.md`
+- default behavior is automatic and consistent under active policy/gates,
+- absolute completion still depends on waivers, policy changes, and runtime health.
 
-Memory entries should be:
+### 15.6 Operator checklist (with example prompt)
 
-- short,
-- factual,
-- reproducible,
-- and free of speculative claims.
+Use this checklist for day-to-day operation.
 
-### 15.8 Practical benefits of true runtime orchestration
+- **Pre-flight**
+  - Work from a dedicated feature branch.
+  - Ensure clean git working tree.
+  - Confirm `runtime/policies.yaml` + schemas exist.
+  - Confirm tests/environment are available.
+  - Confirm the request is appropriately scoped for a supervised feature-work run, not a broad autonomous repo rewrite.
+- **Submit request**
+  - Run the orchestrator with a clear scoped request.
+  - Prefer acceptance checks in the request itself.
+- **Monitor stages and gates**
+  - Confirm expected stage progression.
+  - If approval mode is enabled, review each handoff before approving.
+  - Review generated edits as normal engineering work; the runtime is an assistant, not a substitute for judgment.
+- **Handle failures correctly**
+  - Fix and rerun first.
+  - Use waivers only when approved and recorded.
+- **Closeout checks**
+  - Verify required stages are `success` or approved `waived`.
+  - Verify docs + request log are updated when behavior changed.
+  - Verify memory updates are factual and concise.
+  - Verify run artifacts are complete.
+  - Promote only the files you are comfortable reviewing and owning on your branch.
 
-Compared with convention-only routing, this runtime model provides:
+Example prompt for a feature run:
 
-- explicit specialist delegation,
-- deterministic stage gating,
-- reproducible run artifacts,
-- cleaner traceability,
-- and stronger long-term agent context building.
+- "Add <feature>. Update nearest tests. If behavior/contracts change, sync `Docs/components.md` and relevant textbook sections. Run verification gates, record artifacts, and complete memory + closeout stages."
 
-### 15.9 Will this always be done once true orchestrator runtime is running?
+### 15.7 Runtime entrypoint (usable now)
 
-Usually yes, **if** the runtime is executed with its default gate policy and no waivers.
-
-In practical terms, automatic end-to-end behavior is reliable when all of the following are true:
-
-1. the request enters through the orchestrator runtime,
-2. stage graph is enabled as defined in runtime policy,
-3. gate checks are active,
-4. no manual bypass/waiver skips required stages,
-5. runtime has permission to edit files and run checks.
-
-Important caveat:
-
-- If a gate is waived, policies are changed, or execution is interrupted, the full sequence may not complete automatically.
-
-So the correct guarantee is:
-
-- **default behavior should be automatic and consistent**,
-- **absolute behavior depends on policy settings, waivers, and runtime health**.
-
-### 15.10 How users should invoke this workflow
-
-For best results, user prompts should request full orchestration explicitly, for example:
-
-- implement feature,
-- run verification gates,
-- refactor if required by quality signals,
-- synchronize docs,
-- update memory and request log,
-- close out with run evidence.
-
-This reduces ambiguity and makes pass/fail gating objective.
-
-### 15.11 Operator checklist (stage-by-stage runbook)
-
-Use this as a fast operational reference during a live runtime execution.
-
-| Stage | Expected input | Expected output | Gate to pass | If gate fails |
-|---|---|---|---|---|
-| `triage_plan` | User request + startup docs (`agent_context_index`, `components`, relevant context) | Complexity class, staged plan, acceptance criteria, impacted components | Plan gate | Ask targeted clarification questions; tighten scope and acceptance criteria before proceeding |
-| `implement` | Approved plan + acceptance criteria + impacted components | Code/test changes or justified no-op, changed file list, implementation summary | Build/implementation gate | Fix compilation/import issues, remove unresolved conflicts, or document no-op rationale |
-| `verify` | Implementation changes + acceptance criteria | Test results, coverage evidence, quality signals (`require_refactor` true/false) | Verification gate | Resolve failing tests/errors first; if coverage policy fails, add relevant tests or request explicit waiver |
-| `refactor` (conditional) | Quality signal requiring structural cleanup | Safer structure with preserved behavior, refactor summary | Post-refactor verification gate | Revert risky edits, reduce refactor scope, and re-run targeted verification |
-| `doc_sync` | Verified behavior summary + contract/workflow change flags | Updated docs (`components`, textbook as needed) + request-log entry | Documentation gate | Patch missing docs, align with actual merged behavior, then re-check |
-| `memory_sync` | Final run summary + verification evidence + pitfalls | Concise repo-memory updates (verified facts only) | Memory gate | Remove speculative notes, rewrite as short reproducible bullets, re-run memory gate |
-| `closeout` | All prior stages passed or properly waived | Final run summary + artifact bundle + stage timeline | Closeout completeness check | Reopen missing stage artifact(s), regenerate summary from run state |
-
-### 15.12 Operator pre-flight checklist
-
-Before launching a run, verify:
-
-- you are in your own local clone on a dedicated feature branch (strongly recommended; avoid running from `main`/`master`),
-- the local working tree is clean before the runtime starts,
-- runtime policy file is present and readable (`runtime/policies.yaml`),
-- stage templates and schemas are present,
-- test environment is available,
-- approved waiver operator is configured correctly,
-- runtime has write permissions for source/docs/memory targets,
-- waiver policy/approver path is defined,
-- run artifact directory can be created (`.nanopore-runtime/runs/<run_id>/`).
-
-### 15.13 Operator post-run checklist
-
-After completion, verify:
-
-- all required stages have `success` or explicit `waived` status,
-- gate results include evidence,
-- docs were synchronized when required,
-- request log row was appended,
-- repo memory update was written,
-- run artifacts are complete and timestamped.
-
-### 15.14 Runtime entrypoint (usable now)
-
-The Local Specialist runtime now executes the policy-defined graph end-to-end:
-
-- `triage_plan` → `implement` → `verify` → `refactor_or_docsync` →
-  - `refactor` → `verify_after_refactor` (when required), or
-  - `doc_sync` directly (when refactor is not required),
-- then `memory_sync` → `closeout`
-
-You can run it with:
+Run with:
 
 - `python -m runtime.orchestrator --request "<your request>"`
 
-Optional CLI output formatting:
+Helpful options:
 
-- `--output json` (default)
-- `--output summary` (human-readable run summary including context budget usage)
-- `--output both` (summary first, then full JSON)
+- `--output json|summary|both`
+- `--live-progress` / `--no-live-progress`
+- `--approval-mode per_stage`
+- `--resume-run-id <run_id> --resume-choice restart_from_beginning|resume_from_last_completed`
 
-Live task-progress indicator:
+Current runtime behavior includes sandboxed edits, policy-driven verification commands, schema validation with deterministic fallback handling, approval-aware resume flow, and optional operator-gated promotion.
 
-- runtime now prints a compact one-line traffic-light status per stage while the run is executing,
-- default is enabled via `--live-progress` (disable with `--no-live-progress`),
-- indicator format includes stage id, estimated context usage, utilization %, gate pass/fail, and whether payload compaction occurred.
+Recommended usage pattern:
 
-Operator approval mode:
+- use this runtime for **targeted feature work, runtime experiments, docs sync, and bounded refactors**,
+- avoid treating it like a hands-off background service,
+- and keep standard branch review/commit discipline even when the runtime completes successfully.
 
-- pass `--approval-mode per_stage` to pause between completed stages before the next stage begins,
-- the runtime writes the handoff artifact first so the operator has something concrete to review,
-- if the operator rejects or quits, the run is marked `blocked`/`cancelled` with `pending_approval` persisted in `run.json`,
-- resuming with `--resume-run-id ... --resume-choice resume_from_last_completed` re-opens that pending transition instead of silently skipping it.
+### 15.8 Per-specialist model routing and context-window guidance
 
-Current behavior:
+Current recommended model map:
 
-- creates a new `run_id`,
-- requires a clean git working tree before a fresh run starts when the repository root is a git checkout,
-- creates a sandbox copy of the repository under the run artifacts before implementation/doc-sync actions,
-- records the base commit hash, current branch, and a start-of-run repository snapshot when the sandbox is created,
-- consumes specialist responses as JSON stage payloads when possible, validates required stage fields, and falls back to deterministic payload templates when model output is invalid/unavailable,
-- applies supported model-authored edit intents (`write_file`, `append_file`, `replace_in_file`) inside the sandbox under policy edit-scope controls,
-- writes `.nanopore-runtime/runs/<run_id>/run.json`,
-- appends stage/gate events to `.nanopore-runtime/runs/<run_id>/events.jsonl`,
-- emits stage-to-stage handoff artifacts in `.nanopore-runtime/runs/<run_id>/artifacts/handoffs/`,
-- records approved waivers in `.nanopore-runtime/runs/<run_id>/artifacts/waivers.jsonl`,
-- emits a startup warning when the runtime is launched from `main`/`master` or detached HEAD, strongly recommending a feature branch in the user’s local clone,
-- applies stage-specific context budgets from policy and compacts oversized payloads automatically,
-- records per-stage context utilization in stage results and aggregate context metrics in `run.json`,
-- writes repository memory updates directly into `memories/repo/` when memory sync runs,
-- executes verification commands from policy (`gates.verify.commands.tests` and optional coverage command) in the sandbox workspace instead of fixed test targets,
-- enforces implementation gate merge-marker checks by scanning changed sandbox files for unresolved conflict markers,
-- supports policy-controlled handling of pytest code `5` (`allow_no_tests_collected`) instead of always treating no-tests-collected as pass,
-- checks whether the real local repository changed since run start before promotion and refuses promotion when target files drifted in the real repo,
-- supports optional operator-gated sandbox promotion after closeout and records promotion request/apply/skip/block events,
-- validates `HandoffPacket`, `StageResult`, `GateResult`, and `RunState` against runtime schemas,
-- halts early if a required gate fails.
+- global default: `qwen3:4b` (Ollama)
+- specialist overrides:
+  - `doc_sync` → `qwen3:4b`
+  - `memory_sync` → `qwen3:4b`
 
-Operator-resume behavior:
+Recommended context planning (operational estimates):
 
-- if a run is resumed, the operator must explicitly choose the resume mode,
-- supported current modes are restarting from the beginning or resuming from the last completed stage.
+| Specialist | Recommended effective context window | Stage budget reference |
+|---|---:|---:|
+| `orchestrator` | 24k–32k | `triage_plan: 4000`, `refactor_or_docsync: 3000`, `closeout: 2000` |
+| `feature_builder` | 32k–48k | `implement: 8000` |
+| `verifier` | 24k–32k | `verify: 6000`, `verify_after_refactor: 6000` |
+| `refactor` | 32k–48k | `refactor: 6000` |
+| `doc_sync` | 8k–16k | `doc_sync: 4000` |
+| `memory_sync` | 8k–12k | `memory_sync: 2000` |
 
-Model-provider behavior:
-
-- when `model_provider.adapter: ollama`, specialist stages load their `prompt_file`/`prompt_inline` and call local Ollama,
-- specialists can optionally define `specialists.<owner>.model_provider` to override model/base_url per agent while inheriting unspecified global provider fields,
-- when no adapter is configured, executor remains deterministic and local-test friendly.
-
-Testing note:
-
-- fixture-based runtime integration tests now live inside `tests/fixtures/runtime_fixture_repo/`,
-- this keeps Local Specialist runtime tests safely inside the main repository test tree.
-
-### 15.15 Concrete Local Specialist feature delivery runbook (for daily use)
-
-This is the practical, copyable workflow for adding new nanoporethon features with Local Specialist runtime orchestration.
-
-#### 15.15.1 What this runbook is for
-
-Use this runbook when you want to:
-
-- add or change a feature,
-- run specialist handoff stages in order,
-- keep docs/tests/memory synchronized,
-- and keep work auditable through run artifacts.
-
-#### 15.15.2 Default operating mode for this repository
-
-Current recommended defaults:
-
-- run the runtime from a dedicated feature branch inside your own local clone,
-- sandbox-copy execution for implementation/doc-sync actions,
-- waiver approval limited to the configured operator,
-- explicit operator choice on resume,
-- direct memory writes to `memories/repo/`,
-- fixture-based integration tests under `tests/`.
-
-#### 15.15.3 Pre-run checklist (2-minute version)
-
-Before running a feature request:
-
-1. Confirm `runtime/policies.yaml` is present.
-2. Confirm runtime tests pass at least once in the current branch.
-3. Confirm target feature scope is specific enough to test.
-4. Confirm waiver approver identity is correct in policy.
-5. Confirm `memories/repo/` exists and is writable.
-
-#### 15.15.4 Standard run command
-
-Use:
-
-- `python -m runtime.orchestrator --request "<clear feature request>"`
-
-Example request text (recommended style):
-
-- "Add <feature>. Update nearest tests. If behavior/contracts change, sync components and textbook. Run verification gates and write run artifacts."
-
-#### 15.15.5 Stage-by-stage user expectations
-
-What you should expect:
-
-1. **`triage_plan`**
-  - outputs complexity, acceptance criteria, impacted components.
-2. **`implement`**
-  - applies changes in sandbox copy; records changed files.
-3. **`verify`**
-  - runs verification checks from policy.
-4. **`refactor_or_docsync`**
-  - routes by quality signal.
-5. **`refactor` + `verify_after_refactor`** (when required)
-  - structural cleanup and re-verification.
-6. **`doc_sync`**
-  - syncs user/architecture documentation expectations.
-7. **`memory_sync`**
-  - writes concise verified bullets to `memories/repo/`.
-8. **`closeout`**
-  - final run summary and artifact completeness.
-
-#### 15.15.6 If a gate fails
-
-Follow this order:
-
-1. Fix the underlying issue and re-run.
-2. If unavoidable, apply waiver only with approved operator.
-3. Ensure waiver is recorded in run artifacts.
-4. Re-check downstream stages before closing run.
-
-#### 15.15.6a If approval mode is enabled
-
-When running with `--approval-mode per_stage`, expect an explicit prompt before each stage transition.
-
-Recommended operator behavior:
-
-1. Review the just-written handoff artifact and `run.json`.
-2. Approve when the stage output is good enough to continue.
-3. Reject when you want to stop and inspect or patch the workflow.
-4. Resume later with `--resume-run-id <run_id> --resume-choice resume_from_last_completed` once you are ready to continue.
-
-This is the current terminal-runtime equivalent of a “keep changes and continue?” checkpoint.
-
-#### 15.15.7 If execution is interrupted
-
-Resume requires explicit operator choice.
-
-Use one of:
-
-- `--resume-choice restart_from_beginning`
-- `--resume-choice resume_from_last_completed`
-
-Recommended practice:
-
-- use `resume_from_last_completed` only when artifact integrity is intact,
-- otherwise restart cleanly.
-
-#### 15.15.8 Where to inspect results
-
-For run `<run_id>`, inspect:
-
-- `.nanopore-runtime/runs/<run_id>/run.json`
-- `.nanopore-runtime/runs/<run_id>/events.jsonl`
-- `.nanopore-runtime/runs/<run_id>/artifacts/handoffs/`
-- `.nanopore-runtime/runs/<run_id>/artifacts/waivers.jsonl` (if waivers used)
-
-#### 15.15.9 Promotion checklist before merge
-
-Do not promote unless all are true:
-
-- required stages are `success` (or explicit approved `waived`),
-- verification evidence exists,
-- docs are synchronized if behavior/workflow changed,
-- request log entry is appended,
-- memory updates are present and factual,
-- run artifacts are complete.
-
-#### 15.15.10 Feature request template for users
-
-Use this short template when asking for Local Specialist runtime feature work:
-
-- **Goal**: <what should change>
-- **Why**: <user/lab value>
-- **Acceptance checks**: <tests, outputs, edge cases>
-- **Constraints**: <must not break X>
-- **Docs impact**: <components/textbook expected or not>
-
-This improves stage quality and reduces rework.
-
-### 15.16 Per-specialist model routing and context-window guidance
-
-This section defines the practical model map for Local Specialist runtime runs in this repository.
-
-#### 15.16.1 Concrete model map (current recommended default)
-
-- Global default model provider:
-  - `qwen3:4b` (local Ollama, quantization: `Q4_K_M`)
-- Specialist overrides:
-  - `doc_sync` → `qwen3:4b` (local Ollama, quantization: `Q4_K_M`)
-  - `memory_sync` → `qwen3:4b` (local Ollama, quantization: `Q4_K_M`)
-
-Rationale:
-
-- keeps local runtime behavior consistent across stages while specialist-level override hooks remain available,
-- reduces configuration drift risk between policy and operator expectations,
-- still allows per-specialist model divergence later if throughput/quality tradeoffs are needed.
-
-#### 15.16.2 Context-window estimates by specialist (operational guidance)
-
-These values are practical planning estimates for local operation, not strict guarantees.
-
-| Specialist | Typical work | Recommended effective context window | Runtime stage budget reference |
-|---|---|---:|---:|
-| `orchestrator` | triage, route decisions, closeout | 24k–32k | `triage_plan: 4000`, `refactor_or_docsync: 3000`, `closeout: 2000` |
-| `feature_builder` | new/changed code | 32k–48k | `implement: 8000` |
-| `verifier` | quality checks + test interpretation | 24k–32k | `verify: 6000`, `verify_after_refactor: 6000` |
-| `refactor` | structural cleanup | 32k–48k | `refactor: 6000` |
-| `doc_sync` | contract + workflow docs updates | 8k–16k | `doc_sync: 4000` |
-| `memory_sync` | concise, factual memory notes | 8k–12k | `memory_sync: 2000` |
-
-Important: the runtime stage budgets are intentional working limits and should usually be treated as the authoritative operating bound, even when model context capacity is larger.
-
-#### 15.16.3 Pre-assigned context by specialist (what to load first)
-
-Use this minimal context allocation to keep signal high and context growth controlled:
-
-- `orchestrator`:
-  - `Docs/agent_context_index.md`
-  - `Docs/components.md`
-  - `Docs/technology_context.md`
-  - `Docs/nanoporethon_textbook.md` Section 15
-- `feature_builder`:
-  - Level-0 docs, nearest source files, nearest tests
-- `verifier`:
-  - changed files + nearest tests + `runtime/policies.yaml` gate section
-- `refactor`:
-  - changed module(s), references/call sites, preservation tests
-- `doc_sync`:
-  - `Docs/components.md`, relevant textbook subsection(s), verified behavior summary
-- `memory_sync`:
-  - run artifacts (`run.json`, stage payload summaries), target memory files, request-log context
-
-#### 15.16.4 Tuning order when context pressure rises
-
-When you repeatedly observe high utilization or frequent compaction:
-
-1. reduce unnecessary context inputs for that specialist,
-2. tighten stage payload shape,
-3. increase the specialist stage budget only if needed,
-4. increase model context allocation only after policy-level tuning is insufficient.
+When context pressure rises: reduce unnecessary inputs first, then tighten payload shape, then raise stage budgets only if needed.
 
 ---
 

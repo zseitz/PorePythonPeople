@@ -4,6 +4,8 @@ This document summarizes the real workflow problems nanoporethon is intended to 
 
 It helps both humans and coding agents understand **why** the software exists, not just **how** it is implemented.
 
+Important framing: the primary product is the nanopore data workflow itself (search, selection, inspection, and curation). The local runtime/agent tooling is supporting infrastructure for occasional, human-supervised development work—not an unattended autonomous platform.
+
 ---
 
 ## 1. Core operational use case
@@ -123,6 +125,8 @@ Curated selections and event-quality annotations can support future workflows su
 - consensus alignment studies,
 - or deterministic preprocessing pipelines.
 
+These are best understood as downstream or adjacent workflows. They do not change the current operating model of this repository, which remains centered on supervised data review and human-reviewed development changes.
+
 ### Use Case 9: Extend to broader nanopore platforms and analytes
 
 The project should stay flexible enough that future users can adapt it to:
@@ -133,6 +137,8 @@ The project should stay flexible enough that future users can adapt it to:
 - or new experiment naming conventions,
 
 as long as stable data contracts are preserved where required.
+
+That flexibility goal refers to scientific adaptability of the data workflow, not to turning the repository into a fully autonomous analysis or software-management platform.
 
 ---
 
@@ -145,3 +151,5 @@ In short, nanoporethon is meant to support:
 - **plotting and comparing traces**,
 - **curating event quality**,
 - and **providing an extensible, open workflow** for nanopore data analysis.
+
+Any agent/runtime assistance should be read in service of those goals, with normal human review and branch-based engineering practices still in place.

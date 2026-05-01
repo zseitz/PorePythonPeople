@@ -10,6 +10,8 @@ This document gives coding agents deeper, domain-specific context beyond compone
 - interactive event inspection and quality labeling
 - future extensibility toward ML-assisted analysis
 
+The repository also contains local runtime/agent infrastructure for development assistance, but that layer is intentionally secondary. It is meant for occasional, human-supervised feature work and documentation/refactor help—not for unattended autonomous repository operation.
+
 ## Legacy MATLAB relationship
 
 Reference legacy scripts are in `MATLABcode/`:
@@ -50,6 +52,7 @@ See `Docs/components.md` for source-of-truth contracts, especially:
 2. Increase modularity in reusable subcomponents before adding new GUI complexity.
 3. Strengthen test coverage around data contracts and loaders.
 4. Build ML-ready interfaces (clear input/output schemas) before adding heavy models.
+5. Keep runtime/developer tooling proportional to the real operating model: local, branch-scoped, and human-reviewed.
 
 ## ML readiness constraints (future-facing)
 
@@ -65,4 +68,5 @@ Before introducing neural-network components, define:
 - Prefer incremental PR-sized changes.
 - Keep backward compatibility for shared artifacts (`search_query.txt`, MAT loading behavior).
 - Update docs and request logs alongside code changes.
+- Treat runtime/agent workflows as supervised engineering assistance, not as a substitute for human review.
 - If uncertain about scientific interpretation, ask for clarification instead of guessing.

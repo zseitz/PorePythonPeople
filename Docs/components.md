@@ -181,10 +181,12 @@ Primary package location: `src/nanoporethon/`.
   - `runtime/schemas/run_state.schema.json`
 - **Purpose**: Provide executable delegation contracts so one orchestrator run can route work across specialists with stage gates and auditable handoffs.
 - **Key behavior**:
+  - Documents a deliberately modest operating model: local, branch-scoped, human-reviewed feature-work assistance rather than unattended autonomous repository management.
   - Declares specialist registry and stage ownership.
   - Executes full policy-driven stage graph with conditional routing (`refactor_or_docsync`).
   - Parses specialist model output as structured JSON stage payloads, validates required stage fields, and falls back to deterministic payloads when parsing/validation fails.
-  - Applies model-authored sandbox edit intents (`write_file`, `append_file`, `replace_in_file`) inside policy edit-scope boundaries.
+  - Validates model-authored action payloads against strict per-action schemas, policy-driven size/count limits, and stage-allowed action types before any sandbox mutation occurs.
+  - Applies model-authored sandbox edit intents (`write_file`, `append_file`, `replace_in_file`) only after action-schema validation and edit-scope checks succeed.
   - Defines conditional route to refactor stage when verification quality signals require it.
   - Enforces gate checks for plan/build/verify/doc-sync/memory-sync transitions.
   - Executes implementation/doc-sync work inside a sandbox repository copy before touching the main workspace.
@@ -192,18 +194,20 @@ Primary package location: `src/nanoporethon/`.
   - Captures base commit/branch metadata plus a start-of-run file-hash snapshot for promotion guardrails.
   - Executes verification commands from policy (`gates.verify.commands`) inside the sandbox workspace rather than fixed hardcoded test commands.
   - Enforces implementation gate merge-marker checks by scanning changed sandbox files for unresolved conflict markers.
-  - Supports policy-controlled handling for pytest code `5` (`allow_no_tests_collected`) instead of always treating it as pass.
+  - Supports per-stage policy-controlled handling for pytest code `5` (`allow_no_tests_collected`) for both `verify` and `verify_after_refactor` instead of implicitly treating empty test scope as pass.
   - Defines waiver structure for explicit, auditable gate bypasses, restricted to approved operators.
   - Validates handoff, stage-result, gate-result, and run-state artifacts against JSON schemas at stage boundaries.
   - Writes repository-memory synchronization targets directly to `memories/repo/` in the repository.
   - Emits startup warnings when users run from `main`/`master` or detached HEAD, strongly recommending a dedicated feature branch inside the local clone.
-  - Supports optional operator-gated sandbox promotion after closeout, with a recorded `promotion_diff.json` artifact, explicit approve/reject decision, and refusal when target files changed in the real local repository after run start.
+  - Supports optional operator-gated sandbox promotion after closeout, with a recorded `promotion_diff.json` artifact, explicit approve/reject decision, refusal when target files changed in the real local repository after run start, and allowlist-based blocking for sandbox changes outside configured promotion paths.
+  - Assumes promotion remains part of a normal human review path: operators inspect changes, decide what to keep, and merge via their usual branch workflow.
   - Applies per-stage context budgets from policy and compacts oversized stage payloads before artifact write/model handoff.
   - Stores context utilization metrics in stage results and final run state for budget tuning.
   - Supports local specialist prompting through Ollama adapter + specialist `prompt_file`/`prompt_inline` contexts.
   - Supports optional per-specialist model-provider overrides (with global fallback) so different agents can use different local models.
   - Supports optional operator approval pauses at stage transitions, persisting pending approvals in run state so blocked runs can be resumed safely.
   - Supports operator-selected resume behavior for interrupted runs.
+  - Is intentionally a secondary development aid for the main nanoporethon codebase, so guardrails should optimize for safe occasional use instead of heavy always-on platform complexity.
 
 ---
 

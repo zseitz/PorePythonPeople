@@ -12,6 +12,9 @@ runtime:
   promotion:
     enabled: true
     require_approval: true
+    allowed_paths:
+      - Docs/**
+      - memories/repo/**
 
 model_provider:
   adapter: ollama
@@ -185,3 +188,7 @@ policies:
       - .github/**
       - runtime/**
       - memories/repo/**
+  action_limits:
+    max_actions_per_stage: 20
+    max_content_chars: 200000
+    max_replace_chars: 50000

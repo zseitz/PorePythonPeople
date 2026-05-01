@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import urllib.error
 import urllib.request
@@ -257,6 +258,30 @@ def _get_stage_map(policy: Dict[str, object]) -> Dict[str, Dict[str, object]]:
 
 def _read_json(path: Path) -> Dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _promotion_allowed_paths(runtime_cfg: Dict[str, object]) -> List[str]:
+    promotion_cfg = runtime_cfg.get("promotion", {}) if isinstance(runtime_cfg, dict) else {}
+    if not isinstance(promotion_cfg, dict):
+        return []
+    raw = promotion_cfg.get("allowed_paths", [])
+    if not isinstance(raw, list):
+        return []
+    return [str(item) for item in raw if isinstance(item, str) and item.strip()]
+
+
+def _partition_promotion_paths(changed_files: List[str], allowed_paths: List[str]) -> Dict[str, List[str]]:
+    if not allowed_paths:
+        return {"allowed": list(changed_files), "disallowed": []}
+
+    allowed: List[str] = []
+    disallowed: List[str] = []
+    for path in changed_files:
+        if any(fnmatch.fnmatch(path, pattern) for pattern in allowed_paths):
+            allowed.append(path)
+        else:
+            disallowed.append(path)
+    return {"allowed": allowed, "disallowed": disallowed}
 
 
 def _get_path_value(payload: Dict[str, object], dotted: str) -> object:
@@ -815,6 +840,35 @@ def run_milestone1(
     if bool(promotion_cfg.get("enabled", False)):
         promotion_summary = sandbox_manager.summarize_changes()
         changed_files = promotion_summary.get("changed_files", [])
+        if isinstance(changed_files, list) and changed_files:
+            allowed_paths = _promotion_allowed_paths(runtime_cfg)
+            partitioned_paths = _partition_promotion_paths(changed_files, allowed_paths)
+            allowed_changed_files = partitioned_paths["allowed"]
+            disallowed_changed_files = partitioned_paths["disallowed"]
+            promotion_summary["allowed_paths"] = allowed_paths
+            promotion_summary["allowlisted_changed_files"] = allowed_changed_files
+            promotion_summary["disallowed_changed_files"] = disallowed_changed_files
+
+            if disallowed_changed_files:
+                promotion_artifact = run_dir / "artifacts" / "promotion_diff.json"
+                promotion_artifact.write_text(json.dumps(promotion_summary, indent=2), encoding="utf-8")
+                append_event(
+                    run_dir,
+                    {
+                        "type": "promotion_blocked",
+                        "run_id": run_id,
+                        "reason": "paths_outside_allowlist",
+                        "disallowed_files": disallowed_changed_files,
+                        "artifact": str(promotion_artifact.as_posix()),
+                        "timestamp": _utc_now(),
+                    },
+                )
+                print(
+                    "[runtime promotion blocked] Refusing promotion because changed sandbox files fall outside runtime.promotion.allowed_paths: "
+                    f"{', '.join(str(path) for path in disallowed_changed_files)}"
+                )
+                changed_files = []
+
         if isinstance(changed_files, list) and changed_files:
             drift_summary = sandbox_manager.detect_repo_drift_since_start(changed_files)
             promotion_summary["repo_guardrails"] = drift_summary

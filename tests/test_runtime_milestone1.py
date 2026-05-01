@@ -20,7 +20,7 @@ def _policy_with_run_root(run_root: Path):
     return {
         "runtime": {
             "run_root": str(run_root),
-            "promotion": {"enabled": False, "require_approval": True},
+            "promotion": {"enabled": False, "require_approval": True, "allowed_paths": ["**"]},
             "git_guardrails": {"require_clean_worktree": False, "recommend_feature_branch": False},
         },
         "model_provider": {"adapter": "none", "model": "test"},
@@ -944,6 +944,52 @@ def test_no_tests_collected_passes_with_opt_in(tmp_path):
     assert evidence["tests_pass"] is True
 
 
+def test_verify_after_refactor_no_tests_collected_fails_without_opt_in(tmp_path):
+    class ExitFiveRepoOps:
+        sandbox_repo = Path("/tmp/sandbox")
+
+        def run_command(self, _command, _allowlist, _blocklist, cwd=None, timeout=120):
+            return {"command": "pytest -q", "exit_code": 5, "stdout": "", "stderr": "no tests collected"}
+
+        def changed_files(self):
+            return []
+
+    policy = _policy_with_run_root(tmp_path)
+    policy["gates"]["verify_after_refactor"] = {
+        "required_checks": [{"id": "tests_pass"}],
+        "commands": {"tests": "pytest -q"},
+        "allow_no_tests_collected": False,
+    }
+    executor = SpecialistExecutor(policy=policy, repo_ops=ExitFiveRepoOps())
+    payload = executor._run_verify_commands("verify_after_refactor", context={})
+    evidence = build_gate_evidence("verify_after_refactor", payload)
+    assert payload["tests_exit_code"] == 5
+    assert evidence["tests_pass"] is False
+
+
+def test_verify_after_refactor_no_tests_collected_passes_with_opt_in(tmp_path):
+    class ExitFiveRepoOps:
+        sandbox_repo = Path("/tmp/sandbox")
+
+        def run_command(self, _command, _allowlist, _blocklist, cwd=None, timeout=120):
+            return {"command": "pytest -q", "exit_code": 5, "stdout": "", "stderr": "no tests collected"}
+
+        def changed_files(self):
+            return []
+
+    policy = _policy_with_run_root(tmp_path)
+    policy["gates"]["verify_after_refactor"] = {
+        "required_checks": [{"id": "tests_pass"}],
+        "commands": {"tests": "pytest -q"},
+        "allow_no_tests_collected": True,
+    }
+    executor = SpecialistExecutor(policy=policy, repo_ops=ExitFiveRepoOps())
+    payload = executor._run_verify_commands("verify_after_refactor", context={})
+    evidence = build_gate_evidence("verify_after_refactor", payload)
+    assert payload["tests_exit_code"] == 0
+    assert evidence["tests_pass"] is True
+
+
 def test_valid_json_missing_required_fields_falls_back(tmp_path):
     class FakeAdapter:
         def chat(self, _system_prompt, _messages):
@@ -974,6 +1020,177 @@ def test_valid_json_missing_required_fields_falls_back(tmp_path):
     payload = json.loads(payload_path.read_text(encoding="utf-8"))
     assert payload["noop_justified"] is True
     assert payload["llm_integration"]["fallback_used"] is True
+
+
+def test_invalid_action_schema_falls_back(tmp_path):
+    class FakeAdapter:
+        def chat(self, _system_prompt, _messages):
+            return json.dumps(
+                {
+                    "changed_files": [],
+                    "implementation_summary": "Bad action payload",
+                    "test_updates": [],
+                    "unresolved_risks": [],
+                    "noop_justified": False,
+                    "actions": [
+                        {
+                            "type": "write_file",
+                            "path": "runtime/generated_from_model.txt",
+                            "content": "ok",
+                            "unexpected": "boom",
+                        }
+                    ],
+                }
+            )
+
+    repo_root = Path(__file__).resolve().parents[1]
+    sandbox = RepoSandboxManager(repo_root=repo_root, sandbox_root=tmp_path / "sandbox")
+    sandbox.prepare()
+
+    executor = SpecialistExecutor(
+        specialists={"feature_builder": {"prompt_inline": "feature"}},
+        model_adapter=FakeAdapter(),
+        repo_root=repo_root,
+        repo_ops=sandbox,
+        policy=_policy_with_run_root(tmp_path),
+    )
+
+    result = executor.run_stage(
+        run_id="run_test",
+        stage_id="implement",
+        owner="feature_builder",
+        request="Generate file",
+        context={"request": "Generate file"},
+        artifacts_dir=tmp_path / "artifacts",
+    )
+
+    payload_path = Path(result["artifacts"][0]["path"])
+    payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    assert payload["noop_justified"] is True
+    assert payload["llm_integration"]["fallback_used"] is True
+    assert not (sandbox.sandbox_repo / "runtime/generated_from_model.txt").exists()
+
+
+def test_invalid_action_path_outside_edit_scope_falls_back(tmp_path):
+    class FakeAdapter:
+        def chat(self, _system_prompt, _messages):
+            return json.dumps(
+                {
+                    "changed_files": [],
+                    "implementation_summary": "Bad path payload",
+                    "test_updates": [],
+                    "unresolved_risks": [],
+                    "noop_justified": False,
+                    "actions": [
+                        {
+                            "type": "write_file",
+                            "path": "outside/generated.txt",
+                            "content": "denied",
+                        }
+                    ],
+                }
+            )
+
+    repo_root = Path(__file__).resolve().parents[1]
+    sandbox = RepoSandboxManager(repo_root=repo_root, sandbox_root=tmp_path / "sandbox")
+    sandbox.prepare()
+
+    policy = _policy_with_run_root(tmp_path)
+    policy["policies"] = {
+        "edit_scope": {
+            "default_paths": ["runtime/**", "Docs/**", "tests/**", "src/**"]
+        }
+    }
+
+    executor = SpecialistExecutor(
+        specialists={"feature_builder": {"prompt_inline": "feature"}},
+        model_adapter=FakeAdapter(),
+        repo_root=repo_root,
+        repo_ops=sandbox,
+        policy=policy,
+    )
+
+    result = executor.run_stage(
+        run_id="run_test",
+        stage_id="implement",
+        owner="feature_builder",
+        request="Generate file",
+        context={"request": "Generate file"},
+        artifacts_dir=tmp_path / "artifacts",
+    )
+
+    payload_path = Path(result["artifacts"][0]["path"])
+    payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    assert payload["noop_justified"] is True
+    assert payload["llm_integration"]["fallback_used"] is True
+
+
+def test_promotion_blocked_when_paths_outside_allowlist(tmp_path):
+    fixture_repo = Path(__file__).resolve().parent / "fixtures" / "runtime_fixture_repo"
+    temp_repo = tmp_path / "fixture_repo"
+    shutil.copytree(fixture_repo, temp_repo)
+
+    policy = _policy_with_run_root(tmp_path)
+    policy["runtime"]["promotion"] = {
+        "enabled": True,
+        "require_approval": False,
+        "allowed_paths": ["Docs/**"],
+    }
+    policy["runtime"]["git_guardrails"] = {"require_clean_worktree": False, "recommend_feature_branch": False}
+    policy["gates"]["verify"]["commands"] = {"tests": "python -m pytest --help"}
+    policy["gates"]["verify_after_refactor"]["commands"] = {"tests": "python -m pytest --help"}
+
+    class PromotionChangeExecutor(SpecialistExecutor):
+        def _stage_payload(self, run_id, stage_id, request, context):
+            payload = super()._stage_payload(run_id, stage_id, request, context)
+            if stage_id == "implement":
+                payload.update(
+                    {
+                        "changed_files": [],
+                        "implementation_summary": "Create non-doc file in sandbox",
+                        "test_updates": [],
+                        "unresolved_risks": [],
+                        "noop_justified": False,
+                        "actions": [
+                            {
+                                "type": "write_file",
+                                "path": "runtime/disallowed_promotion.txt",
+                                "content": "sandbox only\n",
+                            }
+                        ],
+                    }
+                )
+            return payload
+
+    def fake_build_executor(policy, repo_root, repo_ops, memory_writer, context_manager):
+        return PromotionChangeExecutor(
+            repo_root=repo_root,
+            repo_ops=repo_ops,
+            memory_writer=memory_writer,
+            policy=policy,
+            context_manager=context_manager,
+        )
+
+    original_build_executor = orchestrator_module._build_executor
+    orchestrator_module._build_executor = fake_build_executor
+    try:
+        run_state = run_milestone1(
+        request="Promotion allowlist path test",
+        policy=policy,
+        executor=None,
+        repo_root=temp_repo,
+        )
+    finally:
+        orchestrator_module._build_executor = original_build_executor
+
+    assert run_state["status"] == "completed"
+    assert run_state.get("promoted_files", []) == []
+    assert not (temp_repo / "runtime" / "disallowed_promotion.txt").exists()
+    run_dir = tmp_path / run_state["run_id"]
+    promotion_payload = json.loads((run_dir / "artifacts" / "promotion_diff.json").read_text(encoding="utf-8"))
+    assert "runtime/disallowed_promotion.txt" in promotion_payload["disallowed_changed_files"]
+    events_text = (run_dir / "events.jsonl").read_text(encoding="utf-8")
+    assert '"reason": "paths_outside_allowlist"' in events_text
 
 
 def test_executor_supports_replace_in_file_action(tmp_path):
