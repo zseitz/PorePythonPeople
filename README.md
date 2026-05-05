@@ -146,7 +146,31 @@ From the project root:
 ```bash
 python -m nanoporethon.data_navi_gui
 python -m nanoporethon.event_classifier_gui
+python -m nanoporethon.operator_assistant_gui
 ```
+
+`operator_assistant_gui` is the attended runtime operator interface (Option B):
+
+- chat-first local request drafting,
+- strict out-of-scope guardrails,
+- and live runtime event timeline updates.
+
+### Operator Assistant interaction model
+
+`operator_assistant_gui` is intentionally designed to feel closer to a local, domain-scoped coding chat than a long static intake form.
+
+Typical flow:
+
+1. Describe the request in plain language in chat.
+2. The assistant asks follow-up questions only when necessary.
+3. Review the generated runtime request preview.
+4. Run attended runtime when the request is ready.
+
+Important default:
+
+- Core GUI components (`data_navi_gui.py`, `event_classifier_gui.py`) are treated as protected and should not be modified unless the user explicitly authorizes that in chat.
+
+This keeps interaction lightweight while preserving strict guardrails and human-reviewed execution.
 
 ### Alternative: run source files directly
 

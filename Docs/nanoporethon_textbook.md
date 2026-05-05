@@ -38,6 +38,7 @@ This document complements, but does not replace:
   - [15.6 Operator checklist (with example prompt)](#156-operator-checklist-with-example-prompt)
   - [15.7 Runtime entrypoint (usable now)](#157-runtime-entrypoint-usable-now)
   - [15.8 Per-specialist model routing and context-window guidance](#158-per-specialist-model-routing-and-context-window-guidance)
+  - [15.9 Local operator assistant GUI (Option B)](#159-local-operator-assistant-gui-option-b)
 - [16. Guidance for developers extending nanoporethon](#16-guidance-for-developers-extending-nanoporethon)
 - [17. Quick-start checklist for a new user](#17-quick-start-checklist-for-a-new-user)
 - [18. Final summary](#18-final-summary)
@@ -1120,6 +1121,44 @@ Recommended context planning (operational estimates):
 | `memory_sync` | 8k–12k | `memory_sync: 2000` |
 
 When context pressure rises: reduce unnecessary inputs first, then tighten payload shape, then raise stage budgets only if needed.
+
+### 15.9 Local operator assistant GUI (Option B)
+
+`nanoporethon` now includes a local operator assistant interface for attended runtime usage:
+
+- launch with `python -m nanoporethon.operator_assistant_gui`
+- use chat for in-scope repo/runtime questions and request drafting
+- answer follow-up questions only when the assistant needs more precision
+- review the generated runtime request preview
+- run attended runtime directly from the GUI
+- monitor stage/gate/promotion progress from streamed event updates
+
+Important guardrail behavior:
+
+- The assistant is domain-scoped to nanoporethon/runtime/repository workflows.
+- Off-topic requests are deterministically refused (for example: cooking recipes, medical advice, political advice, investment advice, legal advice, general lifestyle counseling).
+- Scope checks occur before runtime execution so out-of-scope prompts cannot trigger implementation actions.
+
+Operationally, this keeps Option B interactive while preserving the project’s intended model:
+
+- local-only assistance,
+- branch-local change flow,
+- and human-supervised attended operation.
+
+Chat-first request guidance:
+
+- Start by describing the feature/task naturally in one or two sentences.
+- Intent and request-type understanding are inferred semantically by the local LLM (feature work vs question vs docs/help), not by hard-coded keyword checks.
+- Classifier availability is mandatory at startup in strict mode; if local classifier initialization fails, the GUI shows an explicit startup error and disables message routing until fixed.
+- Use the **Health Check** button to validate strict-mode prerequisites (classifier enabled in policy, Ollama reachable, model installed, and valid JSON classifier output contract).
+- For code-edit requests, verification is expected by default (automated tests + behavior checks) and is included in the runtime request guardrails without requiring testing keywords.
+- The assistant will ask targeted clarifying questions only when needed for missing behavior details or boundaries.
+- You do not need to pre-fill a long static intake form before getting useful help.
+
+Core-component protection rule:
+
+- `src/nanoporethon/data_navi_gui.py` and `src/nanoporethon/event_classifier_gui.py` are treated as protected by default.
+- They should only be modified when the user explicitly authorizes such changes.
 
 ---
 

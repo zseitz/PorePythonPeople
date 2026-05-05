@@ -1,6 +1,8 @@
 # Nanoporethon Feature Request Template
 
-Use this template before asking an agent to implement new functionality.
+Use this template when you want a fully structured written request before asking an agent to implement new functionality.
+
+Note: if you use `operator_assistant_gui`, chat-first request drafting is supported and this template is optional.
 
 Default operating-model assumption for requests: runtime-assisted work is local, branch-scoped, and human-supervised. Do not assume unattended autonomous repository operation unless explicitly approved and documented.
 
@@ -22,8 +24,8 @@ Default operating-model assumption for requests: runtime-assisted work is local,
 - **Expected outputs/artifacts**:
 
 ## Scope boundaries
-- **In scope**:
-- **Out of scope**:
+- **Include in this request (what CAN be changed)**:
+- **Do NOT include (what must NOT be changed)**:
 - **Backward compatibility requirements**:
 - **Human supervision and review expectations**: (e.g., approval points, promotion/review owner, branch workflow)
 
