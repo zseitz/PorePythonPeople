@@ -4,7 +4,6 @@ runtime:
   name: nanopore-orchestrator-runtime
   run_root: .nanopore-runtime/runs
   resume_supported: true
-  default_branch_strategy: sandbox-copy
   workspace_locking: per-run
   git_guardrails:
     require_clean_worktree: true

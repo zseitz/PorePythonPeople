@@ -185,21 +185,21 @@ Primary package location: `src/nanoporethon/`.
   - Declares specialist registry and stage ownership.
   - Executes full policy-driven stage graph with conditional routing (`refactor_or_docsync`).
   - Parses specialist model output as structured JSON stage payloads, validates required stage fields, and falls back to deterministic payloads when parsing/validation fails.
-  - Validates model-authored action payloads against strict per-action schemas, policy-driven size/count limits, and stage-allowed action types before any sandbox mutation occurs.
-  - Applies model-authored sandbox edit intents (`write_file`, `append_file`, `replace_in_file`) only after action-schema validation and edit-scope checks succeed.
+  - Validates model-authored action payloads against strict per-action schemas, policy-driven size/count limits, and stage-allowed action types before any repository mutation occurs.
+  - Applies model-authored edit intents (`write_file`, `append_file`, `replace_in_file`) only after action-schema validation and edit-scope checks succeed.
   - Defines conditional route to refactor stage when verification quality signals require it.
   - Enforces gate checks for plan/build/verify/doc-sync/memory-sync transitions.
-  - Executes implementation/doc-sync work inside a sandbox repository copy before touching the main workspace.
+  - Executes implementation/doc-sync work directly in the active local feature-branch workspace.
   - Requires a clean git working tree before starting a fresh run when the repository root is a git checkout.
   - Captures base commit/branch metadata plus a start-of-run file-hash snapshot for promotion guardrails.
-  - Executes verification commands from policy (`gates.verify.commands`) inside the sandbox workspace rather than fixed hardcoded test commands.
-  - Enforces implementation gate merge-marker checks by scanning changed sandbox files for unresolved conflict markers.
+  - Executes verification commands from policy (`gates.verify.commands`) in the active workspace rather than fixed hardcoded test commands.
+  - Enforces implementation gate merge-marker checks by scanning changed files for unresolved conflict markers.
   - Supports per-stage policy-controlled handling for pytest code `5` (`allow_no_tests_collected`) for both `verify` and `verify_after_refactor` instead of implicitly treating empty test scope as pass.
   - Defines waiver structure for explicit, auditable gate bypasses, restricted to approved operators.
   - Validates handoff, stage-result, gate-result, and run-state artifacts against JSON schemas at stage boundaries.
   - Writes repository-memory synchronization targets directly to `memories/repo/` in the repository.
   - Emits startup warnings when users run from `main`/`master` or detached HEAD, strongly recommending a dedicated feature branch inside the local clone.
-  - Supports optional operator-gated sandbox promotion after closeout, with a recorded `promotion_diff.json` artifact, explicit approve/reject decision, refusal when target files changed in the real local repository after run start, and allowlist-based blocking for sandbox changes outside configured promotion paths.
+  - Supports optional operator-gated promotion after closeout, with a recorded `promotion_diff.json` artifact, explicit approve/reject decision, refusal when target files changed in the local repository after run start, and allowlist-based blocking for changes outside configured promotion paths.
   - Assumes promotion remains part of a normal human review path: operators inspect changes, decide what to keep, and merge via their usual branch workflow.
   - Applies per-stage context budgets from policy and compacts oversized stage payloads before artifact write/model handoff.
   - Stores context utilization metrics in stage results and final run state for budget tuning.

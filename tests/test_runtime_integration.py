@@ -13,7 +13,6 @@ def _fixture_policy(run_root: Path):
     return {
         "runtime": {
             "run_root": str(run_root),
-            "default_branch_strategy": "sandbox-copy",
             "promotion": {"enabled": False, "require_approval": True},
         },
         "model_provider": {"adapter": "none", "model": "test"},
@@ -69,7 +68,7 @@ def _fixture_policy(run_root: Path):
     }
 
 
-def test_runtime_uses_fixture_repo_sandbox_and_writes_memory(tmp_path):
+def test_runtime_uses_fixture_repo_workspace_and_writes_memory(tmp_path):
     fixture_repo = Path(__file__).resolve().parent / "fixtures" / "runtime_fixture_repo"
     temp_repo = tmp_path / "repo_under_test"
     shutil.copytree(fixture_repo, temp_repo)
@@ -84,11 +83,11 @@ def test_runtime_uses_fixture_repo_sandbox_and_writes_memory(tmp_path):
 
     assert run_state["status"] == "completed"
     run_dir = run_root / run_state["run_id"]
-    assert (run_dir / "sandbox" / "repo").is_dir()
     assert (run_dir / "artifacts" / "handoffs").is_dir()
 
     persisted = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
-    assert persisted["sandbox_dir"].endswith("/sandbox/repo")
+    assert persisted["workspace_dir"] == str(temp_repo.as_posix())
+    assert persisted["sandbox_dir"] == str(temp_repo.as_posix())
     assert (temp_repo / "memories" / "repo" / "testing.md").exists()
     payload = json.loads((run_dir / "artifacts" / "stages" / "memory_sync_payload.json").read_text(encoding="utf-8"))
     assert "memories/repo/testing.md" in payload.get("changed_files", [])

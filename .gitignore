@@ -186,3 +186,6 @@ dmypy.json
 
 # Local nanoporethon machine-specific config
 src/nanoporethon/.nanoporethon_config.json
+
+# Local runtime artifacts (sandbox copies, run logs, and generated handoffs)
+.nanopore-runtime/

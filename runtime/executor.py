@@ -371,7 +371,7 @@ class SpecialistExecutor:
 
     def _append_relative_file(self, relative_path: str, content: str) -> Path:
         if self.repo_ops is None:
-            raise RuntimeError("Sandbox repository manager is required for append actions")
+            raise RuntimeError("Repository workspace manager is required for append actions")
         path = self.repo_ops.sandbox_repo / relative_path
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
@@ -380,7 +380,7 @@ class SpecialistExecutor:
 
     def _replace_in_relative_file(self, relative_path: str, old: str, new: str) -> Path:
         if self.repo_ops is None:
-            raise RuntimeError("Sandbox repository manager is required for replace actions")
+            raise RuntimeError("Repository workspace manager is required for replace actions")
         path = self.repo_ops.sandbox_repo / relative_path
         if not path.exists() or not path.is_file():
             raise FileNotFoundError(f"replace_in_file target missing: {relative_path}")
@@ -640,7 +640,7 @@ class SpecialistExecutor:
                 request_log_updated = True
             return {
                 "docs_updated": changed_files,
-                "doc_change_summary": "Fallback doc sync appended a request-log entry in sandbox.",
+                "doc_change_summary": "Fallback doc sync appended a request-log entry in the active workspace.",
                 "request_log_entry": request_log_entry.strip(),
                 "request_log_updated": request_log_updated,
                 "contract_change_required": False,
@@ -653,7 +653,7 @@ class SpecialistExecutor:
         if stage_id == "memory_sync":
             memory_updates = [
                 "Runtime completed with schema-validated stage and gate boundaries.",
-                "Sandboxed repo operations were used before touching the real repository.",
+                "Repository operations ran directly in the active workspace/branch.",
             ]
             changed_files: List[str] = []
             if self.memory_writer is not None:

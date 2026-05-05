@@ -23,6 +23,7 @@ def initialize_run_state(run_id: str, request: str, approval_mode: str = "auto")
         "stage_history": [],
         "artifacts_dir": "",
         "sandbox_dir": "",
+        "workspace_dir": "",
         "events_file": "",
         "resume_source_run_id": "",
         "base_commit": "",

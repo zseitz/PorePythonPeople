@@ -18,7 +18,7 @@ from .contracts import ContractValidationError, ContractValidator
 from .executor import SpecialistExecutor, build_gate_evidence
 from .gates import evaluate_stage_gates
 from .memory_writer import MemoryWriter
-from .repo_ops import RepoSandboxManager
+from .repo_ops import RepoWorkspaceManager
 from .state import (
     append_event,
     append_stage_result,
@@ -60,7 +60,7 @@ def _load_policy(path: Path) -> Dict[str, object]:
 def _build_executor(
     policy: Dict[str, object],
     repo_root: Path,
-    repo_ops: Optional[RepoSandboxManager],
+    repo_ops: Optional[RepoWorkspaceManager],
     memory_writer: Optional[MemoryWriter],
     context_manager: Optional[ContextBudgetManager] = None,
 ) -> SpecialistExecutor:
@@ -430,10 +430,10 @@ def _prompt_for_promotion_approval(request: Dict[str, object]) -> str:
     changed_count = request.get("changed_count", 0)
     diff_artifact = request.get("diff_artifact", "")
     if diff_artifact:
-        print(f"Review sandbox promotion diff artifact: {diff_artifact}")
+        print(f"Review promotion diff artifact: {diff_artifact}")
 
     prompt = (
-        f"Approve sandbox promotion of {changed_count} file(s) to repository? "
+        f"Approve promotion of {changed_count} file(s) to repository? "
         "[a]pprove/[r]eject/[q]uit: "
     )
     while True:
@@ -557,7 +557,7 @@ def run_milestone1(
     run_dir = ensure_run_dirs(run_root, run_id)
     runtime_dir = Path(__file__).resolve().parent
     validator = ContractValidator(runtime_dir=runtime_dir)
-    sandbox_manager = RepoSandboxManager(repo_root=repo_root, sandbox_root=run_dir / "sandbox")
+    sandbox_manager = RepoWorkspaceManager(repo_root=repo_root, sandbox_root=run_dir / "sandbox")
     memory_writer = MemoryWriter(repo_root=repo_root)
     snapshot_path = run_dir / "artifacts" / "repo_start_snapshot.json"
     runtime_cfg = policy.get("runtime", {}) if isinstance(policy, dict) else {}
@@ -585,7 +585,8 @@ def run_milestone1(
             snapshot_path.write_text(json.dumps(repo_guardrails, indent=2), encoding="utf-8")
     except (OSError, RuntimeError, ValueError) as exc:
         run_state = initialize_run_state(run_id=run_id, request=request, approval_mode=effective_approval_mode)
-        run_state["sandbox_dir"] = str((run_dir / "sandbox" / "repo").as_posix())
+        run_state["sandbox_dir"] = str(repo_root.as_posix())
+        run_state["workspace_dir"] = str(repo_root.as_posix())
         append_event(
             run_dir,
             {
@@ -620,6 +621,7 @@ def run_milestone1(
         run_state = initialize_run_state(run_id=run_id, request=request, approval_mode=effective_approval_mode)
     run_state["approval_mode"] = effective_approval_mode
     run_state["sandbox_dir"] = str(sandbox_repo.as_posix())
+    run_state["workspace_dir"] = str(sandbox_repo.as_posix())
     run_state["base_commit"] = str(run_state.get("base_commit") or repo_guardrails.get("base_commit", ""))
     run_state["base_branch"] = str(run_state.get("base_branch") or repo_guardrails.get("base_branch", ""))
     run_state["repo_snapshot_file"] = str(snapshot_path.as_posix()) if snapshot_path.exists() else ""
@@ -837,117 +839,17 @@ def run_milestone1(
         if isinstance(raw, dict):
             promotion_cfg = raw
 
+    # Promotion is intentionally disabled in in-place workspace mode.
     if bool(promotion_cfg.get("enabled", False)):
-        promotion_summary = sandbox_manager.summarize_changes()
-        changed_files = promotion_summary.get("changed_files", [])
-        if isinstance(changed_files, list) and changed_files:
-            allowed_paths = _promotion_allowed_paths(runtime_cfg)
-            partitioned_paths = _partition_promotion_paths(changed_files, allowed_paths)
-            allowed_changed_files = partitioned_paths["allowed"]
-            disallowed_changed_files = partitioned_paths["disallowed"]
-            promotion_summary["allowed_paths"] = allowed_paths
-            promotion_summary["allowlisted_changed_files"] = allowed_changed_files
-            promotion_summary["disallowed_changed_files"] = disallowed_changed_files
-
-            if disallowed_changed_files:
-                promotion_artifact = run_dir / "artifacts" / "promotion_diff.json"
-                promotion_artifact.write_text(json.dumps(promotion_summary, indent=2), encoding="utf-8")
-                append_event(
-                    run_dir,
-                    {
-                        "type": "promotion_blocked",
-                        "run_id": run_id,
-                        "reason": "paths_outside_allowlist",
-                        "disallowed_files": disallowed_changed_files,
-                        "artifact": str(promotion_artifact.as_posix()),
-                        "timestamp": _utc_now(),
-                    },
-                )
-                print(
-                    "[runtime promotion blocked] Refusing promotion because changed sandbox files fall outside runtime.promotion.allowed_paths: "
-                    f"{', '.join(str(path) for path in disallowed_changed_files)}"
-                )
-                changed_files = []
-
-        if isinstance(changed_files, list) and changed_files:
-            drift_summary = sandbox_manager.detect_repo_drift_since_start(changed_files)
-            promotion_summary["repo_guardrails"] = drift_summary
-            promotion_artifact = run_dir / "artifacts" / "promotion_diff.json"
-            promotion_artifact.write_text(json.dumps(promotion_summary, indent=2), encoding="utf-8")
-
-            append_event(
-                run_dir,
-                {
-                    "type": "promotion_requested",
-                    "run_id": run_id,
-                    "changed_count": promotion_summary.get("total_changed_files", len(changed_files)),
-                    "artifact": str(promotion_artifact.as_posix()),
-                    "repo_changed_since_start": bool(drift_summary.get("repo_changed_since_start", False)),
-                    "timestamp": _utc_now(),
-                },
-            )
-
-            conflicting_files = drift_summary.get("conflicting_files", [])
-            if isinstance(conflicting_files, list) and conflicting_files:
-                append_event(
-                    run_dir,
-                    {
-                        "type": "promotion_blocked",
-                        "run_id": run_id,
-                        "reason": "target_files_changed_in_local_repo",
-                        "conflicting_files": conflicting_files,
-                        "timestamp": _utc_now(),
-                    },
-                )
-                print(
-                    "[runtime promotion blocked] Refusing promotion because the local repository changed in target file(s) "
-                    f"since run start: {', '.join(str(path) for path in conflicting_files)}"
-                )
-            else:
-                if bool(drift_summary.get("repo_changed_since_start", False)):
-                    print(
-                        "[runtime promotion warning] Local repository changed since run start, but not in the files being promoted. "
-                        "Review promotion_diff.json carefully before approving promotion."
-                    )
-
-                require_approval = bool(promotion_cfg.get("require_approval", True))
-                decision = "approved"
-                if require_approval:
-                    promotion_request = {
-                        "run_id": run_id,
-                        "changed_count": promotion_summary.get("total_changed_files", len(changed_files)),
-                        "diff_artifact": str(promotion_artifact.as_posix()),
-                        "repo_changed_since_start": bool(drift_summary.get("repo_changed_since_start", False)),
-                    }
-                    decision_raw = (
-                        approval_handler(promotion_request)
-                        if approval_handler
-                        else _prompt_for_promotion_approval(promotion_request)
-                    )
-                    decision = _normalize_approval_decision(decision_raw)
-
-                if decision == "approved":
-                    promoted = sandbox_manager.promote_changes(changed_files)
-                    run_state["promoted_files"] = promoted
-                    append_event(
-                        run_dir,
-                        {
-                            "type": "promotion_applied",
-                            "run_id": run_id,
-                            "promoted_files": promoted,
-                            "timestamp": _utc_now(),
-                        },
-                    )
-                else:
-                    append_event(
-                        run_dir,
-                        {
-                            "type": "promotion_skipped",
-                            "run_id": run_id,
-                            "decision": decision,
-                            "timestamp": _utc_now(),
-                        },
-                    )
+        append_event(
+            run_dir,
+            {
+                "type": "promotion_disabled",
+                "run_id": run_id,
+                "reason": "in_place_workspace_execution",
+                "timestamp": _utc_now(),
+            },
+        )
 
     run_state["context_metrics"] = context_mgr.summary()
     run_state["pending_approval"] = {}

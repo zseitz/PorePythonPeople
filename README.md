@@ -61,7 +61,7 @@ In other words, the runtime is a **supervised development aid** for the main nan
 If you use the runtime, the recommended workflow is:
 
 - run locally,
-- keep the sandbox/promotion safeguards enabled,
+- run from a dedicated feature branch (never `main`/`master`),
 - review generated edits like normal engineering changes,
 - and merge through your usual branch and commit workflow.
 

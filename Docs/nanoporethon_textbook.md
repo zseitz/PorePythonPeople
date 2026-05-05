@@ -1006,7 +1006,7 @@ The current runtime is intentionally lightweight and local-first. Core roles:
 - **Specialist executor**: runs stage owners with bounded context.
 - **Gate engine**: enforces pass/fail/waived decisions.
 - **State store**: records run + stage lifecycle.
-- **Repo adapter**: applies edits/checks in sandbox and controls promotion.
+- **Repo adapter**: applies edits/checks in the active feature-branch workspace and controls promotion.
 - **Memory updater**: writes concise verified learnings.
 
 ### 15.4A Intended operating model (important reality check)
@@ -1024,7 +1024,7 @@ In practical terms, the intended operating model is:
 What this means operationally:
 
 - The runtime is **not meant to run unattended**.
-- Sandbox promotion should be treated as a **normal reviewed workflow**, not as blind auto-merge.
+- Promotion should be treated as a **normal reviewed workflow**, not as blind auto-merge.
 - Strong guardrails are useful, but they should stay proportional to this repo's real use case.
 - The primary value remains the nanopore analysis and curation code; the runtime exists to make occasional development work safer and more repeatable.
 
@@ -1092,7 +1092,7 @@ Helpful options:
 - `--approval-mode per_stage`
 - `--resume-run-id <run_id> --resume-choice restart_from_beginning|resume_from_last_completed`
 
-Current runtime behavior includes sandboxed edits, policy-driven verification commands, schema validation with deterministic fallback handling, approval-aware resume flow, and optional operator-gated promotion.
+Current runtime behavior includes in-place branch edits, policy-driven verification commands, schema validation with deterministic fallback handling, approval-aware resume flow, and optional operator-gated promotion.
 
 Recommended usage pattern:
 

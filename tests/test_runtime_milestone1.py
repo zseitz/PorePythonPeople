@@ -220,7 +220,8 @@ def test_run_state_artifact_contract_written(tmp_path):
     assert isinstance(persisted["stage_history"], list)
     assert persisted["artifacts_dir"].endswith("/artifacts")
     assert persisted["events_file"].endswith("/events.jsonl")
-    assert persisted["sandbox_dir"].endswith("/sandbox/repo")
+    assert persisted["sandbox_dir"] == str(Path(__file__).resolve().parents[1].as_posix())
+    assert persisted["workspace_dir"] == str(Path(__file__).resolve().parents[1].as_posix())
     assert "repo_snapshot_file" in persisted
     assert "startup_warnings" in persisted
 
@@ -336,11 +337,13 @@ def test_promotion_applies_doc_sync_changes_to_repo(tmp_path):
     assert run_state["status"] == "completed"
     promoted = run_state.get("promoted_files", [])
     assert isinstance(promoted, list)
-    assert "Docs/agent_logs/REQUEST_LOG.md" in promoted
+    assert promoted == []
 
     request_log = temp_repo / "Docs" / "agent_logs" / "REQUEST_LOG.md"
     assert request_log.exists()
     assert "Runtime doc sync fallback entry" in request_log.read_text(encoding="utf-8")
+    events_text = (tmp_path / run_state["run_id"] / "events.jsonl").read_text(encoding="utf-8")
+    assert '"type": "promotion_disabled"' in events_text
 
 
 # ---------------------------------------------------------------------------
@@ -751,8 +754,7 @@ def test_promotion_rejected_by_operator_records_skip_event(tmp_path):
     assert run_state["status"] == "completed"
     events_path = tmp_path / run_state["run_id"] / "events.jsonl"
     events_text = events_path.read_text(encoding="utf-8")
-    assert '"type": "promotion_requested"' in events_text
-    assert '"type": "promotion_skipped"' in events_text
+    assert '"type": "promotion_disabled"' in events_text
 
 
 def test_run_records_git_baseline_and_feature_branch_warning(tmp_path, capsys):
@@ -857,11 +859,8 @@ def test_promotion_blocked_when_target_file_changes_during_run(tmp_path, monkeyp
     assert run_state["status"] == "completed"
     assert run_state["promoted_files"] == []
     run_dir = Path(policy["runtime"]["run_root"]) / run_state["run_id"]
-    promotion_payload = json.loads((run_dir / "artifacts" / "promotion_diff.json").read_text(encoding="utf-8"))
-    guardrails = promotion_payload["repo_guardrails"]
-    assert "README.md" in guardrails["conflicting_files"]
     events_text = (run_dir / "events.jsonl").read_text(encoding="utf-8")
-    assert '"type": "promotion_blocked"' in events_text
+    assert '"type": "promotion_disabled"' in events_text
 
 
 def test_implement_gate_fails_when_merge_markers_found():
@@ -1185,12 +1184,10 @@ def test_promotion_blocked_when_paths_outside_allowlist(tmp_path):
 
     assert run_state["status"] == "completed"
     assert run_state.get("promoted_files", []) == []
-    assert not (temp_repo / "runtime" / "disallowed_promotion.txt").exists()
+    assert (temp_repo / "runtime" / "disallowed_promotion.txt").exists()
     run_dir = tmp_path / run_state["run_id"]
-    promotion_payload = json.loads((run_dir / "artifacts" / "promotion_diff.json").read_text(encoding="utf-8"))
-    assert "runtime/disallowed_promotion.txt" in promotion_payload["disallowed_changed_files"]
     events_text = (run_dir / "events.jsonl").read_text(encoding="utf-8")
-    assert '"reason": "paths_outside_allowlist"' in events_text
+    assert '"type": "promotion_disabled"' in events_text
 
 
 def test_executor_supports_replace_in_file_action(tmp_path):

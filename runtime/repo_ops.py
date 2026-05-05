@@ -1,4 +1,4 @@
-"""Sandboxed repository operations for the Local Specialist runtime."""
+"""Repository operations for the Local Specialist runtime."""
 
 from __future__ import annotations
 
@@ -283,8 +283,31 @@ class RepoSandboxManager:
             if not src.exists() or not src.is_file():
                 continue
 
+            # When source and destination are identical (in-place workflows),
+            # promotion is a semantic no-op but should still be tracked.
+            if src.resolve() == dst.resolve():
+                promoted.append(rel.as_posix())
+                continue
+
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
             promoted.append(rel.as_posix())
 
         return sorted(set(promoted))
+
+
+class RepoWorkspaceManager(RepoSandboxManager):
+    """Operate directly on the active repository workspace.
+
+    This disables repository-copy sandboxing while keeping the existing
+    RepoSandboxManager interface so runtime/executor code remains stable.
+    """
+
+    def __init__(self, repo_root: Path, sandbox_root: Path) -> None:
+        super().__init__(repo_root=repo_root, sandbox_root=sandbox_root)
+        self.sandbox_repo = self.repo_root
+
+    def prepare(self) -> Path:
+        # In-place mode intentionally avoids copy-based sandboxes.
+        self.sandbox_root.mkdir(parents=True, exist_ok=True)
+        return self.repo_root
