@@ -16,11 +16,56 @@ runtime:
       - Docs/**
       - memories/repo/**
 
+assistant_scope:
+  # Local operator-assistant guardrails (Option B):
+  # deterministic scope checks + intent gating before any runtime action.
+  intent_classifier:
+    enabled: true
+    # If model is not available, falls back to rule-based classification.
+    # Recommended fast models: mistral:7b, neural-chat, orca-mini:3b
+    model: mistral:7b
+    base_url: http://localhost:11434
+  scope_keywords:
+    - nanoporethon
+    - porepythonpeople
+    - runtime
+    - orchestrator
+    - stage
+    - gate
+    - policy
+    - docs
+    - tests
+    - code
+    - gui
+    - feature
+    - repository
+    - repo
+  forbidden_patterns:
+    - "\\brecipe\\b"
+    - "\\bcook(ing)?\\b"
+    - "\\bbrownie\\b"
+    - "\\bmedical\\b"
+    - "\\bdiagnos(e|is|ing)\\b"
+    - "\\btreatment\\b"
+    - "\\bpolitic(al|s)?\\b"
+    - "\\belection\\b"
+    - "\\binvest(ing|ment)?\\b"
+    - "\\bstock(s)?\\b"
+    - "\\bcrypto\\b"
+    - "\\bfinancial\\b"
+    - "\\blegal\\b"
+    - "\\blawsuit\\b"
+    - "\\btherap(y|ist)\\b"
+    - "\\brelationship advice\\b"
+    - "\\bphilosoph(y|ical)\\b"
+    - "\\bmeaning of life\\b"
+
 model_provider:
   adapter: ollama
   model: qwen3:4b
   base_url: http://localhost:11434
   temperature: 0.1
+  # default should be 0.6?
   max_retries: 2
 
 specialists:
