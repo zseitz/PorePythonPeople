@@ -171,8 +171,8 @@ gates:
       - id: coverage_meets_policy
     allow_no_tests_collected: false
     commands:
-      tests: "pytest -q"
-      coverage: "pytest --cov=nanoporethon --cov-report=term-missing"
+      tests: "python -m pytest -q"
+      coverage: "python -m pytest --cov=nanoporethon --cov-report=term-missing"
   doc_sync:
     required_checks:
       - id: components_updated_if_contract_changed

@@ -990,9 +990,10 @@ def test_verify_uses_sandbox_default_cwd(tmp_path):
     class CapturingRepoOps:
         sandbox_repo = Path("/tmp/sandbox")
 
-        def run_command(self, _command, _allowlist, _blocklist, cwd=None, timeout=120):
+        def run_command(self, command, _allowlist, _blocklist, cwd=None, timeout=120):
             self.captured_cwd = cwd
-            return {"command": "pytest -q", "exit_code": 0, "stdout": "", "stderr": ""}
+            self.captured_command = command
+            return {"command": command, "exit_code": 0, "stdout": "", "stderr": ""}
 
         def changed_files(self):
             return []
@@ -1005,6 +1006,7 @@ def test_verify_uses_sandbox_default_cwd(tmp_path):
     payload = executor._run_verify_commands("verify", context={})
     assert payload["tests_exit_code"] == 0
     assert getattr(repo_ops, "captured_cwd", "sentinel") is None
+    assert getattr(repo_ops, "captured_command", "").startswith("python -m pytest")
 
 
 def test_no_tests_collected_fails_without_opt_in(tmp_path):

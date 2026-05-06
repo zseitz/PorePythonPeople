@@ -194,6 +194,7 @@ Primary package location: `src/nanoporethon/`.
   - Requires a clean git working tree before starting a fresh run when the repository root is a git checkout.
   - Captures base commit/branch metadata plus a start-of-run file-hash snapshot for promotion guardrails.
   - Executes verification commands from policy (`gates.verify.commands`) in the active workspace rather than fixed hardcoded test commands.
+  - Normalizes bare `pytest ...` verify commands to `python -m pytest ...` before execution to avoid interpreter entrypoint mismatches between shell scripts and runtime Python environments.
   - Enforces implementation gate merge-marker checks by scanning changed files for unresolved conflict markers.
   - Supports per-stage policy-controlled handling for pytest code `5` (`allow_no_tests_collected`) for both `verify` and `verify_after_refactor` instead of implicitly treating empty test scope as pass.
   - Defines waiver structure for explicit, auditable gate bypasses, restricted to approved operators.

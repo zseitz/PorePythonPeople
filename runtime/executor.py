@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import shlex
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -506,7 +507,7 @@ class SpecialistExecutor:
         return applied, warnings
 
     def _verify_commands(self, stage_id: str) -> Dict[str, str]:
-        default_tests = "pytest -q"
+        default_tests = "python -m pytest -q"
         commands: Dict[str, str] = {"tests": default_tests}
         if not isinstance(self.policy, dict):
             return commands
@@ -539,7 +540,35 @@ class SpecialistExecutor:
                     if isinstance(coverage_cmd, str) and coverage_cmd.strip():
                         commands["coverage"] = coverage_cmd.strip()
 
+        for key, raw_command in list(commands.items()):
+            commands[key] = self._normalize_verify_command(raw_command)
+
         return commands
+
+    def _normalize_verify_command(self, command: str) -> str:
+        """Normalize verify command entry points for interpreter consistency.
+
+        Running bare ``pytest`` can invoke a different Python environment from
+        the runtime process (entrypoint-script mismatch), which may cause
+        collection/import failures even when ``python -m pytest`` succeeds.
+        """
+        stripped = command.strip()
+        if not stripped:
+            return stripped
+
+        try:
+            tokens = shlex.split(stripped)
+        except ValueError:
+            return stripped
+
+        if not tokens:
+            return stripped
+
+        if tokens[0] != "pytest":
+            return stripped
+
+        normalized_tokens = ["python", "-m", "pytest", *tokens[1:]]
+        return " ".join(shlex.quote(token) for token in normalized_tokens)
 
     def _run_verify_commands(self, stage_id: str, context: Dict[str, object]) -> Dict[str, object]:
         commands = self._verify_commands(stage_id)
