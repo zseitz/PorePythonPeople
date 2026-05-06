@@ -1104,10 +1104,14 @@ Recommended usage pattern:
 
 Current recommended model map:
 
-- global default: `qwen3:4b` (Ollama)
+- global default: `qwen2.5:3b` (Ollama, speed-first)
 - specialist overrides:
-  - `doc_sync` → `qwen3:4b`
-  - `memory_sync` → `qwen3:4b`
+  - `doc_sync` → `qwen2.5:3b`
+  - `memory_sync` → `qwen2.5:3b`
+
+Operator-assistant classifier recommendation remains separate from specialist generation routing:
+
+- `assistant_scope.intent_classifier.model` → `mistral:7b` (kept for strict JSON routing stability)
 
 Recommended context planning (operational estimates):
 

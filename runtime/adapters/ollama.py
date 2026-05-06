@@ -20,11 +20,19 @@ class OllamaAdapter:
         self.base_url = base_url.rstrip("/")
 
     def chat(self, system_prompt: str, messages: List[Dict[str, str]]) -> str:
+        return self._chat(system_prompt, messages, json_mode=False)
+
+    def chat_json(self, system_prompt: str, messages: List[Dict[str, str]]) -> str:
+        return self._chat(system_prompt, messages, json_mode=True)
+
+    def _chat(self, system_prompt: str, messages: List[Dict[str, str]], json_mode: bool) -> str:
         payload = {
             "model": self.model,
             "messages": [{"role": "system", "content": system_prompt}] + messages,
             "stream": False,
         }
+        if json_mode:
+            payload["format"] = "json"
         req = urllib.request.Request(
             url=f"{self.base_url}/api/chat",
             data=json.dumps(payload).encode("utf-8"),

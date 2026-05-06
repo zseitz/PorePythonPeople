@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import json
 import queue
+import sys
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Set, Tuple
@@ -18,9 +20,19 @@ from typing import Any, Callable, Dict, Optional, Set, Tuple
 import tkinter as tk
 from tkinter import scrolledtext
 
-from runtime.adapters.ollama import OllamaAdapter
-from runtime.operator_assistant import AssistantStartupError, LocalOperatorAssistant
-from runtime.orchestrator import run_milestone1
+try:
+    from runtime.adapters.ollama import OllamaAdapter
+    from runtime.operator_assistant import AssistantStartupError, LocalOperatorAssistant, _chat_json_response
+    from runtime.orchestrator import run_milestone1
+except ModuleNotFoundError:
+    # Support direct-file launch, e.g. `python src/nanoporethon/operator_assistant_gui.py`,
+    # where the repository root may not be on sys.path.
+    repo_root = Path(__file__).resolve().parents[2]
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    from runtime.adapters.ollama import OllamaAdapter
+    from runtime.operator_assistant import AssistantStartupError, LocalOperatorAssistant, _chat_json_response
+    from runtime.orchestrator import run_milestone1
 
 
 def _intent_badge_style(intent: str, confidence: float) -> Tuple[str, str]:
@@ -39,6 +51,19 @@ def _intent_badge_style(intent: str, confidence: float) -> Tuple[str, str]:
     return text, color_map.get(normalized, "#555555")
 
 
+def _activity_indicator_text(runtime_running: bool, assistant_processing: bool, dot_phase: int) -> Tuple[str, str]:
+    dots = "." * (max(0, int(dot_phase)) % 3 + 1)
+    if runtime_running:
+        return f"Activity: runtime execution in progress{dots}", "#1f4aa8"
+    if assistant_processing:
+        return f"Activity: assistant is processing{dots}", "#6a3dad"
+    return "Activity: idle", "#666666"
+
+
+def _activity_status_label(activity_text: str, last_ui_tick: str) -> str:
+    return f"{activity_text} (last UI tick: {last_ui_tick})"
+
+
 def _load_policy(path: Path) -> Dict[str, object]:
     try:
         import yaml  # type: ignore
@@ -49,6 +74,26 @@ def _load_policy(path: Path) -> Dict[str, object]:
         return {}
     loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
     return loaded if isinstance(loaded, dict) else {}
+
+
+def _resolve_repo_root(start_dir: Path, module_file: Optional[Path] = None) -> Path:
+    """Find repository root by locating runtime/policies.yaml.
+
+    This allows GUI startup to succeed when launched from outside the repo root.
+    """
+    start = start_dir.resolve()
+    search_roots = [start, *start.parents]
+
+    if module_file is not None:
+        module_parent = module_file.resolve().parent
+        if module_parent not in search_roots:
+            search_roots.extend([module_parent, *module_parent.parents])
+
+    for candidate in search_roots:
+        if (candidate / "runtime" / "policies.yaml").exists():
+            return candidate
+
+    return start
 
 
 def _classifier_health_check(
@@ -84,7 +129,8 @@ def _classifier_health_check(
         }
 
     try:
-        raw = adapter.chat(
+        payload = _chat_json_response(
+            adapter,
             "Return ONLY valid JSON: {\"intent\": \"feature_request\", \"confidence\": 0.9, \"reason\": \"healthcheck\"}",
             [{"role": "user", "content": "Health check: classify this as feature_request."}],
         )
@@ -110,22 +156,19 @@ def _classifier_health_check(
                     f"Details: {msg}"
                 ),
             }
+        if "json" in lowered or "no json object found" in lowered or "empty model output" in lowered:
+            return {
+                "ok": "false",
+                "status": "malformed_output",
+                "message": (
+                    "Classifier returned non-JSON output during health check. "
+                    f"Details: {msg}"
+                ),
+            }
         return {
             "ok": "false",
             "status": "chat_error",
             "message": f"Classifier call failed for model={model} at {base_url}. Details: {msg}",
-        }
-
-    try:
-        payload = json.loads(str(raw).strip())
-    except Exception as exc:
-        return {
-            "ok": "false",
-            "status": "malformed_output",
-            "message": (
-                "Classifier returned non-JSON output during health check. "
-                f"Details: {exc}; raw={raw!r}"
-            ),
         }
 
     intent = str(payload.get("intent", "")).strip().lower()
@@ -152,7 +195,7 @@ class OperatorAssistantGUI:
         self.root.title("nanoporethon Operator Assistant (Local, Guardrailed)")
         self.root.geometry("1320x860")
 
-        self.repo_root = Path.cwd()
+        self.repo_root = _resolve_repo_root(Path.cwd(), module_file=Path(__file__))
         self.policy_path = self.repo_root / "runtime" / "policies.yaml"
         self.policy = _load_policy(self.policy_path)
         self.assistant: Optional[LocalOperatorAssistant] = None
@@ -165,11 +208,15 @@ class OperatorAssistantGUI:
         self.runtime_thread: Optional[threading.Thread] = None
         self.runtime_queue: "queue.Queue[Dict[str, object]]" = queue.Queue()
         self.runtime_running = False
+        self.assistant_processing = False
         self.run_watch_started_at: Optional[float] = None
         self.existing_runs: Set[str] = set()
         self.current_run_id: Optional[str] = None
         self.current_run_dir: Optional[Path] = None
         self.events_line_cursor = 0
+        self.activity_dot_phase = 0
+        self.activity_last_tick = time.monotonic()
+        self.activity_last_ui_tick = datetime.now().strftime("%H:%M:%S")
 
         self.session_state: Dict[str, object] = self.assistant.init_session() if self.assistant else {}
         self.latest_runtime_request: Optional[str] = None
@@ -239,6 +286,10 @@ class OperatorAssistantGUI:
         self.readiness_var = tk.StringVar(value="Status: waiting for feature request message")
         tk.Label(right, textvariable=self.readiness_var, anchor="w", fg="#333333").pack(side=tk.TOP, fill=tk.X)
 
+        self.activity_var = tk.StringVar(value="Activity: idle")
+        self.activity_label = tk.Label(right, textvariable=self.activity_var, anchor="w", fg="#666666")
+        self.activity_label.pack(side=tk.TOP, fill=tk.X, pady=(2, 0))
+
         controls = tk.Frame(right)
         controls.pack(side=tk.TOP, fill=tk.X, pady=(8, 0))
         self.run_button = tk.Button(controls, text="Run Latest Request", command=self._start_runtime, state=tk.DISABLED)
@@ -262,6 +313,8 @@ class OperatorAssistantGUI:
                 "Startup error: strict local-LLM mode is required for routing and session analysis. "
                 f"{self.assistant_startup_error}",
             )
+
+        self._refresh_activity_indicator(force=True)
 
     def _timestamp(self) -> str:
         return datetime.now().strftime("%H:%M:%S")
@@ -313,7 +366,32 @@ class OperatorAssistantGUI:
         self.readiness_var.set("Status: waiting for feature request message")
         self._set_preview_text("")
         self._set_followups([])
+        self.assistant_processing = False
+        self._refresh_activity_indicator(force=True)
         self._log_chat("assistant", "Started a new chat session. Describe your next request.")
+
+    def _refresh_activity_indicator(self, force: bool = False) -> None:
+        busy = self.runtime_running or self.assistant_processing
+        now = time.monotonic()
+
+        if force:
+            if not busy:
+                self.activity_dot_phase = 0
+            self.activity_last_tick = now
+        elif busy and now - self.activity_last_tick >= 1.0:
+            self.activity_dot_phase = (self.activity_dot_phase + 1) % 3
+            self.activity_last_tick = now
+
+        if force or busy:
+            self.activity_last_ui_tick = datetime.now().strftime("%H:%M:%S")
+
+        text, color = _activity_indicator_text(
+            runtime_running=self.runtime_running,
+            assistant_processing=self.assistant_processing,
+            dot_phase=self.activity_dot_phase,
+        )
+        self.activity_var.set(_activity_status_label(text, self.activity_last_ui_tick))
+        self.activity_label.config(fg=color)
 
     def _on_send_chat(self, _event=None) -> None:
         if self.assistant is None:
@@ -331,6 +409,10 @@ class OperatorAssistantGUI:
         self.chat_input.delete(0, tk.END)
         self._log_chat("user", user_text)
 
+        self.assistant_processing = True
+        self._refresh_activity_indicator(force=True)
+        self.root.update_idletasks()
+
         try:
             response = self.assistant.handle_message(user_text, session=self.session_state)
         except RuntimeError as exc:
@@ -342,7 +424,13 @@ class OperatorAssistantGUI:
             self._set_intent_badge("out_of_scope", 1.0)
             self.readiness_var.set("Status: routing error (check local model output)")
             self.run_button.config(state=tk.DISABLED)
+            self.assistant_processing = False
+            self._refresh_activity_indicator(force=True)
             return
+        finally:
+            if self.assistant_processing:
+                self.assistant_processing = False
+                self._refresh_activity_indicator(force=True)
         self.session_state = response.session_updates
         self._set_intent_badge(response.intent, response.confidence)
 
@@ -416,6 +504,7 @@ class OperatorAssistantGUI:
         )
         self.runtime_thread.start()
         self._log_timeline("Runtime execution started (approval_mode=auto, live progress from events).")
+        self._refresh_activity_indicator(force=True)
 
     def _runtime_worker(self, request_text: str) -> None:
         try:
@@ -516,9 +605,13 @@ class OperatorAssistantGUI:
                 run_id = run_state.get("run_id", self.current_run_id or "unknown") if isinstance(run_state, dict) else "unknown"
                 self._log_timeline(f"Run completed: {run_id} status={status}")
                 self.runtime_running = False
+                self._refresh_activity_indicator(force=True)
             elif msg_type == "error":
                 self._log_timeline(f"Run failed with exception: {msg.get('error', 'unknown')} ")
                 self.runtime_running = False
+                self._refresh_activity_indicator(force=True)
+
+        self._refresh_activity_indicator(force=False)
 
         self.root.after(750, self._poll_runtime_state)
 

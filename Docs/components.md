@@ -220,10 +220,14 @@ Primary package location: `src/nanoporethon/`.
   - Provides a chat-first local assistant for in-scope repository/runtime interaction.
   - Displays a live intent badge above chat output (for example Feature Request / Runtime Help / Out-of-Scope) so routing decisions are immediately visible.
   - Uses semantic intent classification via local LLM (configurable model, defaults to `mistral:7b` for speed) with JSON-structured responses for reliability.
+  - Requests JSON-mode classifier responses when available and falls back to extracting embedded JSON objects from chatty model output, reducing false startup/health-check failures caused by prose-wrapped responses.
   - Runs in strict LLM mode: classifier availability is a hard startup requirement and non-LLM routing fallback is disabled.
   - Uses LLM-based session analysis (request-kind inference, clarifying-question generation, and core-GUI authorization detection) instead of hard-coded keyword detectors for follow-up routing and request drafting.
+  - Avoids redundant clarification loops by collapsing overlapping core-GUI authorization questions and remembering explicit user decisions (for example, repeated "No" answers do not trigger the same authorization prompt again).
   - Builds a runtime request preview directly from conversation context (instead of requiring a long static form upfront).
   - Asks targeted clarification questions only when more precision is needed.
+  - Favors low-friction execution for actionable requests: the assistant now defaults to zero follow-up questions unless execution is actually blocked (for example, protected core-GUI authorization or a genuinely underspecified request), and even then asks at most one question per turn.
+  - When protected core GUI files are implicated, authorization prompts are plan-specific: the assistant names the file(s) it expects to change and explains why it believes those file edits are needed before asking for permission.
   - **Session-aware continuation**: Follow-up responses to clarifying questions (e.g., answering "both" to a verification question) are recognized as continuations of the active feature request and NOT re-evaluated against scope rules, preventing context loss in multi-turn conversations.
   - **Default verification policy for code changes**: Feature requests are treated as code-changing by default (unless clearly docs-only), and runtime request packets automatically require both automated tests and behavior checks without requiring users to include testing keywords.
   - Classifies intents into in-scope runtime/repo workflows vs out-of-scope domains.
@@ -231,6 +235,7 @@ Primary package location: `src/nanoporethon/`.
   - Builds a runtime request packet from chat context and launches attended runtime execution locally.
   - Protects core GUI components by default (`data_navi_gui.py`, `event_classifier_gui.py`) unless user explicitly authorizes modifying them.
   - Streams runtime progress to users by reading `.nanopore-runtime/runs/<run_id>/events.jsonl` and surfacing stage/gate/promotion events.
+  - Shows a live animated activity indicator (dot-cycling heartbeat) during assistant-processing and runtime execution, including a last-UI-tick timestamp, so users can distinguish active work from a frozen UI even between major timeline events.
   - Surfaces explicit startup/routing errors in the GUI when classifier initialization fails or model responses are not valid structured JSON.
   - Includes a manual **Health Check** button that validates classifier policy enablement, local Ollama connectivity, model availability, and structured JSON response compliance, with actionable remediation messages.
   - Keeps the operational model branch-local and human-supervised by design.

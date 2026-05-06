@@ -108,6 +108,7 @@ def test_feature_request_generates_runtime_request_preview():
     assert response.intent == "feature_request"
     assert response.runtime_request is not None
     assert "Conversation-derived request" in response.runtime_request
+    assert response.followup_questions == []
 
 
 def test_core_gui_is_protected_by_default_in_runtime_request():
@@ -238,6 +239,30 @@ def test_model_based_classification_for_feature_request():
     assert response.runtime_request is not None
 
 
+def test_model_classification_extracts_embedded_json_object():
+    class WrappedJsonModelAdapter:
+        def chat_json(self, system_prompt: str, messages: list) -> str:
+            return 'Classifier result: {"intent": "feature_request", "confidence": 0.91, "reason": "wrapped_json"}'
+
+    policy = {
+        "assistant_scope": {
+            "intent_classifier": {"enabled": True, "model": "test-model"},
+            "scope_keywords": ["nanoporethon", "python", "code"],
+        }
+    }
+    assistant = LocalOperatorAssistant(
+        repo_root=Path(__file__).resolve().parents[1],
+        policy=policy,
+    )
+    assistant._intent_classifier = WrappedJsonModelAdapter()
+
+    response = assistant.handle_message(
+        "Build a new feature in nanoporethon",
+        session=assistant.init_session(),
+    )
+    assert response.intent == "feature_request"
+
+
 def test_model_classification_raises_on_invalid_json_in_strict_mode():
     """Strict mode should raise when model returns invalid JSON (no non-LLM fallback)."""
     mock = MockModelAdapter()
@@ -355,3 +380,169 @@ def test_code_change_uses_default_verification_without_keyword_gate():
     )
     assert response3.runtime_request is not None
     assert "Verification default for code changes" in response3.runtime_request
+
+
+def test_core_gui_authorization_question_not_repeated_after_user_says_no():
+    assistant = _assistant()
+    session = assistant.init_session()
+
+    first = assistant.handle_message(
+        "Build a new helper using patterns from src/nanoporethon/data_navi_gui.py",
+        session=session,
+    )
+    assert first.intent == "feature_request"
+    assert any("protected file(s): src/nanoporethon/data_navi_gui.py" in q for q in first.followup_questions)
+    assert any("Planned reason:" in q for q in first.followup_questions)
+
+    second = assistant.handle_message(
+        "1. No, 2. No, 3. No",
+        session=first.session_updates,
+    )
+    assert second.intent == "feature_request"
+    assert second.session_updates.get("core_change_decision_made") is True
+    assert second.session_updates.get("core_change_authorized") is False
+    assert not any("data_navi_gui.py" in q or "event_classifier_gui.py" in q for q in second.followup_questions)
+
+
+def test_core_gui_authorization_clarifications_are_collapsed_to_single_prompt():
+    class _RedundantCoreQuestionModel:
+        def chat(self, system_prompt: str, messages: list) -> str:
+            prompt_lower = system_prompt.lower()
+            if "request_kind" in prompt_lower and "clarifying_questions" in prompt_lower:
+                return json.dumps(
+                    {
+                        "request_kind": "code_change",
+                        "core_gui_change_requested": True,
+                        "core_gui_change_authorized": False,
+                        "clarifying_questions": [
+                            "Is it necessary to modify the protected core GUI files 'src/nanoporethon/data_navi_gui.py' or 'src/nanoporethon/event_classifier_gui.py' for this task?",
+                            "Is it necessary for the new Python file to interact with any specific core GUI files (src/nanoporethon/data_navi_gui.py or src/nanoporethon/event_classifier_gui.py)?",
+                        ],
+                    }
+                )
+            return json.dumps({"intent": "feature_request", "confidence": 0.9, "reason": "semantic_feature"})
+
+    assistant = LocalOperatorAssistant(
+        repo_root=Path(__file__).resolve().parents[1],
+        policy={"assistant_scope": {"intent_classifier": {"enabled": True, "model": "semantic-test"}}},
+    )
+    assistant._intent_classifier = _RedundantCoreQuestionModel()
+
+    response = assistant.handle_message(
+        "Please create a new file based on data_navi_gui behavior",
+        session=assistant.init_session(),
+    )
+    core_questions = [
+        q for q in response.followup_questions if ("data_navi_gui.py" in q or "event_classifier_gui.py" in q)
+    ]
+    assert len(core_questions) == 1
+    assert "protected file(s): src/nanoporethon/data_navi_gui.py" in core_questions[0]
+    assert "Planned reason:" in core_questions[0]
+
+
+def test_core_gui_authorization_prompt_lists_specific_files_and_reason():
+    assistant = _assistant()
+    response = assistant.handle_message(
+        "Update the Event Classifier GUI to add a CSV export button",
+        session=assistant.init_session(),
+    )
+    assert len(response.followup_questions) == 1
+    prompt = response.followup_questions[0]
+    assert "src/nanoporethon/event_classifier_gui.py" in prompt
+    assert "Planned reason:" in prompt
+    assert "CSV export button" in prompt
+
+
+def test_ambiguous_model_output_is_capped_to_single_followup_question():
+    class _ManyQuestionModel:
+        def chat_json(self, system_prompt: str, messages: list) -> str:
+            prompt_lower = system_prompt.lower()
+            if "request_kind" in prompt_lower and "clarifying_questions" in prompt_lower:
+                return json.dumps(
+                    {
+                        "request_kind": "code_change",
+                        "core_gui_change_requested": False,
+                        "core_gui_change_authorized": False,
+                        "clarifying_questions": [
+                            "Can you give one concrete example of the expected behavior/output?",
+                            "What should happen when the user clicks the button?",
+                            "Do you have any design constraints?",
+                        ],
+                    }
+                )
+            return json.dumps({"intent": "feature_request", "confidence": 0.9, "reason": "semantic_feature"})
+
+    assistant = LocalOperatorAssistant(
+        repo_root=Path(__file__).resolve().parents[1],
+        policy={"assistant_scope": {"intent_classifier": {"enabled": True, "model": "semantic-test"}}},
+    )
+    assistant._intent_classifier = _ManyQuestionModel()
+
+    response = assistant.handle_message(
+        "Need a new workflow tweak",
+        session=assistant.init_session(),
+    )
+    assert len(response.followup_questions) <= 1
+
+
+def test_actionable_request_with_possible_model_questions_asks_none_under_strict_policy():
+    class _QuestionHappyModel:
+        def chat_json(self, system_prompt: str, messages: list) -> str:
+            prompt_lower = system_prompt.lower()
+            if "request_kind" in prompt_lower and "clarifying_questions" in prompt_lower:
+                return json.dumps(
+                    {
+                        "request_kind": "code_change",
+                        "core_gui_change_requested": False,
+                        "core_gui_change_authorized": False,
+                        "clarifying_questions": [
+                            "Can you give one concrete example of the expected behavior/output?",
+                            "Do you have any design constraints?",
+                        ],
+                    }
+                )
+            return json.dumps({"intent": "feature_request", "confidence": 0.9, "reason": "semantic_feature"})
+
+    assistant = LocalOperatorAssistant(
+        repo_root=Path(__file__).resolve().parents[1],
+        policy={"assistant_scope": {"intent_classifier": {"enabled": True, "model": "semantic-test"}}},
+    )
+    assistant._intent_classifier = _QuestionHappyModel()
+
+    response = assistant.handle_message(
+        "Add CSV export support to the runtime results view",
+        session=assistant.init_session(),
+    )
+    assert response.followup_questions == []
+
+
+def test_truly_vague_request_still_gets_single_blocking_followup():
+    class _VagueQuestionModel:
+        def chat_json(self, system_prompt: str, messages: list) -> str:
+            prompt_lower = system_prompt.lower()
+            if "request_kind" in prompt_lower and "clarifying_questions" in prompt_lower:
+                return json.dumps(
+                    {
+                        "request_kind": "unknown",
+                        "core_gui_change_requested": False,
+                        "core_gui_change_authorized": False,
+                        "clarifying_questions": [
+                            "What should be changed?",
+                            "Do you have any design constraints?",
+                        ],
+                    }
+                )
+            return json.dumps({"intent": "feature_request", "confidence": 0.9, "reason": "semantic_feature"})
+
+    assistant = LocalOperatorAssistant(
+        repo_root=Path(__file__).resolve().parents[1],
+        policy={"assistant_scope": {"intent_classifier": {"enabled": True, "model": "semantic-test"}}},
+    )
+    assistant._intent_classifier = _VagueQuestionModel()
+
+    response = assistant.handle_message(
+        "Help with something",
+        session=assistant.init_session(),
+    )
+    assert len(response.followup_questions) == 1
+    assert response.followup_questions[0] == "What should be changed?"

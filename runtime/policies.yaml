@@ -61,7 +61,7 @@ assistant_scope:
 
 model_provider:
   adapter: ollama
-  model: qwen3:4b
+  model: qwen2.5:3b
   base_url: http://localhost:11434
   temperature: 0.1
   # default should be 0.6?
@@ -86,7 +86,7 @@ specialists:
     tools: [read, search, edit, todo]
     model_provider:
       adapter: ollama
-      model: qwen3:4b
+      model: qwen2.5:3b
   verifier:
     prompt_inline: |
       You are the nanoporethon verification specialist.
@@ -109,7 +109,7 @@ specialists:
     tools: [read, search, edit, todo]
     model_provider:
       adapter: ollama
-      model: qwen3:4b
+      model: qwen2.5:3b
 
 stages:
   - id: triage_plan

@@ -27,6 +27,23 @@ _DEFAULT_DOC_FILES = [
     "Docs/feature_request_template.md",
 ]
 
+_CORE_GUI_FILE_HINTS = {
+    "src/nanoporethon/data_navi_gui.py": [
+        "src/nanoporethon/data_navi_gui.py",
+        "data_navi_gui.py",
+        "data_navi_gui",
+        "data navigator gui",
+        "data navigator",
+    ],
+    "src/nanoporethon/event_classifier_gui.py": [
+        "src/nanoporethon/event_classifier_gui.py",
+        "event_classifier_gui.py",
+        "event_classifier_gui",
+        "event classifier gui",
+        "event classifier",
+    ],
+}
+
 
 @dataclass
 class AssistantDecision:
@@ -49,6 +66,40 @@ class AssistantResponse:
 
 class AssistantStartupError(RuntimeError):
     """Raised when the operator assistant cannot start in strict LLM mode."""
+
+
+def _extract_json_object(raw: str) -> Dict[str, Any]:
+    text = (raw or "").strip()
+    if not text:
+        raise ValueError("empty model output")
+
+    try:
+        payload = json.loads(text)
+        if isinstance(payload, dict):
+            return payload
+    except json.JSONDecodeError:
+        pass
+
+    decoder = json.JSONDecoder()
+    for idx, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            candidate, _ = decoder.raw_decode(text[idx:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(candidate, dict):
+            return candidate
+
+    raise ValueError("no JSON object found in model output")
+
+
+def _chat_json_response(adapter: Any, system_prompt: str, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+    if hasattr(adapter, "chat_json"):
+        raw = adapter.chat_json(system_prompt, messages)
+    else:
+        raw = adapter.chat(system_prompt, messages)
+    return _extract_json_object(str(raw))
 
 
 class LocalOperatorAssistant:
@@ -100,6 +151,7 @@ class LocalOperatorAssistant:
             "history": [],
             "feature_messages": [],
             "core_change_authorized": False,
+            "core_change_decision_made": False,
             "latest_runtime_request": None,
             "pending_questions": [],
         }
@@ -110,12 +162,15 @@ class LocalOperatorAssistant:
         state.setdefault("history", [])
         state.setdefault("feature_messages", [])
         state.setdefault("core_change_authorized", False)
+        state.setdefault("core_change_decision_made", False)
         state.setdefault("latest_runtime_request", None)
         state.setdefault("pending_questions", [])
 
         history = state["history"]
         if isinstance(history, list):
             history.append({"role": "user", "text": message})
+
+        self._apply_pending_question_answers(state, message)
 
         if not message:
             return AssistantResponse(
@@ -288,18 +343,9 @@ class LocalOperatorAssistant:
         if not isinstance(questions, list):
             questions = []
 
+        planned_core_gui = self._planned_core_gui_changes(session)
+
         normalized_questions = [str(q).strip() for q in questions if str(q).strip()]
-
-        needs_core_gui_authorization = bool(analysis.get("core_gui_change_requested", False)) and not bool(
-            session.get("core_change_authorized", False)
-        )
-        if needs_core_gui_authorization:
-            normalized_questions.append(
-                "Your request appears to involve core GUI behavior. Should the agent be allowed to modify "
-                "src/nanoporethon/data_navi_gui.py and/or src/nanoporethon/event_classifier_gui.py for this task?"
-            )
-
-        # Remove duplicates while preserving order.
         deduped: List[str] = []
         seen = set()
         for q in normalized_questions:
@@ -307,7 +353,202 @@ class LocalOperatorAssistant:
                 continue
             seen.add(q)
             deduped.append(q)
-        return deduped
+
+        normalized_questions = [
+            q
+            for q in deduped
+            if not self._is_core_gui_authorization_question(q)
+            and not (self._is_core_gui_related_question(q) and not planned_core_gui["files"])
+        ]
+
+        actionable_request = self._request_seems_actionable(session, analysis)
+        blocked_without_clarification = self._request_is_blocked(session, analysis)
+
+        normalized_questions = [
+            q for q in normalized_questions if not self._is_generic_expected_behavior_question(q)
+        ]
+
+        needs_core_gui_authorization = (
+            bool(planned_core_gui["files"])
+            and not bool(session.get("core_change_authorized", False))
+            and not bool(session.get("core_change_decision_made", False))
+        )
+        if needs_core_gui_authorization:
+            return [
+                self._core_gui_authorization_prompt(
+                    files=planned_core_gui["files"],
+                    reason=planned_core_gui["reason"],
+                )
+            ]
+
+        if not blocked_without_clarification or actionable_request:
+            return []
+
+        return normalized_questions[:1]
+
+    def _core_gui_authorization_prompt(self, files: List[str], reason: str) -> str:
+        file_list = ", ".join(files)
+        return (
+            f"I think this task may require changing protected file(s): {file_list}. "
+            f"Planned reason: {reason} "
+            "Is it okay for the agent to modify those file(s) for this task?"
+        )
+
+    def _is_core_gui_authorization_question(self, question: str) -> bool:
+        q = (question or "").strip().lower()
+        if not q:
+            return False
+        core_tokens = ["data_navi_gui", "event_classifier_gui", "core gui", "protected file"]
+        intent_tokens = ["allow", "allowed", "modify", "necessary", "interact", "okay"]
+        return any(token in q for token in core_tokens) and any(token in q for token in intent_tokens)
+
+    def _is_core_gui_related_question(self, question: str) -> bool:
+        q = (question or "").strip().lower()
+        if not q:
+            return False
+        related_tokens = [
+            "data_navi_gui",
+            "event_classifier_gui",
+            "data navigator gui",
+            "event classifier gui",
+            "protected core gui",
+            "core gui",
+        ]
+        return any(token in q for token in related_tokens)
+
+    def _planned_core_gui_changes(self, session: Dict[str, Any]) -> Dict[str, Any]:
+        feature_messages = session.get("feature_messages", [])
+        if not isinstance(feature_messages, list):
+            return {"files": [], "reason": ""}
+
+        combined = "\n".join(str(msg) for msg in feature_messages)
+        lower = combined.lower()
+        files: List[str] = []
+        for file_path, hints in _CORE_GUI_FILE_HINTS.items():
+            if any(hint in lower for hint in hints):
+                files.append(file_path)
+
+        if not files:
+            return {"files": [], "reason": ""}
+
+        latest_message = str(feature_messages[-1]).strip()
+        reason = (
+            f"the request references behavior tied to these GUI surfaces ({latest_message})"
+            if latest_message
+            else "the request references behavior tied to these GUI surfaces"
+        )
+        return {"files": files, "reason": reason}
+
+    def _is_generic_expected_behavior_question(self, question: str) -> bool:
+        q = (question or "").strip().lower()
+        generic_markers = [
+            "concrete example",
+            "expected behavior",
+            "expected output",
+            "what should happen",
+            "what output should",
+        ]
+        return any(marker in q for marker in generic_markers)
+
+    def _request_seems_actionable(self, session: Dict[str, Any], analysis: Dict[str, Any]) -> bool:
+        feature_messages = session.get("feature_messages", [])
+        if not isinstance(feature_messages, list) or not feature_messages:
+            return False
+
+        combined = "\n".join(str(msg) for msg in feature_messages[-8:]).lower()
+        request_kind = str(analysis.get("request_kind", "unknown")).strip().lower()
+
+        if request_kind == "unknown":
+            return False
+
+        action_tokens = [
+            "add",
+            "build",
+            "create",
+            "generate",
+            "implement",
+            "modify",
+            "refactor",
+            "update",
+            "fix",
+            "export",
+        ]
+        target_tokens = [
+            "file",
+            "gui",
+            "module",
+            "runtime",
+            "feature",
+            "button",
+            "function",
+            "class",
+            "csv",
+            "docs",
+            "test",
+            "policy",
+        ]
+
+        has_action = any(token in combined for token in action_tokens)
+        has_target = any(token in combined for token in target_tokens)
+        enough_detail = len(combined.split()) >= 6
+
+        return has_action and (has_target or enough_detail)
+
+    def _request_is_blocked(self, session: Dict[str, Any], analysis: Dict[str, Any]) -> bool:
+        feature_messages = session.get("feature_messages", [])
+        if not isinstance(feature_messages, list) or not feature_messages:
+            return True
+
+        request_kind = str(analysis.get("request_kind", "unknown")).strip().lower()
+        if self._request_seems_actionable(session, analysis):
+            return False
+
+        latest_message = str(feature_messages[-1]).strip().lower()
+        if len(latest_message.split()) <= 3:
+            return True
+
+        if request_kind == "unknown":
+            return True
+
+        vague_markers = {
+            "something",
+            "stuff",
+            "thing",
+            "things",
+            "workflow tweak",
+            "help",
+            "improve",
+        }
+        return any(marker in latest_message for marker in vague_markers)
+
+    def _looks_yes(self, message: str) -> bool:
+        msg = (message or "").lower()
+        return bool(
+            re.search(
+                r"\b(yes|yep|yeah|allow|allowed|authorize|authorized|permission granted)\b",
+                msg,
+            )
+        )
+
+    def _looks_no(self, message: str) -> bool:
+        msg = (message or "").lower()
+        return bool(re.search(r"\b(no|nope|nah|do not|don't|dont|not allowed)\b", msg))
+
+    def _apply_pending_question_answers(self, session: Dict[str, Any], message: str) -> None:
+        pending = session.get("pending_questions", [])
+        if not isinstance(pending, list) or not pending:
+            return
+
+        has_core_question = any(self._is_core_gui_authorization_question(str(q)) for q in pending)
+        if not has_core_question:
+            return
+
+        if self._looks_yes(message):
+            session["core_change_authorized"] = True
+            session["core_change_decision_made"] = True
+        elif self._looks_no(message):
+            session["core_change_authorized"] = False
+            session["core_change_decision_made"] = True
 
     def _analyze_feature_session_with_model(self, session: Dict[str, Any]) -> Dict[str, Any]:
         default_payload: Dict[str, Any] = {
@@ -344,11 +585,11 @@ class LocalOperatorAssistant:
         )
 
         try:
-            response = self._intent_classifier.chat(
+            payload = _chat_json_response(
+                self._intent_classifier,
                 system_prompt,
                 [{"role": "user", "content": user_prompt}],
             )
-            payload = json.loads(response.strip())
             request_kind = str(payload.get("request_kind", "unknown")).strip().lower()
             if request_kind not in {"code_change", "docs_only", "mixed", "unknown"}:
                 request_kind = "unknown"
@@ -389,11 +630,11 @@ class LocalOperatorAssistant:
         )
 
         try:
-            response = self._intent_classifier.chat(
+            payload = _chat_json_response(
+                self._intent_classifier,
                 system_prompt,
                 [{"role": "user", "content": text}],
             )
-            payload = json.loads(response.strip())
             intent = str(payload.get("intent", "")).lower().strip()
             confidence = float(payload.get("confidence", 0.0))
             reason = str(payload.get("reason", "model_classified"))
