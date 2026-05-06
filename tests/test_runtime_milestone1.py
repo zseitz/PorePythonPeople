@@ -717,6 +717,116 @@ def test_executor_falls_back_when_llm_payload_is_invalid(tmp_path):
     assert payload["llm_integration"]["fallback_used"] is True
 
 
+def test_verify_stage_uses_deterministic_commands_even_with_valid_llm_payload(tmp_path):
+    class FakeAdapter:
+        def chat(self, _system_prompt, _messages):
+            return json.dumps(
+                {
+                    "checks_run": [],
+                    "quality_signals": {"require_refactor": False},
+                    "failures_or_warnings": ["No checks have been run yet."],
+                    "tests_exit_code": None,
+                    "coverage_exit_code": None,
+                }
+            )
+
+    class PassingRepoOps:
+        sandbox_repo = Path("/tmp/sandbox")
+
+        def run_command(self, command, _allowlist, _blocklist, cwd=None, timeout=120):
+            return {"command": command, "exit_code": 0, "stdout": "", "stderr": ""}
+
+        def changed_files(self):
+            return []
+
+    policy = _policy_with_run_root(tmp_path)
+    policy["gates"]["verify"]["commands"] = {
+        "tests": "python -m pytest --help",
+        "coverage": "python -m pytest --help",
+    }
+
+    executor = SpecialistExecutor(
+        specialists={"verifier": {"prompt_inline": "verifier"}},
+        model_adapter=FakeAdapter(),
+        repo_ops=PassingRepoOps(),
+        policy=policy,
+    )
+
+    result = executor.run_stage(
+        run_id="run_test",
+        stage_id="verify",
+        owner="verifier",
+        request="Run verification",
+        context={},
+        artifacts_dir=tmp_path / "artifacts",
+    )
+
+    payload = json.loads(Path(result["artifacts"][0]["path"]).read_text(encoding="utf-8"))
+    evidence = build_gate_evidence("verify", payload)
+
+    assert payload["tests_exit_code"] == 0
+    assert payload["coverage_exit_code"] == 0
+    assert evidence["tests_pass"] is True
+    assert payload["llm_integration"]["used_llm_payload"] is False
+    assert payload["llm_integration"]["source_of_truth"] == "deterministic_verify_commands"
+    assert isinstance(payload["llm_integration"].get("model_commentary"), dict)
+
+
+def test_verify_after_refactor_uses_deterministic_commands_even_with_valid_llm_payload(tmp_path):
+    class FakeAdapter:
+        def chat(self, _system_prompt, _messages):
+            return json.dumps(
+                {
+                    "checks_run": [],
+                    "quality_signals": {"require_refactor": False},
+                    "failures_or_warnings": ["No checks have been run yet."],
+                    "tests_exit_code": None,
+                    "coverage_exit_code": None,
+                }
+            )
+
+    class PassingRepoOps:
+        sandbox_repo = Path("/tmp/sandbox")
+
+        def run_command(self, command, _allowlist, _blocklist, cwd=None, timeout=120):
+            return {"command": command, "exit_code": 0, "stdout": "", "stderr": ""}
+
+        def changed_files(self):
+            return []
+
+    policy = _policy_with_run_root(tmp_path)
+    policy["gates"]["verify_after_refactor"]["commands"] = {
+        "tests": "python -m pytest --help",
+        "coverage": "python -m pytest --help",
+    }
+
+    executor = SpecialistExecutor(
+        specialists={"verifier": {"prompt_inline": "verifier"}},
+        model_adapter=FakeAdapter(),
+        repo_ops=PassingRepoOps(),
+        policy=policy,
+    )
+
+    result = executor.run_stage(
+        run_id="run_test",
+        stage_id="verify_after_refactor",
+        owner="verifier",
+        request="Run verification",
+        context={},
+        artifacts_dir=tmp_path / "artifacts",
+    )
+
+    payload = json.loads(Path(result["artifacts"][0]["path"]).read_text(encoding="utf-8"))
+    evidence = build_gate_evidence("verify_after_refactor", payload)
+
+    assert payload["tests_exit_code"] == 0
+    assert payload["coverage_exit_code"] == 0
+    assert evidence["tests_pass"] is True
+    assert payload["llm_integration"]["used_llm_payload"] is False
+    assert payload["llm_integration"]["source_of_truth"] == "deterministic_verify_commands"
+    assert isinstance(payload["llm_integration"].get("model_commentary"), dict)
+
+
 def test_repo_ops_blocks_shell_control_tokens(tmp_path):
     repo_root = Path(__file__).resolve().parents[1]
     sandbox = RepoSandboxManager(repo_root=repo_root, sandbox_root=tmp_path / "sandbox")
