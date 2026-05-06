@@ -187,6 +187,7 @@ Primary package location: `src/nanoporethon/`.
   - Parses specialist model output as structured JSON stage payloads, validates required stage fields, and falls back to deterministic payloads when parsing/validation fails.
   - Validates model-authored action payloads against strict per-action schemas, policy-driven size/count limits, and stage-allowed action types before any repository mutation occurs.
   - Applies model-authored edit intents (`write_file`, `append_file`, `replace_in_file`) only after action-schema validation and edit-scope checks succeed.
+  - Treats `verify` and `verify_after_refactor` command execution as authoritative gate evidence (`tests_exit_code`/`coverage_exit_code`); model verify output is retained only as metadata and cannot override deterministic verification results.
   - Defines conditional route to refactor stage when verification quality signals require it.
   - Enforces gate checks for plan/build/verify/doc-sync/memory-sync transitions.
   - Executes implementation/doc-sync work directly in the active local feature-branch workspace.
