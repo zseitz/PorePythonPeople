@@ -101,20 +101,35 @@ class SpecialistExecutor:
         parse_warning: Optional[str] = None
         used_llm_payload = False
         fallback_used = False
+        llm_commentary: Optional[Dict[str, object]] = None
+        deterministic_verify_source = stage_id in {"verify", "verify_after_refactor"}
 
         if llm_response:
             llm_payload, parse_warning = self._parse_model_payload(llm_response)
             if llm_payload is not None:
-                valid_payload, validation_warning = self._validate_stage_payload(stage_id, llm_payload)
-                if valid_payload:
-                    payload = self._merge_payload(fallback_payload, llm_payload)
-                    used_llm_payload = True
+                if deterministic_verify_source:
+                    llm_commentary = llm_payload
+                    parse_warning = (
+                        "Deterministic verify policy active: model verify payload recorded as metadata only. "
+                        "Gate evidence uses executed command results."
+                    )
                 else:
-                    payload = dict(fallback_payload)
-                    fallback_used = True
-                    parse_warning = validation_warning
+                    valid_payload, validation_warning = self._validate_stage_payload(stage_id, llm_payload)
+                    if valid_payload:
+                        payload = self._merge_payload(fallback_payload, llm_payload)
+                        used_llm_payload = True
+                    else:
+                        payload = dict(fallback_payload)
+                        fallback_used = True
+                        parse_warning = validation_warning
             else:
-                fallback_used = True
+                if deterministic_verify_source:
+                    parse_warning = (
+                        "Deterministic verify policy active: invalid model verify payload ignored. "
+                        "Gate evidence uses executed command results."
+                    )
+                else:
+                    fallback_used = True
 
         action_warnings: List[str] = []
         applied_actions: List[str] = []
@@ -148,6 +163,10 @@ class SpecialistExecutor:
                 "applied_actions": applied_actions,
                 "warnings": meta_warnings,
             }
+            if deterministic_verify_source:
+                payload["llm_integration"]["source_of_truth"] = "deterministic_verify_commands"
+                if llm_commentary is not None:
+                    payload["llm_integration"]["model_commentary"] = llm_commentary
 
         # --- context budget compaction + metrics recording ---
         context_metrics: Dict[str, object] = {}
