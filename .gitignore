@@ -189,3 +189,6 @@ src/nanoporethon/.nanoporethon_config.json
 
 # Local runtime artifacts (sandbox copies, run logs, and generated handoffs)
 .nanopore-runtime/
+
+# Local memory artifacts (keep unversioned unless explicitly requested)
+memories/
