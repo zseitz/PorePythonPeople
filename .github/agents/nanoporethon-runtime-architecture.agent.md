@@ -57,6 +57,22 @@ Read level-2 files only when directly relevant:
 - For code changes, default to both automated tests and behavior checks unless user narrows scope.
 - Treat deterministic verify command outputs as source-of-truth for gate evidence.
 
+## No-MCP local-first policy
+
+- Do not introduce MCP connectivity or MCP server dependencies unless the user explicitly requests it for a specific task.
+- Prefer local adapters and repository-local execution paths (`runtime/adapters/ollama.py`, local shell/python checks, local files).
+- Treat MCP and API concerns as distinct architecture options; this repository defaults to local API adapters without MCP.
+
+## Hybrid knowledge + execution architecture policy
+
+- Balance "knowing" and "doing":
+	- encode stable workflow knowledge, guardrails, and decision heuristics in markdown skill artifacts;
+	- keep state-changing execution in deterministic runtime stages and gates.
+- Prefer introducing or updating markdown skill files before adding new executable orchestration complexity when the problem is primarily knowledge/workflow quality.
+- Do not preserve every executable agent by default: keep the deterministic execution spine, but convert knowledge-heavy policy/playbook behavior from code into markdown skills when that reduces complexity without weakening safety.
+- Ensure each knowledge artifact is useful in standalone mode (can still produce high-quality analysis/drafts/checklists even without external tool execution).
+- Preserve deterministic stage evidence as authoritative; skills guide reasoning, but gates/tests remain source-of-truth for pass/fail decisions.
+
 ## Executable/specializable runtime architecture contract
 
 When working on runtime architecture concerns (`runtime/orchestrator.py`, `runtime/planner.py`, `runtime/executor.py`, `runtime/gates.py`, `runtime/state.py`, `runtime/contracts.py`, `runtime/stage_templates.yaml`, `runtime/policies.yaml`, `runtime/adapters/`, and runtime schemas/tests):

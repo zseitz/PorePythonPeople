@@ -978,6 +978,16 @@ Per-run artifacts are written under:
 - `.nanopore-runtime/runs/<run_id>/events.jsonl`
 - `.nanopore-runtime/runs/<run_id>/artifacts/`
 
+Ollama adapter behavior (current implementation):
+
+- `runtime/adapters/ollama.py` is a minimal local-model transport wrapper.
+- It sends HTTP POST requests to Ollama's `/api/chat` endpoint (default `http://localhost:11434`).
+- It provides two modes:
+  - `chat(...)` for normal text responses
+  - `chat_json(...)` for JSON-structured responses (via Ollama `format: "json"`)
+- It returns the model's `message.content` text to callers and surfaces connectivity failures with actionable runtime errors.
+- This path is plain Ollama HTTP API usage (not Model Context Protocol / MCP transport).
+
 ### 15.3 Delegation model (stage ownership and routing)
 
 Default stage sequence:
@@ -1153,6 +1163,7 @@ Chat-first request guidance:
 
 - Start by describing the feature/task naturally in one or two sentences.
 - Intent and request-type understanding are inferred semantically by the local LLM (feature work vs question vs docs/help), not by hard-coded keyword checks.
+- Local model calls for this flow use the Ollama HTTP adapter (`runtime/adapters/ollama.py`) against `/api/chat`; this assistant path is not MCP-server based.
 - Classifier availability is mandatory at startup in strict mode; if local classifier initialization fails, the GUI shows an explicit startup error and disables message routing until fixed.
 - Use the **Health Check** button to validate strict-mode prerequisites (classifier enabled in policy, Ollama reachable, model installed, and valid JSON classifier output contract).
 - For code-edit requests, verification is expected by default (automated tests + behavior checks) and is included in the runtime request guardrails without requiring testing keywords.
