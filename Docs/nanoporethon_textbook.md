@@ -38,6 +38,7 @@ This document complements, but does not replace:
   - [15.6 Operator checklist (with example prompt)](#156-operator-checklist-with-example-prompt)
   - [15.7 Runtime entrypoint (usable now)](#157-runtime-entrypoint-usable-now)
   - [15.8 Per-specialist model routing and context-window guidance](#158-per-specialist-model-routing-and-context-window-guidance)
+    - [15.8A Plain-language note on quants and current model map](#158a-plain-language-note-on-quants-and-current-model-map)
   - [15.9 Local operator assistant GUI (Option B)](#159-local-operator-assistant-gui-option-b)
 - [16. Guidance for developers extending nanoporethon](#16-guidance-for-developers-extending-nanoporethon)
 - [17. Quick-start checklist for a new user](#17-quick-start-checklist-for-a-new-user)
@@ -1135,6 +1136,81 @@ Recommended context planning (operational estimates):
 | `memory_sync` | 8k–12k | `memory_sync: 2000` |
 
 When context pressure rises: reduce unnecessary inputs first, then tighten payload shape, then raise stage budgets only if needed.
+
+### 15.8A Plain-language note on quants and current model map
+
+Many future `nanoporethon` developers will come from biophysics, chemistry, molecular engineering, or related experimental backgrounds rather than machine-learning engineering. Because of that, it is worth defining one common local-LLM term very plainly:
+
+- **quantization** is the process of storing a model in a lower-precision, more compact numerical format,
+- and a **quant** is informal shorthand for a **quantized model variant**.
+
+In everyday usage, when someone says “use a quant,” they usually mean:
+
+- “use the quantized version of the model,”
+- not “use a single quantized number,”
+- and not “use a separate special algorithm.”
+
+An intuitive way to think about this is:
+
+- a full-precision model is like carrying the whole lab bench everywhere,
+- while a quantized model is more like packing the same essential tools into a compact field kit.
+
+The compact kit may lose a little fidelity, but it is often much easier to carry and much faster to deploy.
+
+For local attended agent workflows, quantized models are useful because they usually:
+
+- use less RAM,
+- load faster,
+- respond faster on ordinary laptops or desktops,
+- and still perform well enough for planning, drafting, routing, and structured-output tasks.
+
+This matches the design of the `nanoporethon` runtime well, because model output is helpful but **not** the final source of truth. The real source of truth remains:
+
+- repository code,
+- tests,
+- policy,
+- gates,
+- and operator review.
+
+That means `nanoporethon` can often benefit from faster quantized local models without giving up safety, because gate evidence and verification results still decide whether a run passes.
+
+Current configured agent/model ownership in `runtime/policies.yaml` is:
+
+- **Operator-assistant intent classifier** → `mistral:7b`
+- **Orchestrator runtime global default** → `qwen2.5:3b`
+- **Specialists inheriting the global default**:
+  - `orchestrator`
+  - `feature_builder`
+  - `refactor`
+  - `verifier`
+- **Specialists with explicit model entries (currently same model)**:
+  - `doc_sync` → `qwen2.5:3b`
+  - `memory_sync` → `qwen2.5:3b`
+
+As checked against the local Ollama metadata during documentation review on **2026-05-08**, the currently installed model variants reported:
+
+- `mistral:7b` → `Q4_K_M`
+- `qwen2.5:3b` → `Q4_K_M`
+
+So, on the machine used for this update, the effective current map is:
+
+| Agent / role | Configured model | Reported quant |
+|---|---|---|
+| Operator-assistant intent classifier | `mistral:7b` | `Q4_K_M` |
+| `orchestrator` specialist | `qwen2.5:3b` | `Q4_K_M` |
+| `feature_builder` specialist | `qwen2.5:3b` | `Q4_K_M` |
+| `refactor` specialist | `qwen2.5:3b` | `Q4_K_M` |
+| `verifier` specialist | `qwen2.5:3b` | `Q4_K_M` |
+| `doc_sync` specialist | `qwen2.5:3b` | `Q4_K_M` |
+| `memory_sync` specialist | `qwen2.5:3b` | `Q4_K_M` |
+
+Important caveat: the **model name** in policy and the **quant installed on a particular machine** are related but not identical ideas.
+
+- `runtime/policies.yaml` says which model names the runtime should use.
+- The local Ollama installation determines which exact quantized artifact is actually present for that model name.
+- If another developer pulls a different build of `mistral:7b` or `qwen2.5:3b`, the reported quant could differ on their machine.
+
+When in doubt, the authoritative local check is Ollama model metadata (for example the `/api/show` response used by `runtime/orchestrator.py` startup checks), not guesswork based on the model name alone.
 
 ### 15.9 Local operator assistant GUI (Option B)
 
