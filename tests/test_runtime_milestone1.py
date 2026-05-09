@@ -606,6 +606,18 @@ def test_build_executor_supports_specialist_model_overrides(tmp_path):
     assert getattr(executor.model_adapters["doc_sync"], "base_url") == "http://localhost:11435"
 
 
+def test_repository_policy_uses_balanced_model_profile():
+    policy_path = Path(__file__).resolve().parents[1] / "runtime" / "policies.yaml"
+    policy = orchestrator_module._load_policy(policy_path)
+
+    assert policy["assistant_scope"]["intent_classifier"]["model"] == "mistral:7b"
+    assert policy["model_provider"]["model"] == "qwen2.5:3b"
+    assert policy["specialists"]["feature_builder"]["model_provider"]["model"] == "qwen3:4b"
+    assert policy["specialists"]["refactor"]["model_provider"]["model"] == "qwen3:4b"
+    assert policy["specialists"]["doc_sync"]["model_provider"]["model"] == "qwen2.5:3b"
+    assert policy["specialists"]["memory_sync"]["model_provider"]["model"] == "qwen2.5:3b"
+
+
 def test_executor_uses_owner_specific_adapter_when_present():
     class FakeAdapter:
         def __init__(self, label):

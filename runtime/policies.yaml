@@ -74,13 +74,15 @@ specialists:
   feature_builder:
     prompt_file: runtime/prompts/nanopore-feature-builder.prompt.md
     tools: [read, search, edit, execute, todo]
-    # Optional specialist-level model override (inherits global provider fields):
-    # model_provider:
-    #   adapter: ollama
-    #   model: qwen3:4b
+    model_provider:
+      adapter: ollama
+      model: qwen3:4b
   refactor:
     prompt_file: runtime/prompts/nanopore-python-refactor.prompt.md
     tools: [read, search, edit, execute, todo]
+    model_provider:
+      adapter: ollama
+      model: qwen3:4b
   doc_sync:
     prompt_file: runtime/prompts/nanopore-doc-sync.prompt.md
     tools: [read, search, edit, todo]

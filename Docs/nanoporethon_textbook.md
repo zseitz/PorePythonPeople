@@ -1117,6 +1117,8 @@ Current recommended model map:
 
 - global default: `qwen2.5:3b` (Ollama, speed-first)
 - specialist overrides:
+  - `feature_builder` → `qwen3:4b`
+  - `refactor` → `qwen3:4b`
   - `doc_sync` → `qwen2.5:3b`
   - `memory_sync` → `qwen2.5:3b`
 
@@ -1180,10 +1182,10 @@ Current configured agent/model ownership in `runtime/policies.yaml` is:
 - **Orchestrator runtime global default** → `qwen2.5:3b`
 - **Specialists inheriting the global default**:
   - `orchestrator`
-  - `feature_builder`
-  - `refactor`
   - `verifier`
-- **Specialists with explicit model entries (currently same model)**:
+- **Specialists with explicit model entries**:
+  - `feature_builder` → `qwen3:4b`
+  - `refactor` → `qwen3:4b`
   - `doc_sync` → `qwen2.5:3b`
   - `memory_sync` → `qwen2.5:3b`
 
@@ -1191,6 +1193,7 @@ As checked against the local Ollama metadata during documentation review on **20
 
 - `mistral:7b` → `Q4_K_M`
 - `qwen2.5:3b` → `Q4_K_M`
+- `qwen3:4b` → `Q4_K_M`
 
 So, on the machine used for this update, the effective current map is:
 
@@ -1198,8 +1201,8 @@ So, on the machine used for this update, the effective current map is:
 |---|---|---|
 | Operator-assistant intent classifier | `mistral:7b` | `Q4_K_M` |
 | `orchestrator` specialist | `qwen2.5:3b` | `Q4_K_M` |
-| `feature_builder` specialist | `qwen2.5:3b` | `Q4_K_M` |
-| `refactor` specialist | `qwen2.5:3b` | `Q4_K_M` |
+| `feature_builder` specialist | `qwen3:4b` | `Q4_K_M` |
+| `refactor` specialist | `qwen3:4b` | `Q4_K_M` |
 | `verifier` specialist | `qwen2.5:3b` | `Q4_K_M` |
 | `doc_sync` specialist | `qwen2.5:3b` | `Q4_K_M` |
 | `memory_sync` specialist | `qwen2.5:3b` | `Q4_K_M` |
@@ -1208,7 +1211,16 @@ Important caveat: the **model name** in policy and the **quant installed on a pa
 
 - `runtime/policies.yaml` says which model names the runtime should use.
 - The local Ollama installation determines which exact quantized artifact is actually present for that model name.
-- If another developer pulls a different build of `mistral:7b` or `qwen2.5:3b`, the reported quant could differ on their machine.
+- If another developer pulls a different build of `mistral:7b`, `qwen2.5:3b`, or `qwen3:4b`, the reported quant could differ on their machine.
+
+Practical recommendation for the default policy:
+
+- keep the **intent classifier** on `mistral:7b Q4_K_M` for routing stability,
+- keep the **global runtime default** on `qwen2.5:3b Q4_K_M` for portability,
+- upgrade the code-heavy **`feature_builder`** and **`refactor`** specialists to `qwen3:4b Q4_K_M`,
+- and keep **`doc_sync`**, **`memory_sync`**, **`orchestrator`**, and **`verifier`** on lighter models unless real usage shows a quality bottleneck.
+
+This is intended as a **balanced 16 GB-friendly profile**: most machines should still be able to run the attended operator-assistant/runtime workflow locally, while the two stages that benefit most from stronger coding ability get a modest model upgrade.
 
 When in doubt, the authoritative local check is Ollama model metadata (for example the `/api/show` response used by `runtime/orchestrator.py` startup checks), not guesswork based on the model name alone.
 
