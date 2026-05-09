@@ -1,8 +1,11 @@
 import importlib.util
 import sys
+import queue
 from pathlib import Path
+from types import SimpleNamespace
 
 from nanoporethon.operator_assistant_gui import (
+    OperatorAssistantGUI,
     _activity_indicator_text,
     _activity_status_label,
     _classifier_health_check,
@@ -188,3 +191,239 @@ def test_resolve_repo_root_finds_policy_from_non_repo_cwd(tmp_path):
     repo_root = Path(__file__).resolve().parents[1]
     resolved = _resolve_repo_root(tmp_path, module_file=repo_root / "src" / "nanoporethon" / "operator_assistant_gui.py")
     assert resolved == repo_root
+
+
+class _FakeVar:
+    def __init__(self, value=""):
+        self.value = value
+
+    def set(self, value):
+        self.value = value
+
+    def get(self):
+        return self.value
+
+
+class _FakeText:
+    def __init__(self):
+        self.state = None
+        self.content = ""
+        self.fg = None
+
+    def config(self, **kwargs):
+        if "state" in kwargs:
+            self.state = kwargs["state"]
+        if "fg" in kwargs:
+            self.fg = kwargs["fg"]
+
+    def insert(self, _where, text):
+        self.content += text
+
+    def see(self, _where):
+        return None
+
+    def delete(self, _start, _end):
+        self.content = ""
+
+
+class _FakeEntry:
+    def __init__(self, value=""):
+        self.value = value
+
+    def get(self):
+        return self.value
+
+    def delete(self, _start, _end):
+        self.value = ""
+
+    def set(self, value):
+        self.value = value
+
+
+class _FakeButton:
+    def __init__(self):
+        self.state = None
+
+    def config(self, **kwargs):
+        if "state" in kwargs:
+            self.state = kwargs["state"]
+
+
+class _FakeRoot:
+    def __init__(self):
+        self.after_calls = []
+
+    def update_idletasks(self):
+        return None
+
+    def after(self, interval, callback):
+        self.after_calls.append((interval, callback))
+
+
+def _build_gui_stub():
+    gui = OperatorAssistantGUI.__new__(OperatorAssistantGUI)
+    gui.root = _FakeRoot()
+    gui.chat_output = _FakeText()
+    gui.followup_output = _FakeText()
+    gui.preview_output = _FakeText()
+    gui.timeline_output = _FakeText()
+    gui.intent_badge_var = _FakeVar("Intent: Waiting for message")
+    gui.intent_badge = _FakeText()
+    gui.readiness_var = _FakeVar("Status: waiting")
+    gui.activity_var = _FakeVar("Activity: idle")
+    gui.activity_label = _FakeText()
+    gui.chat_input = _FakeEntry("")
+    gui.send_button = _FakeButton()
+    gui.run_button = _FakeButton()
+    gui.runtime_running = False
+    gui.assistant_processing = False
+    gui.activity_dot_phase = 0
+    gui.activity_last_tick = 0.0
+    gui.activity_last_ui_tick = "00:00:00"
+    gui.runtime_queue = queue.Queue()
+    gui.current_run_dir = None
+    gui.current_run_id = None
+    gui.run_watch_started_at = None
+    gui.existing_runs = set()
+    gui.events_line_cursor = 0
+    gui.policy = {"runtime": {"run_root": ".nanopore-runtime/runs"}}
+    gui.session_state = {}
+    gui.latest_runtime_request = None
+    gui.latest_ready_to_run = False
+    return gui
+
+
+def test_gui_logging_and_preview_helpers_update_widgets():
+    gui = _build_gui_stub()
+    gui._log_chat("assistant", "hello")
+    assert "assistant: hello" in gui.chat_output.content
+
+    gui._set_preview_text("request preview")
+    assert gui.preview_output.content == "request preview"
+
+    gui._set_followups(["Q1", "Q2"])
+    assert "1. Q1" in gui.followup_output.content
+    assert "2. Q2" in gui.followup_output.content
+
+    gui._set_followups([])
+    assert "No follow-up questions pending." in gui.followup_output.content
+
+
+def test_gui_new_session_resets_runtime_request_state():
+    gui = _build_gui_stub()
+    gui.assistant = SimpleNamespace(init_session=lambda: {"history": []})
+    gui.latest_runtime_request = "old"
+    gui.latest_ready_to_run = True
+
+    gui._new_session()
+
+    assert gui.latest_runtime_request is None
+    assert gui.latest_ready_to_run is False
+    assert gui.run_button.state == "disabled"
+    assert "Started a new chat session" in gui.chat_output.content
+
+
+def test_gui_on_send_chat_handles_missing_assistant_and_runtime_error():
+    gui = _build_gui_stub()
+    gui.assistant = None
+    gui.chat_input.set("hello")
+    gui._on_send_chat()
+    assert "assistant is unavailable due to startup error" in gui.chat_output.content
+
+    class _BadAssistant:
+        def handle_message(self, _text, session=None):
+            raise RuntimeError("bad json")
+
+    gui = _build_gui_stub()
+    gui.assistant = _BadAssistant()
+    gui.chat_input.set("feature request")
+    gui._on_send_chat()
+    assert "Routing error" in gui.chat_output.content
+    assert gui.run_button.state == "disabled"
+
+
+def test_gui_on_send_chat_updates_badge_followups_and_run_state():
+    response = SimpleNamespace(
+        intent="feature_request",
+        confidence=0.91,
+        message="ready",
+        followup_questions=[],
+        ready_to_run=True,
+        runtime_request="run this",
+        session_updates={"history": ["x"]},
+    )
+
+    class _GoodAssistant:
+        def handle_message(self, _text, session=None):
+            return response
+
+    gui = _build_gui_stub()
+    gui.assistant = _GoodAssistant()
+    gui.chat_input.set("please implement")
+
+    gui._on_send_chat()
+
+    assert gui.latest_runtime_request == "run this"
+    assert gui.latest_ready_to_run is True
+    assert gui.run_button.state == "normal"
+    assert "Intent: Feature Request" in gui.intent_badge_var.get()
+    assert "ready to run" in gui.readiness_var.get().lower()
+
+
+def test_gui_event_format_discovery_and_polling(tmp_path):
+    gui = _build_gui_stub()
+    run_root = tmp_path / "runs"
+    run_root.mkdir()
+    gui.policy = {"runtime": {"run_root": str(run_root)}}
+    gui.run_watch_started_at = 0
+
+    run_dir = run_root / "run_123"
+    run_dir.mkdir()
+    events_file = run_dir / "events.jsonl"
+    events_file.write_text(
+        "\n".join(
+            [
+                '{"type":"stage_result","stage_id":"implement","status":"success"}',
+                '{"type":"gate_result","stage_id":"verify","passed":true}',
+                '{"type":"approval_requested","from_stage":"a","to_stage":"b"}',
+                '{"type":"promotion_blocked","reason":"drift"}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    discovered = gui._discover_run_dir()
+    assert discovered == run_dir
+
+    gui._read_new_events()
+    text = gui.timeline_output.content
+    assert "stage_result: implement -> success" in text
+    assert "gate_result: verify -> PASS" in text
+    assert "approval_requested: a -> b" in text
+    assert "promotion_blocked: drift" in text
+
+    gui.runtime_running = True
+    gui.runtime_queue.put({"type": "complete", "run_state": {"status": "completed", "run_id": "run_123"}})
+    gui._poll_runtime_state()
+    assert "Run completed: run_123 status=completed" in gui.timeline_output.content
+    assert gui.runtime_running is False
+    assert len(gui.root.after_calls) >= 1
+
+
+def test_gui_health_check_logs_success_and_failure(monkeypatch):
+    gui = _build_gui_stub()
+    gui.policy = {"assistant_scope": {"intent_classifier": {"enabled": True}}}
+
+    monkeypatch.setattr(
+        "nanoporethon.operator_assistant_gui._classifier_health_check",
+        lambda _policy: {"ok": "true", "status": "healthy", "message": "ok"},
+    )
+    gui._run_health_check()
+    assert "Health check passed" in gui.chat_output.content
+
+    monkeypatch.setattr(
+        "nanoporethon.operator_assistant_gui._classifier_health_check",
+        lambda _policy: {"ok": "false", "status": "chat_error", "message": "bad"},
+    )
+    gui._run_health_check()
+    assert "Health check failed" in gui.chat_output.content
