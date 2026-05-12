@@ -2,7 +2,7 @@ DataNavi Search Query Log
 ==================================================
 Timestamp: 05/03/2026 14:53:08
 Source Directory: /Users/zachseitz/Jupyter/ExampleData
-Destination Directory: /Users/zachseitz/GitRepos/PorePythonPeople/tests/Searches/DEMO_20260305_14:53:08
+Destination Directory: /Users/zachseitz/GitRepos/PorePythonPeople/tests/Searches/DEMO_20260305_145308
 
 Search Criteria:
 --------------------------------------------------

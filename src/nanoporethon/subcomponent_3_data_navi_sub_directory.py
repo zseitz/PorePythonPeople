@@ -5,10 +5,36 @@ documenting the search query and selected files (without copying the actual file
 """
 
 import os
+import re
 import shutil
 import tempfile
 from datetime import datetime
 from typing import List
+
+
+_WINDOWS_INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_WINDOWS_RESERVED_NAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+
+
+def _safe_path_component(value: str, fallback: str = "untitled") -> str:
+    """Return a Windows-safe path component derived from ``value``."""
+    safe_value = _WINDOWS_INVALID_FILENAME_CHARS.sub("_", value).strip(" .")
+    safe_value = re.sub(r"_+", "_", safe_value)
+
+    if not safe_value:
+        safe_value = fallback
+
+    if safe_value.split(".", 1)[0].upper() in _WINDOWS_RESERVED_NAMES:
+        safe_value = f"_{safe_value}"
+
+    return safe_value
 
 
 def data_navi_sub_directory(source_directory: str, filenames_out: List[str], 
@@ -52,10 +78,10 @@ def data_navi_sub_directory(source_directory: str, filenames_out: List[str],
     if not isinstance(filenames_out, list):
         raise TypeError("filenames_out must be a list of file paths.")
     
-    # Create directory name with current date and time and include query_name
+    # Create a Windows-safe directory name with current date and time.
     current_time = datetime.now()
-    timestamp = current_time.strftime("%Y%m%d_%H:%M:%S")
-    directory_name = f"{query_name}_{timestamp}"
+    timestamp = current_time.strftime("%Y%m%d_%H%M%S")
+    directory_name = f"{_safe_path_component(query_name)}_{timestamp}"
     
     # Create the full path for the new directory directly in destination_parent_directory
     new_directory_path = os.path.join(destination_parent_directory, directory_name)

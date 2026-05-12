@@ -697,7 +697,7 @@ The example folders currently include:
 
 After confirmation, nanoporethon writes a query folder named like:
 
-- `StreptavidinIntro_YYYYMMDD_HH:MM:SS`
+- `StreptavidinIntro_YYYYMMDD_HHMMSS`
 
 Inside that folder is `search_query.txt`.
 
@@ -716,8 +716,8 @@ This file is what Event Classifier uses to recover your saved experiment selecti
 
 For reference, the repository already contains example saved-query folders such as:
 
-- `DEMO_20260305_14:53:08`
-- `Streptavidin22C_20260305_14:01:16`
+- `DEMO_20260305_145308`
+- `Streptavidin22C_20260305_140116`
 
 ### 11.5 Part C: Open the search in EventClassifierGUI
 

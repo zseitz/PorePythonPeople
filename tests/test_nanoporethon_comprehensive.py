@@ -208,6 +208,27 @@ class TestSubcomponent3DataNaviSubDirectory:
         assert len(subdirs) == 1
         assert subdirs[0].startswith('test_query_')
         assert '_' in subdirs[0]  # Has timestamp
+
+    def test_creates_windows_safe_subdirectory_name(self, directories):
+        """Test that folder names avoid Windows-invalid filename characters."""
+        src, dst = directories
+        with mock.patch('nanoporethon.subcomponent_3_data_navi_sub_directory.datetime') as mock_datetime:
+            mock_datetime.now.return_value.strftime.return_value = '20260305_145308'
+            sub3.data_navi_sub_directory(src, ['data_file_0.mat'], dst, 'demo:query', [], [])
+
+        subdirs = os.listdir(dst)
+        assert subdirs == ['demo_query_20260305_145308']
+        assert not any(ch in subdirs[0] for ch in ':<>"|?*')
+
+    def test_reserved_query_names_are_safely_prefixed(self, directories):
+        """Test that Windows reserved names are not used directly."""
+        src, dst = directories
+        with mock.patch('nanoporethon.subcomponent_3_data_navi_sub_directory.datetime') as mock_datetime:
+            mock_datetime.now.return_value.strftime.return_value = '20260305_145308'
+            sub3.data_navi_sub_directory(src, ['data_file_0.mat'], dst, 'CON', [], [])
+
+        subdirs = os.listdir(dst)
+        assert subdirs == ['_CON_20260305_145308']
     
     def test_creates_search_query_log_file(self, directories):
         """Test that search_query.txt file is created."""

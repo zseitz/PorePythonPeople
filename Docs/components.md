@@ -76,7 +76,7 @@ Primary package location: `src/nanoporethon/`.
 
 - **File**: `subcomponent_3_data_navi_sub_directory.py`
 - **Public function**: `data_navi_sub_directory(...)`
-- **Purpose**: Creates `<logs_dir>/<query_name>_<timestamp>/search_query.txt` and records:
+- **Purpose**: Creates `<logs_dir>/<safe_query_name>_<timestamp>/search_query.txt` and records:
   - source directory
   - inclusion/exclusion arrays
   - selected file/folder names
@@ -249,7 +249,8 @@ Primary package location: `src/nanoporethon/`.
 
 ### Search log folder contract
 
-- **Folder name pattern**: `<query_name>_YYYYMMDD_HH:MM:SS`
+- **Folder name pattern**: `<safe_query_name>_YYYYMMDD_HHMMSS`
+- **Naming rule**: `query_name` is normalized to Windows-safe filename characters before the timestamp is appended.
 - **Required file**: `search_query.txt`
 - **Required content cues used downstream**:
   - `Source Directory: ...`
