@@ -68,6 +68,7 @@ model_provider:
   base_url: http://localhost:11434
   temperature: 0.1
   request_timeout_seconds: 300
+  stage_call_timeout_seconds: 45
   # default should be 0.6?
   max_retries: 2
 

@@ -800,12 +800,19 @@ class SpecialistExecutor:
             )
 
         model_timeout_seconds = getattr(adapter, "timeout_seconds", None)
-        if model_timeout_seconds is None and isinstance(self.policy, dict):
-            model_timeout_seconds = self.policy.get("model_provider", {}).get("request_timeout_seconds", 180)
+        stage_call_timeout_seconds = None
+        if isinstance(self.policy, dict):
+            provider_cfg = self.policy.get("model_provider", {})
+            if isinstance(provider_cfg, dict):
+                if model_timeout_seconds is None:
+                    model_timeout_seconds = provider_cfg.get("request_timeout_seconds", 180)
+                stage_call_timeout_seconds = provider_cfg.get("stage_call_timeout_seconds", 45)
         try:
-            timeout_seconds = max(1.0, float(model_timeout_seconds or 180)) + 2.0
+            transport_timeout = max(1.0, float(model_timeout_seconds or 180))
+            stage_cap = max(1.0, float(stage_call_timeout_seconds or 45))
+            timeout_seconds = min(transport_timeout, stage_cap)
         except (TypeError, ValueError):
-            timeout_seconds = 182.0
+            timeout_seconds = 45.0
 
         response_box: Dict[str, object] = {"response": None, "error": None}
 

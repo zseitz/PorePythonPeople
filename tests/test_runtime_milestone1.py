@@ -1555,7 +1555,7 @@ def test_repo_workspace_manager_changed_files_uses_git_porcelain_fast_path(tmp_p
 
 def test_try_model_response_times_out_and_falls_back_without_hanging(tmp_path):
     class SlowAdapter:
-        timeout_seconds = 1
+        timeout_seconds = 300
 
         def chat(self, _system_prompt, _messages):
             time.sleep(5)
@@ -1566,7 +1566,10 @@ def test_try_model_response_times_out_and_falls_back_without_hanging(tmp_path):
         model_adapter=SlowAdapter(),
         policy={
             **_policy_with_run_root(tmp_path),
-            "model_provider": {"request_timeout_seconds": 0.05},
+            "model_provider": {
+                "request_timeout_seconds": 300,
+                "stage_call_timeout_seconds": 1,
+            },
         },
     )
 
@@ -1580,6 +1583,6 @@ def test_try_model_response_times_out_and_falls_back_without_hanging(tmp_path):
     elapsed = time.monotonic() - started
 
     assert response is None
-    assert elapsed < 3.5
+    assert elapsed < 2.5
     assert "timed out" in str(executor._model_call_warning).lower()
 
