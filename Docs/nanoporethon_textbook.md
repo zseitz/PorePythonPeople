@@ -63,7 +63,8 @@ It helps researchers work with large collections of nanopore experiments by maki
 In plain language:
 
 - the **Data Navigator GUI** helps you find the right experiments,
-- and the **Event Classifier GUI** helps you inspect and annotate them.
+- the **Event Classifier GUI** helps you inspect and annotate them,
+- and the **Consensus Maker GUI** provides a sequence-to-expected-signal utility for quick consensus previews.
 
 ---
 
@@ -164,6 +165,13 @@ You then:
 5. and save event-quality edits back into `event.mat`.
 
 This makes the workflow both **interactive** and **reproducible**.
+
+Optional utility stage:
+
+- **Consensus preview with `ConsensusMakerGUI`**
+  - enter a DNA sequence,
+  - choose k-mer size,
+  - generate a deterministic expected normalized current trace.
 
 ---
 
@@ -327,6 +335,17 @@ Behavior summary:
 - `subcomponent_5_directory_utilities.py`
 
 These make the GUIs easier to use by persisting paths and centralizing directory selection behavior.
+
+### 7.8 `ConsensusMakerGUI`
+
+- **File**: `src/nanoporethon/consensus_maker_gui.py`
+- **Role**: sequence-to-signal preview GUI for consensus-style nanopore expectations.
+
+What it does:
+
+- validates DNA input (A/C/G/T),
+- computes a deterministic k-mer-based expected signal,
+- displays the result as a step trace in normalized $I/I_0$-style units.
 
 ---
 

@@ -248,6 +248,18 @@ Primary package location: `src/nanoporethon/`.
   - Includes a manual **Health Check** button that validates classifier policy enablement, local Ollama connectivity, model availability, and structured JSON response compliance, with actionable remediation messages.
   - Keeps the operational model branch-local and human-supervised by design.
 
+  ### C13. Consensus maker GUI (sequence-to-signal utility)
+
+  - **File**:
+    - `src/nanoporethon/consensus_maker_gui.py`
+  - **Purpose**: Provide a lightweight GUI that accepts a DNA sequence and displays a deterministic expected consensus nanopore signal.
+  - **Key behavior**:
+    - Validates DNA input to strict A/C/G/T.
+    - Computes one expected normalized current level per k-mer window (default `k=5`).
+    - Uses a deterministic hash-based k-mer mapping so repeated runs produce identical signals for the same sequence.
+    - Plots the generated consensus signal as a step trace (`I/I0`-style normalized units).
+    - Exposes reusable helpers (`sanitize_sequence`, `consensus_signal`) for testability.
+
 ---
 
 ## Data contracts and artifacts
@@ -314,6 +326,10 @@ Each selected item is expected to be a folder containing at least:
 ### Operator-assistant path
 
 `User chat/form input` → C12 intent + scope guardrails → structured request packet → C11 runtime execution → event timeline updates in GUI
+
+### Consensus maker path
+
+`User sequence input` → C13 sequence validation + k-mer mapping → consensus step-signal plot
 
 Current implementation status:
 
