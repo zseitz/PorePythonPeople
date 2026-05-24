@@ -209,6 +209,7 @@ Primary package location: `src/nanoporethon/`.
   - Applies per-stage context budgets from policy and compacts oversized stage payloads before artifact write/model handoff.
   - Stores context utilization metrics in stage results and final run state for budget tuning.
   - Supports local specialist prompting through Ollama adapter + specialist `prompt_file`/`prompt_inline` contexts.
+  - Applies a hard wall-clock timeout around specialist model calls; on timeout/error the stage records a warning and falls back to deterministic payload behavior instead of stalling run progression.
   - Loads stage-specific markdown skill context via `runtime/skill_loader.py` and injects bounded `skill_context` into specialist model payloads to improve plan/implementation quality without changing deterministic gates.
   - Supports optional per-specialist model-provider overrides (with global fallback) so different agents can use different local models.
   - Current balanced default routing keeps the global runtime default on `qwen2.5:3b`, routes coding-heavy `feature_builder` and `refactor` stages to `qwen3:4b`, keeps lightweight `doc_sync`/`memory_sync` on `qwen2.5:3b`, and keeps the operator-assistant classifier on `mistral:7b` so attended runtime remains viable on 16 GB-class machines while improving code-stage quality.

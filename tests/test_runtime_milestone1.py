@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -1550,4 +1551,35 @@ def test_repo_workspace_manager_changed_files_uses_git_porcelain_fast_path(tmp_p
     assert "README.md" in changed
     assert "new_file.txt" in changed
     assert ".coverage" not in changed
+
+
+def test_try_model_response_times_out_and_falls_back_without_hanging(tmp_path):
+    class SlowAdapter:
+        timeout_seconds = 1
+
+        def chat(self, _system_prompt, _messages):
+            time.sleep(5)
+            return "{}"
+
+    executor = SpecialistExecutor(
+        specialists={"orchestrator": {"prompt_inline": "orchestrator"}},
+        model_adapter=SlowAdapter(),
+        policy={
+            **_policy_with_run_root(tmp_path),
+            "model_provider": {"request_timeout_seconds": 0.05},
+        },
+    )
+
+    started = time.monotonic()
+    response = executor._try_model_response(
+        owner="orchestrator",
+        stage_id="triage_plan",
+        request="Build triage plan",
+        context={"request": "Build triage plan"},
+    )
+    elapsed = time.monotonic() - started
+
+    assert response is None
+    assert elapsed < 3.5
+    assert "timed out" in str(executor._model_call_warning).lower()
 

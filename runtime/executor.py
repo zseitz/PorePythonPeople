@@ -6,6 +6,7 @@ import fnmatch
 import json
 import re
 import shlex
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -82,6 +83,7 @@ class SpecialistExecutor:
         self.policy = policy or {}
         self.context_manager = context_manager
         self.skill_loader = SkillLoader.from_policy(self.repo_root, self.policy)
+        self._model_call_warning: Optional[str] = None
 
     def run_stage(
         self,
@@ -101,6 +103,7 @@ class SpecialistExecutor:
         fallback_payload = self._stage_payload(run_id, stage_id, request, context)
         payload = dict(fallback_payload)
 
+        self._model_call_warning = None
         llm_response = self._try_model_response(owner, stage_id, request, context)
         parse_warning: Optional[str] = None
         used_llm_payload = False
@@ -156,6 +159,8 @@ class SpecialistExecutor:
             payload["merge_markers_found"] = merge_markers_found
 
         meta_warnings: List[str] = []
+        if self._model_call_warning:
+            meta_warnings.append(self._model_call_warning)
         if parse_warning:
             meta_warnings.append(parse_warning)
         meta_warnings.extend(action_warnings)
@@ -794,7 +799,46 @@ class SpecialistExecutor:
                 "| DATE | team | OBJECTIVE | orchestrator | FILES | completed | NOTES |\\n"
             )
 
-        return adapter.chat(system_prompt, [{"role": "user", "content": json.dumps(user_payload)}])
+        model_timeout_seconds = getattr(adapter, "timeout_seconds", None)
+        if model_timeout_seconds is None and isinstance(self.policy, dict):
+            model_timeout_seconds = self.policy.get("model_provider", {}).get("request_timeout_seconds", 180)
+        try:
+            timeout_seconds = max(1.0, float(model_timeout_seconds or 180)) + 2.0
+        except (TypeError, ValueError):
+            timeout_seconds = 182.0
+
+        response_box: Dict[str, object] = {"response": None, "error": None}
+
+        def _chat_worker() -> None:
+            try:
+                response_box["response"] = adapter.chat(
+                    system_prompt,
+                    [{"role": "user", "content": json.dumps(user_payload)}],
+                )
+            except Exception as exc:  # noqa: BLE001 - surfaced via warning + fallback
+                response_box["error"] = exc
+
+        worker = threading.Thread(target=_chat_worker, daemon=True)
+        worker.start()
+        worker.join(timeout=timeout_seconds)
+
+        if worker.is_alive():
+            self._model_call_warning = (
+                f"Model call timed out after {timeout_seconds:.1f}s for stage '{stage_id}' "
+                f"(owner='{owner}'); using deterministic fallback."
+            )
+            return None
+
+        error = response_box.get("error")
+        if error is not None:
+            self._model_call_warning = (
+                f"Model call failed for stage '{stage_id}' (owner='{owner}'): {error}. "
+                "Using deterministic fallback."
+            )
+            return None
+
+        response = response_box.get("response")
+        return response if isinstance(response, str) else None
 
     def _collect_request_file_context(self, request: str, max_files: int = 3, max_chars: int = 8000) -> List[Dict[str, str]]:
         """Load small, explicit file context for files directly referenced in the request.
