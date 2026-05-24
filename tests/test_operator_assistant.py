@@ -108,6 +108,9 @@ def test_feature_request_generates_runtime_request_preview():
     assert response.intent == "feature_request"
     assert response.runtime_request is not None
     assert "Conversation-derived request" in response.runtime_request
+    assert "Anti-hallucination quality rubric (mandatory)" in response.runtime_request
+    assert "Contract-safe" in response.runtime_request
+    assert "Evidence-first" in response.runtime_request
     assert response.followup_questions == []
 
 

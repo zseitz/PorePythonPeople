@@ -1069,6 +1069,11 @@ Use this checklist for day-to-day operation.
   - Confirm `runtime/policies.yaml` + schemas exist.
   - Confirm tests/environment are available.
   - Confirm the request is appropriately scoped for a supervised feature-work run, not a broad autonomous repo rewrite.
+
+For assistant-triggered runs (Option B), pre-flight is now policy-enforced before launch:
+
+- clean working tree requirement (policy-controlled), and
+- feature-branch requirement (policy-controlled; `main`/`master` and detached HEAD are blocked).
 - **Submit request**
   - Run the orchestrator with a clear scoped request.
   - Prefer acceptance checks in the request itself.
@@ -1255,6 +1260,13 @@ Chat-first request guidance:
 - Classifier availability is mandatory at startup in strict mode; if local classifier initialization fails, the GUI shows an explicit startup error and disables message routing until fixed.
 - Use the **Health Check** button to validate strict-mode prerequisites (classifier enabled in policy, Ollama reachable, model installed, and valid JSON classifier output contract).
 - For code-edit requests, verification is expected by default (automated tests + behavior checks) and is included in the runtime request guardrails without requiring testing keywords.
+- Generated runtime request packets now include an explicit anti-hallucination quality rubric for each assistant-produced change:
+  - Contract-safe (schema/policy/gate compatible)
+  - Evidence-first (deterministic tests + behavior checks)
+  - Surface-consistent (`Docs/components.md` + textbook sync when behavior changes)
+  - Traceable (`Docs/agent_logs/REQUEST_LOG.md` row appended)
+  - Scoped (minimal relevant diffs)
+  - Operator-supervised (branch-local, human-reviewed flow)
 - The assistant will ask targeted clarifying questions only when needed for missing behavior details or boundaries.
 - You do not need to pre-fill a long static intake form before getting useful help.
 

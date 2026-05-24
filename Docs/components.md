@@ -169,6 +169,7 @@ Primary package location: `src/nanoporethon/`.
   - `runtime/planner.py`
   - `runtime/executor.py`
   - `runtime/context_manager.py`
+  - `runtime/skill_loader.py`
   - `runtime/gates.py`
   - `runtime/state.py`
   - `runtime/repo_ops.py`
@@ -179,6 +180,7 @@ Primary package location: `src/nanoporethon/`.
   - `runtime/schemas/stage_result.schema.json`
   - `runtime/schemas/gate_result.schema.json`
   - `runtime/schemas/run_state.schema.json`
+  - `runtime/skills/*.SKILL.md`
 - **Purpose**: Provide executable delegation contracts so one orchestrator run can route work across specialists with stage gates and auditable handoffs.
 - **Key behavior**:
   - Documents a deliberately modest operating model: local, branch-scoped, human-reviewed feature-work assistance rather than unattended autonomous repository management.
@@ -206,6 +208,7 @@ Primary package location: `src/nanoporethon/`.
   - Applies per-stage context budgets from policy and compacts oversized stage payloads before artifact write/model handoff.
   - Stores context utilization metrics in stage results and final run state for budget tuning.
   - Supports local specialist prompting through Ollama adapter + specialist `prompt_file`/`prompt_inline` contexts.
+  - Loads stage-specific markdown skill context via `runtime/skill_loader.py` and injects bounded `skill_context` into specialist model payloads to improve plan/implementation quality without changing deterministic gates.
   - Supports optional per-specialist model-provider overrides (with global fallback) so different agents can use different local models.
   - Current balanced default routing keeps the global runtime default on `qwen2.5:3b`, routes coding-heavy `feature_builder` and `refactor` stages to `qwen3:4b`, keeps lightweight `doc_sync`/`memory_sync` on `qwen2.5:3b`, and keeps the operator-assistant classifier on `mistral:7b` so attended runtime remains viable on 16 GB-class machines while improving code-stage quality.
   - Supports optional operator approval pauses at stage transitions, persisting pending approvals in run state so blocked runs can be resumed safely.
@@ -236,7 +239,9 @@ Primary package location: `src/nanoporethon/`.
   - Classifies intents into in-scope runtime/repo workflows vs out-of-scope domains.
   - Enforces semantic off-topic refusal guardrails (for example medical/political/financial/general lifestyle requests) before any runtime action can occur.
   - Builds a runtime request packet from chat context and launches attended runtime execution locally.
+  - Enforces runtime launch preflight before assistant-triggered runs: clean working tree (policy-controlled) plus feature-branch requirement (policy-controlled), with explicit blocked-state diagnostics.
   - Protects core GUI components by default (`data_navi_gui.py`, `event_classifier_gui.py`) unless user explicitly authorizes modifying them.
+  - Includes an explicit anti-hallucination quality rubric in generated runtime request packets (contract-safe, evidence-first, surface-consistent, traceable, scoped, operator-supervised).
   - Streams runtime progress to users by reading `.nanopore-runtime/runs/<run_id>/events.jsonl` and surfacing stage/gate/promotion events.
   - Shows a live animated activity indicator (dot-cycling heartbeat) during assistant-processing and runtime execution, including a last-UI-tick timestamp, so users can distinguish active work from a frozen UI even between major timeline events.
   - Surfaces explicit startup/routing errors in the GUI when classifier initialization fails or model responses are not valid structured JSON.

@@ -22,6 +22,7 @@ from tkinter import scrolledtext
 
 try:
     from runtime.adapters.ollama import OllamaAdapter
+    from runtime.repo_ops import RepoWorkspaceManager
     from runtime.operator_assistant import AssistantStartupError, LocalOperatorAssistant, _chat_json_response
     from runtime.orchestrator import run_milestone1
 except ModuleNotFoundError:
@@ -31,6 +32,7 @@ except ModuleNotFoundError:
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
     from runtime.adapters.ollama import OllamaAdapter
+    from runtime.repo_ops import RepoWorkspaceManager
     from runtime.operator_assistant import AssistantStartupError, LocalOperatorAssistant, _chat_json_response
     from runtime.orchestrator import run_milestone1
 
@@ -186,6 +188,62 @@ def _classifier_health_check(
         "ok": "true",
         "status": "healthy",
         "message": f"Classifier healthy (model={model}, base_url={base_url}, intent={intent}).",
+    }
+
+
+def _runtime_preflight_check(
+    policy: Dict[str, object],
+    repo_root: Path,
+    workspace_manager_factory: Callable[..., Any] = RepoWorkspaceManager,
+) -> Dict[str, object]:
+    assistant_scope = policy.get("assistant_scope", {}) if isinstance(policy, dict) else {}
+    preflight_cfg = assistant_scope.get("runtime_preflight", {}) if isinstance(assistant_scope, dict) else {}
+
+    require_clean = True
+    require_feature_branch = True
+    if isinstance(preflight_cfg, dict):
+        require_clean = bool(preflight_cfg.get("require_clean_worktree", True))
+        require_feature_branch = bool(preflight_cfg.get("require_feature_branch", True))
+
+    manager = workspace_manager_factory(repo_root=repo_root, sandbox_root=repo_root / ".nanopore-runtime" / "preflight")
+    try:
+        state = manager.inspect_start_state(require_clean=require_clean, recommend_feature_branch=False)
+    except RuntimeError as exc:
+        return {
+            "ok": "false",
+            "status": "dirty_worktree",
+            "message": str(exc),
+            "warnings": [],
+        }
+
+    if require_feature_branch and bool(state.get("is_git_repo", False)):
+        branch = str(state.get("base_branch", ""))
+        if branch in {"main", "master"}:
+            return {
+                "ok": "false",
+                "status": "feature_branch_required",
+                "message": (
+                    f"Operator assistant runtime launch blocked on branch '{branch}'. "
+                    "Please create/switch to a dedicated feature branch before running assistant-managed executions."
+                ),
+                "warnings": state.get("warnings", []),
+            }
+        if not branch:
+            return {
+                "ok": "false",
+                "status": "feature_branch_required",
+                "message": (
+                    "Operator assistant runtime launch blocked in detached HEAD state. "
+                    "Please switch to a dedicated feature branch before running assistant-managed executions."
+                ),
+                "warnings": state.get("warnings", []),
+            }
+
+    return {
+        "ok": "true",
+        "status": "ready",
+        "message": "Runtime preflight checks passed.",
+        "warnings": state.get("warnings", []),
     }
 
 
@@ -485,6 +543,19 @@ class OperatorAssistantGUI:
         if not self.latest_ready_to_run:
             self._log_timeline("Please answer pending follow-up questions before running.")
             return
+
+        preflight = _runtime_preflight_check(self.policy, self.repo_root)
+        if preflight.get("ok") != "true":
+            message = str(preflight.get("message", "Runtime preflight failed."))
+            self._log_chat("assistant", f"Runtime launch blocked: {message}")
+            self._log_timeline(f"Runtime launch blocked: {message}")
+            self.run_button.config(state=tk.DISABLED)
+            return
+
+        warnings = preflight.get("warnings", [])
+        if isinstance(warnings, list):
+            for warning in warnings:
+                self._log_timeline(f"Preflight warning: {warning}")
 
         request_text = self.latest_runtime_request
         self._log_chat("assistant", "Launching attended runtime using the latest conversation-derived request.")

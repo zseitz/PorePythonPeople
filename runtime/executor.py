@@ -13,6 +13,7 @@ from .context_manager import ContextBudgetManager
 from .memory_writer import MemoryWriter
 from .planner import build_triage_plan
 from .repo_ops import RepoSandboxManager
+from .skill_loader import SkillLoader
 
 
 def _utc_now() -> str:
@@ -79,6 +80,7 @@ class SpecialistExecutor:
         self.memory_writer = memory_writer
         self.policy = policy or {}
         self.context_manager = context_manager
+        self.skill_loader = SkillLoader.from_policy(self.repo_root, self.policy)
 
     def run_stage(
         self,
@@ -754,6 +756,11 @@ class SpecialistExecutor:
             "request": request,
             "context_keys": sorted(list(context.keys())),
         }
+
+        if self.skill_loader is not None:
+            skill_context = self.skill_loader.load_stage_context(stage_id)
+            if skill_context:
+                user_payload["skill_context"] = skill_context
 
         # For the implement stage, enrich the payload so the LLM can produce
         # a valid "actions" list that _apply_actions() knows how to execute.

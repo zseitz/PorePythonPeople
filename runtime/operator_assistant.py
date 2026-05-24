@@ -302,6 +302,13 @@ class LocalOperatorAssistant:
             "- Keep changes branch-local until operator-approved promotion/merge.\n"
             f"{core_guardrail_line}\n"
             f"{verification_guardrail_line}\n"
+            "- Anti-hallucination quality rubric (mandatory):\n"
+            "  - Contract-safe: preserve schema/policy/gate compatibility.\n"
+            "  - Evidence-first: run deterministic tests and behavior checks.\n"
+            "  - Surface-consistent: sync Docs/components.md and textbook when behavior changes.\n"
+            "  - Traceable: append a concise Docs/agent_logs/REQUEST_LOG.md row.\n"
+            "  - Scoped: prefer minimal diffs and avoid unrelated refactors.\n"
+            "  - Operator-supervised: maintain branch-local, human-reviewed execution.\n"
             "- Update tests/docs/request log as required by repository policy when behavior/contracts change.\n"
         )
 

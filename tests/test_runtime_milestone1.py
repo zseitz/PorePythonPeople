@@ -14,6 +14,7 @@ from runtime.orchestrator import _build_cli_summary, _build_executor, run_milest
 from runtime.planner import build_triage_plan, classify_complexity
 from runtime.context_manager import ContextBudgetManager
 from runtime.repo_ops import RepoSandboxManager
+from runtime.skill_loader import SkillLoader
 
 
 def _policy_with_run_root(run_root: Path):
@@ -616,6 +617,76 @@ def test_repository_policy_uses_balanced_model_profile():
     assert policy["specialists"]["refactor"]["model_provider"]["model"] == "qwen3:4b"
     assert policy["specialists"]["doc_sync"]["model_provider"]["model"] == "qwen2.5:3b"
     assert policy["specialists"]["memory_sync"]["model_provider"]["model"] == "qwen2.5:3b"
+    assert policy["skills"]["enabled"] is True
+    assert "implement" in policy["skills"]["stage_map"]
+
+
+def test_skill_loader_reads_stage_context_with_budget_cap():
+    repo_root = Path(__file__).resolve().parents[1]
+    loader = SkillLoader(
+        repo_root=repo_root,
+        stage_skill_map={"implement": ["implementation-strategy"]},
+        max_chars_per_stage=350,
+        enabled=True,
+    )
+    context = loader.load_stage_context("implement")
+    assert "skills" in context
+    skills = context["skills"]
+    assert isinstance(skills, list)
+    assert skills
+    first = skills[0]
+    assert first["name"] == "implementation-strategy"
+    assert len(first["content"]) <= 350
+
+
+def test_executor_includes_skill_context_in_model_payload(tmp_path):
+    captured = {}
+
+    class CapturingAdapter:
+        def chat(self, _system_prompt, messages):
+            captured["content"] = messages[0]["content"]
+            return json.dumps(
+                {
+                    "changed_files": [],
+                    "implementation_summary": "ok",
+                    "test_updates": [],
+                    "unresolved_risks": [],
+                    "noop_justified": True,
+                    "actions": [],
+                }
+            )
+
+    repo_root = Path(__file__).resolve().parents[1]
+    sandbox = RepoSandboxManager(repo_root=repo_root, sandbox_root=tmp_path / "sandbox")
+    sandbox.prepare()
+    policy = _policy_with_run_root(tmp_path)
+    policy["skills"] = {
+        "enabled": True,
+        "max_chars_per_stage": 350,
+        "stage_map": {
+            "implement": ["implementation-strategy"],
+        },
+    }
+    executor = SpecialistExecutor(
+        specialists={"feature_builder": {"prompt_inline": "feature"}},
+        model_adapter=CapturingAdapter(),
+        repo_root=repo_root,
+        repo_ops=sandbox,
+        policy=policy,
+    )
+
+    executor.run_stage(
+        run_id="run_test",
+        stage_id="implement",
+        owner="feature_builder",
+        request="Implement behavior",
+        context={"request": "Implement behavior"},
+        artifacts_dir=tmp_path / "artifacts",
+    )
+
+    payload = json.loads(captured["content"])
+    assert "skill_context" in payload
+    assert payload["skill_context"]["skills"]
 
 
 def test_executor_uses_owner_specific_adapter_when_present():

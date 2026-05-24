@@ -20,10 +20,13 @@ assistant_scope:
   # deterministic scope checks + intent gating before any runtime action.
   intent_classifier:
     enabled: true
-    # If model is not available, falls back to rule-based classification.
+    # Strict mode: classifier availability is mandatory; startup is blocked if unavailable.
     # Recommended fast models: mistral:7b, neural-chat, orca-mini:3b
     model: mistral:7b
     base_url: http://localhost:11434
+  runtime_preflight:
+    require_clean_worktree: true
+    require_feature_branch: true
   scope_keywords:
     - nanoporethon
     - porepythonpeople
@@ -238,3 +241,14 @@ policies:
     max_actions_per_stage: 20
     max_content_chars: 200000
     max_replace_chars: 50000
+
+skills:
+  enabled: true
+  max_chars_per_stage: 6000
+  stage_map:
+    triage_plan: [request-triage]
+    implement: [implementation-strategy]
+    verify: [verification-strategy]
+    verify_after_refactor: [verification-strategy]
+    doc_sync: [doc-sync-rules]
+    memory_sync: [doc-sync-rules]

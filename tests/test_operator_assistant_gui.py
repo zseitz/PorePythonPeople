@@ -10,6 +10,7 @@ from nanoporethon.operator_assistant_gui import (
     _activity_status_label,
     _classifier_health_check,
     _intent_badge_style,
+    _runtime_preflight_check,
     _resolve_repo_root,
 )
 
@@ -287,10 +288,102 @@ def _build_gui_stub():
     gui.existing_runs = set()
     gui.events_line_cursor = 0
     gui.policy = {"runtime": {"run_root": ".nanopore-runtime/runs"}}
+    gui.repo_root = Path(__file__).resolve().parents[1]
     gui.session_state = {}
     gui.latest_runtime_request = None
     gui.latest_ready_to_run = False
     return gui
+
+
+class _CleanFeatureBranchManager:
+    def __init__(self, repo_root, sandbox_root):
+        self.repo_root = repo_root
+        self.sandbox_root = sandbox_root
+
+    def inspect_start_state(self, require_clean=True, recommend_feature_branch=False):
+        return {
+            "is_git_repo": True,
+            "base_branch": "feature/test",
+            "working_tree_clean": True,
+            "warnings": [],
+        }
+
+
+class _MainBranchManager:
+    def __init__(self, repo_root, sandbox_root):
+        self.repo_root = repo_root
+        self.sandbox_root = sandbox_root
+
+    def inspect_start_state(self, require_clean=True, recommend_feature_branch=False):
+        return {
+            "is_git_repo": True,
+            "base_branch": "main",
+            "working_tree_clean": True,
+            "warnings": [],
+        }
+
+
+class _DirtyRepoManager:
+    def __init__(self, repo_root, sandbox_root):
+        self.repo_root = repo_root
+        self.sandbox_root = sandbox_root
+
+    def inspect_start_state(self, require_clean=True, recommend_feature_branch=False):
+        raise RuntimeError("working tree is not clean")
+
+
+def test_runtime_preflight_check_passes_for_clean_feature_branch():
+    policy = {
+        "assistant_scope": {
+            "runtime_preflight": {
+                "require_clean_worktree": True,
+                "require_feature_branch": True,
+            }
+        }
+    }
+    result = _runtime_preflight_check(
+        policy,
+        Path(__file__).resolve().parents[1],
+        workspace_manager_factory=_CleanFeatureBranchManager,
+    )
+    assert result["ok"] == "true"
+    assert result["status"] == "ready"
+
+
+def test_runtime_preflight_check_blocks_main_branch_when_required():
+    policy = {
+        "assistant_scope": {
+            "runtime_preflight": {
+                "require_clean_worktree": True,
+                "require_feature_branch": True,
+            }
+        }
+    }
+    result = _runtime_preflight_check(
+        policy,
+        Path(__file__).resolve().parents[1],
+        workspace_manager_factory=_MainBranchManager,
+    )
+    assert result["ok"] == "false"
+    assert result["status"] == "feature_branch_required"
+
+
+def test_runtime_preflight_check_blocks_dirty_worktree_when_required():
+    policy = {
+        "assistant_scope": {
+            "runtime_preflight": {
+                "require_clean_worktree": True,
+                "require_feature_branch": False,
+            }
+        }
+    }
+    result = _runtime_preflight_check(
+        policy,
+        Path(__file__).resolve().parents[1],
+        workspace_manager_factory=_DirtyRepoManager,
+    )
+    assert result["ok"] == "false"
+    assert result["status"] == "dirty_worktree"
 
 
 def test_gui_logging_and_preview_helpers_update_widgets():
@@ -427,3 +520,26 @@ def test_gui_health_check_logs_success_and_failure(monkeypatch):
     )
     gui._run_health_check()
     assert "Health check failed" in gui.chat_output.content
+
+
+def test_start_runtime_blocks_when_preflight_fails(monkeypatch):
+    gui = _build_gui_stub()
+    gui.latest_runtime_request = "run this request"
+    gui.latest_ready_to_run = True
+    gui.runtime_running = False
+
+    monkeypatch.setattr(
+        "nanoporethon.operator_assistant_gui._runtime_preflight_check",
+        lambda _policy, _repo_root: {
+            "ok": "false",
+            "status": "feature_branch_required",
+            "message": "must use feature branch",
+            "warnings": [],
+        },
+    )
+
+    gui._start_runtime()
+
+    assert gui.runtime_running is False
+    assert "Runtime launch blocked" in gui.chat_output.content
+    assert "must use feature branch" in gui.timeline_output.content
