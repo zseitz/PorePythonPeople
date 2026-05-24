@@ -193,6 +193,7 @@ Primary package location: `src/nanoporethon/`.
   - Defines conditional route to refactor stage when verification quality signals require it.
   - Enforces gate checks for plan/build/verify/doc-sync/memory-sync transitions.
   - Executes implementation/doc-sync work directly in the active local feature-branch workspace.
+  - Uses git-porcelain-based changed-file detection in workspace mode to avoid repeated full-repo hashing stalls between stages.
   - Requires a clean git working tree before starting a fresh run when the repository root is a git checkout.
   - Captures base commit/branch metadata plus a start-of-run file-hash snapshot for promotion guardrails.
   - Executes verification commands from policy (`gates.verify.commands`) in the active workspace rather than fixed hardcoded test commands.

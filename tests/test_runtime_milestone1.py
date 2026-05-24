@@ -13,7 +13,7 @@ from runtime.gates import evaluate_stage_gates
 from runtime.orchestrator import _build_cli_summary, _build_executor, run_milestone1
 from runtime.planner import build_triage_plan, classify_complexity
 from runtime.context_manager import ContextBudgetManager
-from runtime.repo_ops import RepoSandboxManager
+from runtime.repo_ops import RepoSandboxManager, RepoWorkspaceManager
 from runtime.skill_loader import SkillLoader
 
 
@@ -1536,4 +1536,18 @@ def test_repo_ops_allowlist_token_matching_blocks_prefix_spoof(tmp_path):
         assert "Command not allowed by policy" in str(exc)
     else:
         raise AssertionError("Expected prefix-spoofed command to be blocked")
+
+
+def test_repo_workspace_manager_changed_files_uses_git_porcelain_fast_path(tmp_path):
+    repo_root = _init_git_repo(tmp_path / "workspace_repo")
+    (repo_root / "README.md").write_text("modified\n", encoding="utf-8")
+    (repo_root / "new_file.txt").write_text("new\n", encoding="utf-8")
+    (repo_root / ".coverage").write_text("ignore\n", encoding="utf-8")
+
+    manager = RepoWorkspaceManager(repo_root=repo_root, sandbox_root=tmp_path / "sandbox")
+    changed = manager.changed_files()
+
+    assert "README.md" in changed
+    assert "new_file.txt" in changed
+    assert ".coverage" not in changed
 
