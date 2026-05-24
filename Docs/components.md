@@ -228,6 +228,7 @@ Primary package location: `src/nanoporethon/`.
   - Provides a chat-first local assistant for in-scope repository/runtime interaction.
   - Displays a live intent badge above chat output (for example Feature Request / Runtime Help / Out-of-Scope) so routing decisions are immediately visible.
   - Uses semantic intent classification via local LLM (configurable model, defaults to `mistral:7b` for speed) with JSON-structured responses for reliability.
+  - Applies policy-configured classifier timeout/retry settings so strict routing fails fast with actionable errors when local model service is slow/unreachable.
   - Requests JSON-mode classifier responses when available and falls back to extracting embedded JSON objects from chatty model output, reducing false startup/health-check failures caused by prose-wrapped responses.
   - Runs in strict LLM mode: classifier availability is a hard startup requirement and non-LLM routing fallback is disabled.
   - Uses LLM-based session analysis (request-kind inference, clarifying-question generation, and core-GUI authorization detection) instead of hard-coded keyword detectors for follow-up routing and request drafting.

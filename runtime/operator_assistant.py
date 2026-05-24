@@ -138,8 +138,15 @@ class LocalOperatorAssistant:
 
         model_name = str(classifier_config.get("model", "mistral:7b"))
         base_url = str(classifier_config.get("base_url", "http://localhost:11434"))
+        timeout_seconds = int(classifier_config.get("request_timeout_seconds", 180))
+        max_retries = int(classifier_config.get("max_retries", 1))
         try:
-            self._intent_classifier: OllamaAdapter = OllamaAdapter(model=model_name, base_url=base_url)
+            self._intent_classifier: OllamaAdapter = OllamaAdapter(
+                model=model_name,
+                base_url=base_url,
+                timeout_seconds=timeout_seconds,
+                max_retries=max_retries,
+            )
         except Exception as exc:
             raise AssistantStartupError(
                 "Operator assistant startup blocked: failed to initialize local intent classifier "

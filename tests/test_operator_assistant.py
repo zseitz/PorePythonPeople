@@ -305,6 +305,26 @@ def test_classifier_disabled_raises_startup_error():
         )
 
 
+def test_classifier_adapter_uses_policy_timeout_and_retries():
+    assistant = LocalOperatorAssistant(
+        repo_root=Path(__file__).resolve().parents[1],
+        policy={
+            "assistant_scope": {
+                "intent_classifier": {
+                    "enabled": True,
+                    "model": "semantic-test",
+                    "request_timeout_seconds": 12,
+                    "max_retries": 3,
+                }
+            }
+        },
+    )
+
+    assert isinstance(assistant._intent_classifier, OllamaAdapter)
+    assert assistant._intent_classifier.timeout_seconds == 12
+    assert assistant._intent_classifier.max_retries == 3
+
+
 def test_session_continuation_handles_clarifying_responses():
     """Test that follow-up responses to clarifying questions are treated as continuation, not new messages.
     
