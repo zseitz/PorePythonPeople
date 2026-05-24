@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import re
 import shlex
 from datetime import datetime, timezone
 from pathlib import Path
@@ -757,6 +758,10 @@ class SpecialistExecutor:
             "context_keys": sorted(list(context.keys())),
         }
 
+        request_file_context = self._collect_request_file_context(request)
+        if request_file_context:
+            user_payload["request_file_context"] = request_file_context
+
         if self.skill_loader is not None:
             skill_context = self.skill_loader.load_stage_context(stage_id)
             if skill_context:
@@ -790,6 +795,75 @@ class SpecialistExecutor:
             )
 
         return adapter.chat(system_prompt, [{"role": "user", "content": json.dumps(user_payload)}])
+
+    def _collect_request_file_context(self, request: str, max_files: int = 3, max_chars: int = 8000) -> List[Dict[str, str]]:
+        """Load small, explicit file context for files directly referenced in the request.
+
+        This gives runtime specialists grounded source context when the request cites
+        specific repo files (for example MATLAB reference implementations).
+        """
+        if not request.strip():
+            return []
+
+        candidates: List[str] = []
+        quoted = re.findall(r'"([^"]+)"', request)
+        candidates.extend(quoted)
+
+        tokens = re.findall(r'([A-Za-z0-9_./-]+\.[A-Za-z0-9_]+)', request)
+        candidates.extend(tokens)
+
+        normalized_candidates: List[str] = []
+        seen = set()
+        for raw in candidates:
+            value = str(raw).strip()
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            normalized_candidates.append(value)
+
+        resolved: List[Path] = []
+        for candidate in normalized_candidates:
+            path_candidate = (self.repo_root / candidate).resolve()
+            if path_candidate.exists() and path_candidate.is_file() and self.repo_root in path_candidate.parents:
+                resolved.append(path_candidate)
+                continue
+
+            basename = Path(candidate).name
+            if not basename:
+                continue
+            for match in self.repo_root.rglob(basename):
+                if match.is_file():
+                    resolved.append(match.resolve())
+                    break
+
+            if len(resolved) >= max_files:
+                break
+
+        snippets: List[Dict[str, str]] = []
+        remaining = max_chars
+        used = set()
+        for path in resolved:
+            if path in used:
+                continue
+            used.add(path)
+            try:
+                rel = path.relative_to(self.repo_root).as_posix()
+                text = path.read_text(encoding="utf-8", errors="ignore").strip()
+            except (OSError, ValueError):
+                continue
+            if not text:
+                continue
+            if remaining <= 120:
+                break
+            snippet = text
+            if len(snippet) > remaining:
+                snippet = snippet[: remaining - 24].rstrip() + "\n\n[TRUNCATED]"
+            snippets.append({"path": rel, "content": snippet})
+            remaining -= len(snippet)
+            if len(snippets) >= max_files or remaining <= 0:
+                break
+
+        return snippets
 
     def _load_specialist_prompt(self, specialist_cfg: Dict[str, object]) -> str:
         inline = specialist_cfg.get("prompt_inline")

@@ -222,8 +222,7 @@ class LocalOperatorAssistant:
             ready = len(followups) == 0
             response_msg = (
                 "I understood this as a feature implementation request. "
-                "I drafted a runtime request from this conversation. "
-                "You can run it now, or answer the follow-up questions first for better precision."
+                "I drafted a runtime request from this conversation. It is ready to run now."
                 if ready
                 else "I understood this as a feature implementation request. I drafted a runtime request. "
                 "Please answer the follow-up questions below before running."

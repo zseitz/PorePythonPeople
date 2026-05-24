@@ -67,6 +67,7 @@ model_provider:
   model: qwen2.5:3b
   base_url: http://localhost:11434
   temperature: 0.1
+  request_timeout_seconds: 300
   # default should be 0.6?
   max_retries: 2
 

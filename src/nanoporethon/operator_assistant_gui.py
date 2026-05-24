@@ -609,6 +609,9 @@ class OperatorAssistantGUI:
         return None
 
     def _read_new_events(self) -> None:
+        if self.run_watch_started_at is None and self.current_run_dir is None and not self.runtime_running:
+            return
+
         run_dir = self._discover_run_dir()
         if run_dir is None:
             return

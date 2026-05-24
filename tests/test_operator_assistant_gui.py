@@ -503,6 +503,23 @@ def test_gui_event_format_discovery_and_polling(tmp_path):
     assert len(gui.root.after_calls) >= 1
 
 
+def test_gui_does_not_replay_old_events_before_a_new_run_starts(tmp_path):
+    gui = _build_gui_stub()
+    run_root = tmp_path / "runs"
+    run_root.mkdir()
+    run_dir = run_root / "run_old"
+    run_dir.mkdir()
+    (run_dir / "events.jsonl").write_text('{"type":"stage_result","stage_id":"implement","status":"success"}\n', encoding="utf-8")
+    gui.policy = {"runtime": {"run_root": str(run_root)}}
+    gui.run_watch_started_at = None
+    gui.current_run_dir = None
+    gui.runtime_running = False
+
+    gui._read_new_events()
+
+    assert gui.timeline_output.content == ""
+
+
 def test_gui_health_check_logs_success_and_failure(monkeypatch):
     gui = _build_gui_stub()
     gui.policy = {"assistant_scope": {"intent_classifier": {"enabled": True}}}

@@ -600,11 +600,35 @@ def test_build_executor_supports_specialist_model_overrides(tmp_path):
 
     assert executor.model_adapter is not None
     assert getattr(executor.model_adapter, "model") == "global-model"
+    assert getattr(executor.model_adapter, "timeout_seconds") == 180
+    assert getattr(executor.model_adapter, "max_retries") == 1
     assert "feature_builder" in executor.model_adapters
     assert getattr(executor.model_adapters["feature_builder"], "model") == "feature-model"
     assert "doc_sync" in executor.model_adapters
     assert getattr(executor.model_adapters["doc_sync"], "model") == "docs-model"
     assert getattr(executor.model_adapters["doc_sync"], "base_url") == "http://localhost:11435"
+
+
+def test_build_executor_uses_timeout_and_retry_policy_settings(tmp_path):
+    policy = _policy_with_run_root(tmp_path)
+    policy["model_provider"] = {
+        "adapter": "ollama",
+        "model": "global-model",
+        "base_url": "http://localhost:11434",
+        "request_timeout_seconds": 240,
+        "max_retries": 3,
+    }
+
+    executor = _build_executor(
+        policy=policy,
+        repo_root=Path(__file__).resolve().parents[1],
+        repo_ops=None,
+        memory_writer=None,
+        context_manager=None,
+    )
+
+    assert getattr(executor.model_adapter, "timeout_seconds") == 240
+    assert getattr(executor.model_adapter, "max_retries") == 3
 
 
 def test_repository_policy_uses_balanced_model_profile():
@@ -687,6 +711,49 @@ def test_executor_includes_skill_context_in_model_payload(tmp_path):
     payload = json.loads(captured["content"])
     assert "skill_context" in payload
     assert payload["skill_context"]["skills"]
+
+
+def test_executor_includes_request_file_context_when_request_references_repo_file(tmp_path):
+    captured = {}
+
+    class CapturingAdapter:
+        def chat(self, _system_prompt, messages):
+            captured["content"] = messages[0]["content"]
+            return json.dumps(
+                {
+                    "changed_files": [],
+                    "implementation_summary": "ok",
+                    "test_updates": [],
+                    "unresolved_risks": [],
+                    "noop_justified": True,
+                    "actions": [],
+                }
+            )
+
+    repo_root = Path(__file__).resolve().parents[1]
+    sandbox = RepoSandboxManager(repo_root=repo_root, sandbox_root=tmp_path / "sandbox")
+    sandbox.prepare()
+    policy = _policy_with_run_root(tmp_path)
+    executor = SpecialistExecutor(
+        specialists={"feature_builder": {"prompt_inline": "feature"}},
+        model_adapter=CapturingAdapter(),
+        repo_root=repo_root,
+        repo_ops=sandbox,
+        policy=policy,
+    )
+
+    executor.run_stage(
+        run_id="run_test",
+        stage_id="implement",
+        owner="feature_builder",
+        request='Create src/nanoporethon/consensus_maker_gui.py based on "consensusMaker.m"',
+        context={"request": "implement"},
+        artifacts_dir=tmp_path / "artifacts",
+    )
+
+    payload = json.loads(captured["content"])
+    assert "request_file_context" in payload
+    assert any(item["path"].endswith("MATLABcode/consensusMaker.m") for item in payload["request_file_context"])
 
 
 def test_executor_uses_owner_specific_adapter_when_present():
