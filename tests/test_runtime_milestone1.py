@@ -797,6 +797,50 @@ def test_deterministic_implement_fallback_scaffolds_requested_gui_file(tmp_path)
     assert result["status"] == "success"
 
 
+def test_deterministic_fallback_prefers_explicit_requested_target_over_guardrail_file_mentions(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    sandbox = RepoSandboxManager(repo_root=repo_root, sandbox_root=tmp_path / "sandbox")
+    sandbox.prepare()
+
+    executor = SpecialistExecutor(
+        specialists={"feature_builder": {"prompt_inline": "feature"}},
+        model_adapter=None,
+        repo_root=repo_root,
+        repo_ops=sandbox,
+        policy=_policy_with_run_root(tmp_path),
+    )
+
+    request = (
+        'Create a new python file based off of "SequenceDesigner.m" and save the new python file '
+        'in the src/nanoporethon directory as "sequence_designer_gui.py".\n\n'
+        "Execution guardrails:\n"
+        "- Do NOT modify core GUI components unless explicitly authorized: "
+        "src/nanoporethon/data_navi_gui.py, src/nanoporethon/event_classifier_gui.py\n"
+    )
+
+    result = executor.run_stage(
+        run_id="run_test",
+        stage_id="implement",
+        owner="feature_builder",
+        request=request,
+        context={"request": "implement"},
+        artifacts_dir=tmp_path / "artifacts",
+    )
+
+    payload_path = tmp_path / "artifacts" / "stages" / "implement_payload.json"
+    payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    assert payload["noop_justified"] is False
+    assert payload["actions"]
+    assert payload["changed_files"] == ["src/nanoporethon/sequence_designer_gui.py"]
+    assert payload.get("merge_markers_found") is False
+
+    generated = sandbox.sandbox_repo / "src" / "nanoporethon" / "sequence_designer_gui.py"
+    assert generated.exists()
+    assert "class SequenceDesignerGUI" in generated.read_text(encoding="utf-8")
+
+    assert result["status"] == "success"
+
+
 def test_executor_uses_owner_specific_adapter_when_present():
     class FakeAdapter:
         def __init__(self, label):

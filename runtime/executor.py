@@ -784,20 +784,44 @@ class SpecialistExecutor:
         if not request:
             return None
 
+        request_lower = request.lower()
+
+        # Prefer explicit output-target phrasing first (for example:
+        # "save ... as \"sequence_designer_gui.py\""). This avoids accidentally
+        # selecting unrelated .py paths that may appear elsewhere in the prompt,
+        # such as protected-file guardrails.
+        quoted_target_match = re.search(
+            r"(?:save|name|named|call|called|as)\s+(?:the\s+new\s+python\s+file\s+)?(?:in\s+[A-Za-z0-9_./\\-]+\s+as\s+)?[\"']([A-Za-z0-9_./\\-]+\.py)[\"']",
+            request,
+            flags=re.IGNORECASE,
+        )
+        if quoted_target_match:
+            explicit_target = quoted_target_match.group(1).replace("\\", "/").lstrip("/")
+            if "/" not in explicit_target and "src/nanoporethon" in request_lower:
+                return f"src/nanoporethon/{explicit_target}"
+            return explicit_target
+
         candidates = re.findall(r"([A-Za-z0-9_./-]+\.py)", request)
         if not candidates:
             return None
 
+        protected_mentions = {
+            "src/nanoporethon/data_navi_gui.py",
+            "src/nanoporethon/event_classifier_gui.py",
+        }
+        normalized_candidates = [candidate.replace("\\", "/").lstrip("/") for candidate in candidates]
+        filtered_candidates = [c for c in normalized_candidates if c.lower() not in protected_mentions]
+        if filtered_candidates:
+            normalized_candidates = filtered_candidates
+
         # Prefer explicit src/ paths when present.
-        for candidate in candidates:
-            normalized = candidate.replace("\\", "/").lstrip("/")
+        for normalized in normalized_candidates:
             if normalized.startswith("src/"):
                 return normalized
 
         # Otherwise, if request references src/nanoporethon directory and only
         # provides a filename, resolve into that directory.
-        request_lower = request.lower()
-        first = candidates[0].replace("\\", "/").lstrip("/")
+        first = normalized_candidates[0]
         if "/" not in first and "src/nanoporethon" in request_lower:
             return f"src/nanoporethon/{first}"
 

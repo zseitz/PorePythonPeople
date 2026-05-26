@@ -100,3 +100,11 @@
 | 2026-05-26 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
 | 2026-05-26 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
 | 2026-05-26 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
+| 2026-05-26 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
+| 2026-05-26 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
+| 2026-05-26 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
+| 2026-05-26 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
+| 2026-05-26 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
+| 2026-05-26 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
+| 2026-05-26 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
+| 2026-05-26 | team | Prioritize explicit output filename in deterministic implement fallback path extraction | GitHub Copilot | `runtime/executor.py`; `tests/test_runtime_milestone1.py`; `Docs/components.md`; `Docs/nanoporethon_textbook.md`; `Docs/agent_logs/REQUEST_LOG.md` | completed | Fixed fallback target selection so quoted output names (for example `as "sequence_designer_gui.py"`) win over unrelated guardrail `.py` mentions, and added regression coverage. |

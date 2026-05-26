@@ -1128,7 +1128,7 @@ Helpful options:
 - `--approval-mode per_stage`
 - `--resume-run-id <run_id> --resume-choice restart_from_beginning|resume_from_last_completed`
 
-Current runtime behavior includes in-place branch edits, policy-driven verification commands, schema validation with deterministic fallback handling, approval-aware resume flow, and optional operator-gated promotion.
+Current runtime behavior includes in-place branch edits, policy-driven verification commands, schema validation with deterministic fallback handling (including explicit output-target precedence for deterministic GUI scaffold requests), approval-aware resume flow, and optional operator-gated promotion.
 
 Recommended usage pattern:
 
