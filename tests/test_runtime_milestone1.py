@@ -1,3 +1,4 @@
+import ast
 import json
 import os
 import shutil
@@ -796,6 +797,8 @@ def test_deterministic_implement_fallback_scaffolds_requested_gui_file(tmp_path)
     assert "Feeding orientation" in generated_text
     assert "Read direction" in generated_text
     assert "Design Notes / Instructions" in generated_text
+    assert "\nfrom __future__ import annotations\n" in generated_text
+    ast.parse(generated_text)
 
     assert result["status"] == "success"
 
@@ -844,6 +847,7 @@ def test_deterministic_fallback_prefers_explicit_requested_target_over_guardrail
     assert "Feeding orientation" in generated_text
     assert "Read direction" in generated_text
     assert "_apply_display_direction" in generated_text
+    ast.parse(generated_text)
 
     assert result["status"] == "success"
 
