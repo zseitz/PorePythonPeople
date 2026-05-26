@@ -757,6 +757,46 @@ def test_executor_includes_request_file_context_when_request_references_repo_fil
     assert any(item["path"].endswith("MATLABcode/consensusMaker.m") for item in payload["request_file_context"])
 
 
+def test_deterministic_implement_fallback_scaffolds_requested_gui_file(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    sandbox = RepoSandboxManager(repo_root=repo_root, sandbox_root=tmp_path / "sandbox")
+    sandbox.prepare()
+
+    executor = SpecialistExecutor(
+        specialists={"feature_builder": {"prompt_inline": "feature"}},
+        model_adapter=None,
+        repo_root=repo_root,
+        repo_ops=sandbox,
+        policy=_policy_with_run_root(tmp_path),
+    )
+
+    result = executor.run_stage(
+        run_id="run_test",
+        stage_id="implement",
+        owner="feature_builder",
+        request=(
+            "Create a new python file based off SequenceDesigner.m and save the new python file "
+            "in the src/nanoporethon directory as sequence_designer_gui.py"
+        ),
+        context={"request": "implement"},
+        artifacts_dir=tmp_path / "artifacts",
+    )
+
+    payload_path = tmp_path / "artifacts" / "stages" / "implement_payload.json"
+    payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    assert payload["noop_justified"] is False
+    assert payload["actions"]
+    assert "src/nanoporethon/sequence_designer_gui.py" in payload["changed_files"]
+
+    generated = sandbox.sandbox_repo / "src" / "nanoporethon" / "sequence_designer_gui.py"
+    assert generated.exists()
+    generated_text = generated.read_text(encoding="utf-8")
+    assert "class SequenceDesignerGUI" in generated_text
+    assert "consensus_signal" in generated_text
+
+    assert result["status"] == "success"
+
+
 def test_executor_uses_owner_specific_adapter_when_present():
     class FakeAdapter:
         def __init__(self, label):
@@ -1135,6 +1175,22 @@ def test_implement_gate_fails_when_merge_markers_found():
     )
     assert evidence["changeset_nonempty_or_noop_justified"] is True
     assert evidence["no_unresolved_merge_markers"] is False
+
+
+def test_merge_marker_detection_ignores_literal_marker_strings_in_code(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    sandbox = RepoSandboxManager(repo_root=repo_root, sandbox_root=tmp_path / "sandbox")
+    sandbox.prepare()
+
+    target = sandbox.sandbox_repo / "src" / "nanoporethon" / "merge_marker_literal_test.py"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        'markers = ("<<<<<<< ", "=======", ">>>>>>> ")\nprint(markers)\n',
+        encoding="utf-8",
+    )
+
+    executor = SpecialistExecutor(repo_root=repo_root, repo_ops=sandbox, policy=_policy_with_run_root(tmp_path))
+    assert executor._has_unresolved_merge_markers(["src/nanoporethon/merge_marker_literal_test.py"]) is False
 
 
 def test_verify_uses_sandbox_default_cwd(tmp_path):

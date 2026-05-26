@@ -187,6 +187,7 @@ Primary package location: `src/nanoporethon/`.
   - Declares specialist registry and stage ownership.
   - Executes full policy-driven stage graph with conditional routing (`refactor_or_docsync`).
   - Parses specialist model output as structured JSON stage payloads, validates required stage fields, and falls back to deterministic payloads when parsing/validation fails.
+  - Deterministic implement fallback now attempts targeted scaffold actions for explicit "create new python GUI file at <path>" requests, reducing silent no-op completions when model-authored implement payloads are missing.
   - Validates model-authored action payloads against strict per-action schemas, policy-driven size/count limits, and stage-allowed action types before any repository mutation occurs.
   - Applies model-authored edit intents (`write_file`, `append_file`, `replace_in_file`) only after action-schema validation and edit-scope checks succeed.
   - Treats `verify` and `verify_after_refactor` command execution as authoritative gate evidence (`tests_exit_code`/`coverage_exit_code`); model verify output is retained only as metadata and cannot override deterministic verification results.
@@ -198,7 +199,7 @@ Primary package location: `src/nanoporethon/`.
   - Captures base commit/branch metadata plus a start-of-run file-hash snapshot for promotion guardrails.
   - Executes verification commands from policy (`gates.verify.commands`) in the active workspace rather than fixed hardcoded test commands.
   - Normalizes bare `pytest ...` verify commands to `python -m pytest ...` before execution to avoid interpreter entrypoint mismatches between shell scripts and runtime Python environments.
-  - Enforces implementation gate merge-marker checks by scanning changed files for unresolved conflict markers.
+  - Enforces implementation gate merge-marker checks by scanning changed files line-by-line for unresolved conflict markers, avoiding false positives from literal marker strings embedded in code.
   - Supports per-stage policy-controlled handling for pytest code `5` (`allow_no_tests_collected`) for both `verify` and `verify_after_refactor` instead of implicitly treating empty test scope as pass.
   - Defines waiver structure for explicit, auditable gate bypasses, restricted to approved operators.
   - Validates handoff, stage-result, gate-result, and run-state artifacts against JSON schemas at stage boundaries.
