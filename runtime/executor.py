@@ -8,6 +8,7 @@ import re
 import shlex
 import threading
 import textwrap
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -830,6 +831,15 @@ class SpecialistExecutor:
     def _deterministic_gui_file_content(self, target_path: str) -> Optional[str]:
         module_name = Path(target_path).name.lower()
         if module_name == "sequence_designer_gui.py":
+            canonical = self.repo_root / "src" / "nanoporethon" / "sequence_designer_gui.py"
+            if canonical.exists() and canonical.is_file():
+                try:
+                    canonical_text = canonical.read_text(encoding="utf-8")
+                    if "class SequenceDesignerGUI" in canonical_text:
+                        return canonical_text
+                except OSError:
+                    pass
+
             return textwrap.dedent(
                 '''\
                 """Sequence designer GUI with MATLAB-aligned orientation controls.
@@ -1297,7 +1307,24 @@ class SpecialistExecutor:
             normalized_candidates.append(value)
 
         resolved: List[Path] = []
+        downloads_root = Path.home() / "Downloads"
+        external_roots: List[Path] = []
+        if downloads_root.exists() and downloads_root.is_dir():
+            external_roots.append(downloads_root)
+
+        named_dir_matches = re.findall(r"directory\s+(?:called|named)\s+([A-Za-z0-9_.-]+)", request, flags=re.IGNORECASE)
+        for name in named_dir_matches:
+            candidate_dir = downloads_root / name
+            if candidate_dir.exists() and candidate_dir.is_dir() and candidate_dir not in external_roots:
+                external_roots.append(candidate_dir)
         for candidate in normalized_candidates:
+            explicit = Path(candidate).expanduser()
+            if explicit.is_absolute() and explicit.exists() and explicit.is_file():
+                resolved.append(explicit.resolve())
+                if len(resolved) >= max_files:
+                    break
+                continue
+
             path_candidate = (self.repo_root / candidate).resolve()
             if path_candidate.exists() and path_candidate.is_file() and self.repo_root in path_candidate.parents:
                 resolved.append(path_candidate)
@@ -1314,6 +1341,17 @@ class SpecialistExecutor:
             if len(resolved) >= max_files:
                 break
 
+            for root in external_roots:
+                for match in root.rglob(basename):
+                    if match.is_file():
+                        resolved.append(match.resolve())
+                        break
+                if len(resolved) >= max_files:
+                    break
+
+            if len(resolved) >= max_files:
+                break
+
         snippets: List[Dict[str, str]] = []
         remaining = max_chars
         used = set()
@@ -1323,9 +1361,11 @@ class SpecialistExecutor:
             used.add(path)
             try:
                 rel = path.relative_to(self.repo_root).as_posix()
-                text = path.read_text(encoding="utf-8", errors="ignore").strip()
+                display_path = rel
             except (OSError, ValueError):
-                continue
+                display_path = path.as_posix()
+
+            text = self._read_request_file_content(path).strip()
             if not text:
                 continue
             if remaining <= 120:
@@ -1333,12 +1373,32 @@ class SpecialistExecutor:
             snippet = text
             if len(snippet) > remaining:
                 snippet = snippet[: remaining - 24].rstrip() + "\n\n[TRUNCATED]"
-            snippets.append({"path": rel, "content": snippet})
+            snippets.append({"path": display_path, "content": snippet})
             remaining -= len(snippet)
             if len(snippets) >= max_files or remaining <= 0:
                 break
 
         return snippets
+
+    def _read_request_file_content(self, path: Path) -> str:
+        """Read request context from text files and MATLAB app containers.
+
+        For `.mlapp` files, extract textual MATLAB class content from
+        `matlab/document.xml` when present.
+        """
+        suffix = path.suffix.lower()
+        if suffix == ".mlapp":
+            try:
+                with zipfile.ZipFile(path, "r") as archive:
+                    with archive.open("matlab/document.xml") as handle:
+                        return handle.read().decode("utf-8", errors="ignore")
+            except (OSError, KeyError, zipfile.BadZipFile):
+                return ""
+
+        try:
+            return path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            return ""
 
     def _load_specialist_prompt(self, specialist_cfg: Dict[str, object]) -> str:
         inline = specialist_cfg.get("prompt_inline")

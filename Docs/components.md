@@ -189,8 +189,10 @@ Primary package location: `src/nanoporethon/`.
   - Parses specialist model output as structured JSON stage payloads, validates required stage fields, and falls back to deterministic payloads when parsing/validation fails.
   - Deterministic implement fallback now attempts targeted scaffold actions for explicit "create new python GUI file at <path>" requests, reducing silent no-op completions when model-authored implement payloads are missing.
   - Deterministic implement target extraction now prioritizes explicit output-target wording (for example, `as "sequence_designer_gui.py"`) over unrelated `.py` paths embedded in guardrail text, and filters protected-file mentions from fallback target selection.
-  - Deterministic `sequence_designer_gui.py` fallback scaffolding now includes mlapp-style operator controls (5'/3' feeding orientation, pore orientation, display order, phase-shift tuning, panel instructions/notations, and display-aware plotting annotations) so assistant-driven runs remain usable when implement-stage model actions are unavailable.
+  - Deterministic `sequence_designer_gui.py` fallback now prefers the canonical repository source file (`src/nanoporethon/sequence_designer_gui.py`) when available, reducing drift between runtime-generated scaffolds and maintained GUI behavior.
+  - Deterministic `sequence_designer_gui.py` scaffolding includes mlapp-style operator controls (5'/3' feeding orientation, pore orientation, display order, phase-shift tuning, panel instructions/notations, and display-aware plotting annotations) so assistant-driven runs remain usable when implement-stage model actions are unavailable.
   - Deterministic `sequence_designer_gui.py` fallback template generation now preserves valid top-level Python indentation and escaped instruction newlines so generated GUI files compile and run without import-time indentation errors.
+  - Runtime request-file context ingestion supports explicit absolute local paths and `.mlapp` files by extracting `matlab/document.xml`, allowing MATLAB app audits to inform implement-stage payloads and deterministic fallbacks.
   - Validates model-authored action payloads against strict per-action schemas, policy-driven size/count limits, and stage-allowed action types before any repository mutation occurs.
   - Applies model-authored edit intents (`write_file`, `append_file`, `replace_in_file`) only after action-schema validation and edit-scope checks succeed.
   - Treats `verify` and `verify_after_refactor` command execution as authoritative gate evidence (`tests_exit_code`/`coverage_exit_code`); model verify output is retained only as metadata and cannot override deterministic verification results.
@@ -268,6 +270,8 @@ Primary package location: `src/nanoporethon/`.
     - Validates DNA input to strict A/C/G/T (sequence entered in 5'→3' direction).
     - Computes deterministic normalized current levels per k-mer window.
     - Exposes explicit design controls for feeding orientation (5'/3'), pore orientation (forwards/backwards), display order (5'→3'/3'→5'), and phase shift (0..1).
+    - Exposes MATLAB-style edit-at-position controls (position slider/index, A/C/G/T mutation buttons, delete, random mutation) for rapid iterative sequence design.
+    - Includes Hel308 mode toggle plus save/export actions for generated traces (figure save and JSON level export).
     - Applies display-order and phase-shift transforms prior to plotting.
     - Is self-contained: sequence sanitization and signal helpers are implemented in the same module (no GUI-to-GUI dependency).
 

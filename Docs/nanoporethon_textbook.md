@@ -171,6 +171,8 @@ Optional utility stage:
 - **Sequence design preview with `SequenceDesignerGUI`**
   - enter a DNA sequence in 5'→3' order,
   - choose k-mer size, feeding orientation, pore orientation, display order, and phase shift,
+  - optionally edit at a specific N-position with A/C/G/T, delete, or random mutation controls,
+  - optionally toggle Hel308 mode and save/export generated outputs,
   - generate a deterministic expected normalized current trace.
 
 ---
@@ -346,6 +348,8 @@ What it does:
 - validates DNA input (A/C/G/T) entered in 5'→3',
 - computes a deterministic k-mer-based expected signal,
 - exposes feeding orientation (5'/3'), pore orientation (forwards/backwards), display order (5'→3'/3'→5'), and phase shift (0..1),
+- adds MATLAB-style edit-at-position controls (position slider/index plus A/C/G/T/delete/random actions),
+- includes Hel308 toggle plus save-figure and export-levels actions,
 - displays the result as a step trace in normalized $I/I_0$-style units.
 
 ---
@@ -1128,7 +1132,7 @@ Helpful options:
 - `--approval-mode per_stage`
 - `--resume-run-id <run_id> --resume-choice restart_from_beginning|resume_from_last_completed`
 
-Current runtime behavior includes in-place branch edits, policy-driven verification commands, schema validation with deterministic fallback handling (including explicit output-target precedence, syntax-safe template emission, and richer mlapp-style controls—feeding orientation, pore orientation, display order, and phase shift—for deterministic `sequence_designer_gui.py` scaffold requests), approval-aware resume flow, and optional operator-gated promotion.
+Current runtime behavior includes in-place branch edits, policy-driven verification commands, schema validation with deterministic fallback handling (including explicit output-target precedence, syntax-safe template emission, canonical-source-backed `sequence_designer_gui.py` scaffolding, and richer mlapp-style controls), absolute local file-context ingestion (including `.mlapp` extraction from `matlab/document.xml`), approval-aware resume flow, and optional operator-gated promotion.
 
 Recommended usage pattern:
 

@@ -9,8 +9,10 @@ so operator-assistant driven runs stay useful under fallback conditions.
 
 from __future__ import annotations
 
+import json
+import random
 import tkinter as tk
-from tkinter import messagebox, scrolledtext
+from tkinter import filedialog, messagebox, scrolledtext
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -134,6 +136,7 @@ class SequenceDesignerGUI:
         self.root = root
         self.root.title("Sequence Designer")
         self.root.geometry("1120x700")
+        self.last_generated_levels: list[float] = []
 
         main = tk.Frame(root, padx=10, pady=10)
         main.pack(fill=tk.BOTH, expand=True)
@@ -165,6 +168,7 @@ class SequenceDesignerGUI:
         tk.Label(left_panel, text="DNA sequence input (5' to 3', A/C/G/T):", anchor="w").pack(fill=tk.X)
         self.sequence_box = scrolledtext.ScrolledText(left_panel, height=12, wrap=tk.WORD)
         self.sequence_box.pack(fill=tk.BOTH, expand=False, pady=(4, 8))
+        self.sequence_box.bind("<KeyRelease>", lambda _event: self._refresh_edit_controls())
 
         controls = tk.LabelFrame(left_panel, text="Signal Controls", padx=8, pady=8)
         controls.pack(fill=tk.X)
@@ -174,6 +178,14 @@ class SequenceDesignerGUI:
         tk.Label(row1, text="k-mer size:", width=18, anchor="w").pack(side=tk.LEFT)
         self.kmer_var = tk.StringVar(value="5")
         tk.Entry(row1, textvariable=self.kmer_var, width=8).pack(side=tk.LEFT)
+
+        self.hel308_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            row1,
+            text="Hel308 mode",
+            variable=self.hel308_var,
+            command=self._toggle_hel308_mode,
+        ).pack(side=tk.LEFT, padx=(12, 0))
 
         row2 = tk.Frame(controls)
         row2.pack(fill=tk.X, pady=(0, 6))
@@ -212,6 +224,34 @@ class SequenceDesignerGUI:
         self.annotate_var = tk.BooleanVar(value=True)
         tk.Checkbutton(row6, text="Show orientation/phase annotations on plot", variable=self.annotate_var).pack(side=tk.LEFT)
 
+        editing = tk.LabelFrame(left_panel, text="Edit Sequence at N", padx=8, pady=8)
+        editing.pack(fill=tk.X, pady=(10, 0))
+
+        edit_row1 = tk.Frame(editing)
+        edit_row1.pack(fill=tk.X, pady=(0, 6))
+        tk.Label(edit_row1, text="Edit position:", width=18, anchor="w").pack(side=tk.LEFT)
+        self.edit_index_var = tk.IntVar(value=1)
+        self.edit_index_entry_var = tk.StringVar(value="1")
+        self.edit_slider = tk.Scale(
+            edit_row1,
+            from_=1,
+            to=1,
+            orient=tk.HORIZONTAL,
+            variable=self.edit_index_var,
+            command=self._on_edit_slider_change,
+            length=220,
+        )
+        self.edit_slider.pack(side=tk.LEFT)
+        tk.Entry(edit_row1, textvariable=self.edit_index_entry_var, width=6).pack(side=tk.LEFT, padx=(8, 0))
+        tk.Button(edit_row1, text="Set", command=self._set_edit_index_from_entry).pack(side=tk.LEFT, padx=(6, 0))
+
+        edit_row2 = tk.Frame(editing)
+        edit_row2.pack(fill=tk.X)
+        for base in ("A", "C", "G", "T"):
+            tk.Button(edit_row2, text=base, width=4, command=lambda b=base: self._apply_base_edit(b)).pack(side=tk.LEFT, padx=(0, 4))
+        tk.Button(edit_row2, text="Delete", command=self._delete_base_at_edit).pack(side=tk.LEFT, padx=(8, 4))
+        tk.Button(edit_row2, text="Random", command=self._random_base_at_edit).pack(side=tk.LEFT)
+
         actions = tk.Frame(left_panel)
         actions.pack(fill=tk.X, pady=(10, 0))
 
@@ -220,6 +260,8 @@ class SequenceDesignerGUI:
             text="Generate Sequence Signal",
             command=self._generate,
         ).pack(side=tk.LEFT)
+        tk.Button(actions, text="Save Figure", command=self._save_current_figure).pack(side=tk.LEFT, padx=(8, 0))
+        tk.Button(actions, text="Export Levels", command=self._export_levels).pack(side=tk.LEFT, padx=(8, 0))
 
         self.summary_var = tk.StringVar(value="Provide a sequence and generate a consensus preview.")
         tk.Label(left_panel, textvariable=self.summary_var, anchor="w", fg="#333333").pack(fill=tk.X, pady=(10, 0))
@@ -229,6 +271,7 @@ class SequenceDesignerGUI:
         notes.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
         notes.insert("1.0", _INSTRUCTION_TEXT)
         notes.configure(state="disabled")
+        self._refresh_edit_controls()
 
     def _generate(self) -> None:
         raw_sequence = self.sequence_box.get("1.0", tk.END)
@@ -248,7 +291,110 @@ class SequenceDesignerGUI:
             messagebox.showerror("Invalid input", str(exc))
             return
 
+        self.last_generated_levels = signal.tolist()
+
         self._plot_signal(signal, kmer_size, feed, pore_orientation, display_order, phase_shift)
+
+    def _toggle_hel308_mode(self) -> None:
+        if self.hel308_var.get():
+            self.kmer_var.set("6")
+            self.summary_var.set("Hel308 mode enabled (k-mer default set to 6).")
+        elif self.kmer_var.get().strip() == "6":
+            self.kmer_var.set("5")
+
+    def _refresh_edit_controls(self) -> None:
+        raw = self.sequence_box.get("1.0", tk.END)
+        length = len("".join(raw.upper().split()))
+        max_index = max(1, length + 1)
+        self.edit_slider.configure(to=max_index)
+        if self.edit_index_var.get() > max_index:
+            self.edit_index_var.set(max_index)
+            self.edit_index_entry_var.set(str(max_index))
+
+    def _on_edit_slider_change(self, _value: str) -> None:
+        self.edit_index_entry_var.set(str(self.edit_index_var.get()))
+
+    def _set_edit_index_from_entry(self) -> None:
+        try:
+            idx = int(self.edit_index_entry_var.get().strip())
+        except ValueError:
+            messagebox.showerror("Invalid edit index", "Edit position must be an integer.")
+            return
+        idx = max(1, min(idx, int(float(self.edit_slider.cget("to")))))
+        self.edit_index_var.set(idx)
+        self.edit_index_entry_var.set(str(idx))
+
+    def _current_sequence(self) -> str:
+        return "".join(self.sequence_box.get("1.0", tk.END).upper().split())
+
+    def _set_sequence(self, sequence: str) -> None:
+        self.sequence_box.delete("1.0", tk.END)
+        self.sequence_box.insert("1.0", sequence)
+        self._refresh_edit_controls()
+
+    def _apply_base_edit(self, base: str) -> None:
+        seq = self._current_sequence()
+        idx = self.edit_index_var.get() - 1
+        if idx >= len(seq):
+            new_seq = seq + base
+        else:
+            new_seq = seq[:idx] + base + seq[idx + 1 :]
+        self._set_sequence(new_seq)
+
+    def _delete_base_at_edit(self) -> None:
+        seq = self._current_sequence()
+        if not seq:
+            return
+        idx = self.edit_index_var.get() - 1
+        if idx >= len(seq):
+            new_seq = seq[:-1]
+        else:
+            new_seq = seq[:idx] + seq[idx + 1 :]
+        self._set_sequence(new_seq)
+
+    def _random_base_at_edit(self) -> None:
+        self._apply_base_edit(random.choice(["A", "C", "G", "T"]))
+
+    def _save_current_figure(self) -> None:
+        fig = plt.gcf() if plt.get_fignums() else None
+        if fig is None:
+            messagebox.showinfo("No figure", "Generate a signal before saving a figure.")
+            return
+        target = filedialog.asksaveasfilename(
+            title="Save sequence designer figure",
+            defaultextension=".png",
+            filetypes=[("PNG", "*.png"), ("PDF", "*.pdf"), ("All files", "*.*")],
+        )
+        if not target:
+            return
+        fig.savefig(target, dpi=200)
+        self.summary_var.set(f"Saved figure: {target}")
+
+    def _export_levels(self) -> None:
+        if not self.last_generated_levels:
+            messagebox.showinfo("No data", "Generate a signal before exporting levels.")
+            return
+        target = filedialog.asksaveasfilename(
+            title="Export predicted levels",
+            defaultextension=".json",
+            filetypes=[("JSON", "*.json"), ("All files", "*.*")],
+        )
+        if not target:
+            return
+
+        payload = {
+            "sequence_5_to_3": self._current_sequence(),
+            "kmer_size": int(self.kmer_var.get().strip()),
+            "feeding_orientation": self.feed_var.get().strip(),
+            "pore_orientation": self.pore_var.get().strip(),
+            "display_order": self.display_order_var.get().strip(),
+            "phase_shift": float(self.phase_shift_var.get()),
+            "hel308_mode": bool(self.hel308_var.get()),
+            "levels": self.last_generated_levels,
+        }
+        with open(target, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2)
+        self.summary_var.set(f"Exported levels: {target}")
 
     def _apply_display_settings(
         self,

@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import time
+import zipfile
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -756,6 +757,26 @@ def test_executor_includes_request_file_context_when_request_references_repo_fil
     payload = json.loads(captured["content"])
     assert "request_file_context" in payload
     assert any(item["path"].endswith("MATLABcode/consensusMaker.m") for item in payload["request_file_context"])
+
+
+def test_request_file_context_supports_absolute_mlapp_reference(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    mlapp_path = tmp_path / "SequenceDesigner.mlapp"
+
+    with zipfile.ZipFile(mlapp_path, "w") as archive:
+        archive.writestr(
+            "matlab/document.xml",
+            "<document><code>classdef SequenceDesigner; properties; PhaseShiftSlider; end</code></document>",
+        )
+
+    executor = SpecialistExecutor(repo_root=repo_root, policy=_policy_with_run_root(tmp_path))
+    context = executor._collect_request_file_context(
+        f'Please mirror functionality from "{mlapp_path.as_posix()}" into sequence_designer_gui.py'
+    )
+
+    assert context
+    assert any(item["path"].endswith("SequenceDesigner.mlapp") for item in context)
+    assert any("PhaseShiftSlider" in item["content"] for item in context)
 
 
 def test_deterministic_implement_fallback_scaffolds_requested_gui_file(tmp_path):
