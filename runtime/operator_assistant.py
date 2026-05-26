@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
@@ -186,6 +187,7 @@ class LocalOperatorAssistant:
             "latest_runtime_request": None,
             "pending_questions": [],
             "last_intent": None,
+            "file_reference_questions_asked": [],
         }
 
     def handle_message(self, text: str, session: Optional[Dict[str, Any]] = None) -> AssistantResponse:
@@ -197,6 +199,7 @@ class LocalOperatorAssistant:
         state.setdefault("core_change_decision_made", False)
         state.setdefault("latest_runtime_request", None)
         state.setdefault("pending_questions", [])
+        state.setdefault("file_reference_questions_asked", [])
 
         history = state["history"]
         if isinstance(history, list):
@@ -410,6 +413,10 @@ class LocalOperatorAssistant:
         if not isinstance(questions, list):
             questions = []
 
+        file_reference_followup = self._file_reference_followup(session)
+        if file_reference_followup:
+            return [file_reference_followup]
+
         planned_core_gui = self._planned_core_gui_changes(session)
 
         normalized_questions = [str(q).strip() for q in questions if str(q).strip()]
@@ -452,6 +459,111 @@ class LocalOperatorAssistant:
             return []
 
         return normalized_questions[:1]
+
+    def _file_reference_followup(self, session: Dict[str, Any]) -> Optional[str]:
+        feature_messages = session.get("feature_messages", [])
+        if not isinstance(feature_messages, list) or not feature_messages:
+            return None
+
+        combined = "\n".join(str(msg) for msg in feature_messages)
+        candidates = self._extract_file_candidates(combined)
+        if not candidates:
+            return None
+
+        asked = session.get("file_reference_questions_asked", [])
+        if not isinstance(asked, list):
+            asked = []
+
+        search_roots = self._discover_reference_search_roots(combined)
+
+        for candidate in candidates:
+            if not candidate.lower().endswith(".m"):
+                continue
+            if candidate in asked:
+                continue
+
+            suggestion = self._find_reference_alternative(candidate, search_roots)
+            if not suggestion:
+                continue
+
+            asked.append(candidate)
+            session["file_reference_questions_asked"] = asked
+            return (
+                f"I couldn't find `{candidate}` as referenced, but I found a near match `{suggestion}`. "
+                "Should I use that as the source reference for the Python rewrite?"
+            )
+
+        return None
+
+    def _extract_file_candidates(self, text: str) -> List[str]:
+        pattern = r"([A-Za-z0-9_./\\-]+\.[A-Za-z0-9_]+)"
+        matches = re.findall(pattern, text)
+        unique = OrderedDict()
+        for match in matches:
+            candidate = str(match).strip().strip("'\"`)")
+            if not candidate:
+                continue
+            unique[candidate] = None
+        return list(unique.keys())
+
+    def _discover_reference_search_roots(self, text: str) -> List[Path]:
+        roots: List[Path] = []
+
+        def _add_root(path: Path) -> None:
+            resolved = path.expanduser().resolve()
+            if resolved.exists() and resolved.is_dir() and resolved not in roots:
+                roots.append(resolved)
+
+        _add_root(self.repo_root)
+
+        lower = text.lower()
+        downloads_dir = Path.home() / "Downloads"
+        if "downloads folder" in lower:
+            _add_root(downloads_dir)
+
+        named_dir_matches = re.findall(r"directory\s+(?:called|named)\s+([A-Za-z0-9_.-]+)", text, flags=re.IGNORECASE)
+        for name in named_dir_matches:
+            if downloads_dir.exists():
+                _add_root(downloads_dir / name)
+
+        abs_path_matches = re.findall(r"(/[^\s'\"`]+)", text)
+        for raw in abs_path_matches:
+            path = Path(raw)
+            if path.suffix:
+                if path.parent.exists() and path.parent.is_dir() and path.parent not in roots:
+                    roots.append(path.parent.resolve())
+            else:
+                _add_root(path)
+
+        return roots
+
+    def _find_reference_alternative(self, candidate: str, roots: List[Path]) -> Optional[str]:
+        candidate_path = Path(candidate)
+        candidate_name = candidate_path.name or candidate
+        stem = candidate_path.stem
+        if not stem:
+            return None
+
+        # If exact target already exists in one of the search roots, no clarification needed.
+        for root in roots:
+            exact = root / candidate_name
+            if exact.exists() and exact.is_file():
+                return None
+
+        alternatives = [f"{stem}.mlapp", f"{stem}.mlx", f"{stem}.m"]
+        for root in roots:
+            for alt in alternatives:
+                path = root / alt
+                if path.exists() and path.is_file() and alt != candidate_name:
+                    return str(path)
+
+        for root in roots:
+            for ext in [".mlapp", ".mlx", ".m"]:
+                path = root / f"{stem}{ext}"
+                if path.exists() and path.is_file() and path.name != candidate_name:
+                    return str(path)
+
+        return None
 
     def _core_gui_authorization_prompt(self, files: List[str], reason: str) -> str:
         file_list = ", ".join(files)

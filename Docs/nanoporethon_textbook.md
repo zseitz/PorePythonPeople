@@ -1291,6 +1291,7 @@ Chat-first request guidance:
   - Scoped (minimal relevant diffs)
   - Operator-supervised (branch-local, human-reviewed flow)
 - The assistant will ask targeted clarifying questions only when needed for missing behavior details or boundaries.
+- If a prompt references a likely-mistyped source filename (for example requesting `SequenceDesigner.m` when `SequenceDesigner.mlapp` exists in the referenced folder), the assistant asks a single near-match confirmation question instead of launching a likely no-op run.
 - You do not need to pre-fill a long static intake form before getting useful help.
 
 Core-component protection rule:

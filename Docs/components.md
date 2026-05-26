@@ -238,6 +238,7 @@ Primary package location: `src/nanoporethon/`.
   - Builds a runtime request preview directly from conversation context (instead of requiring a long static form upfront).
   - Asks targeted clarification questions only when more precision is needed.
   - Favors low-friction execution for actionable requests: the assistant now defaults to zero follow-up questions unless execution is actually blocked (for example, protected core-GUI authorization or a genuinely underspecified request), and even then asks at most one question per turn.
+  - Detects likely source-file reference mistakes in feature prompts (for example `.m` vs `.mlapp`) by checking referenced directories for near matches and asking a targeted one-question confirmation before runtime launch.
   - When protected core GUI files are implicated, authorization prompts are plan-specific: the assistant names the file(s) it expects to change and explains why it believes those file edits are needed before asking for permission.
   - **Session-aware continuation**: Follow-up responses to clarifying questions (e.g., answering "both" to a verification question) are recognized as continuations of the active feature request and NOT re-evaluated against scope rules, preventing context loss in multi-turn conversations.
   - **Default verification policy for code changes**: Feature requests are treated as code-changing by default (unless clearly docs-only), and runtime request packets automatically require both automated tests and behavior checks without requiring users to include testing keywords.

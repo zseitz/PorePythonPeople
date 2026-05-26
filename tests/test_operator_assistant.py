@@ -678,3 +678,86 @@ def test_truly_vague_request_still_gets_single_blocking_followup():
     )
     assert len(response.followup_questions) == 1
     assert response.followup_questions[0] == "What should be changed?"
+
+
+def test_typoed_matlab_file_reference_prompts_near_match_clarification(tmp_path: Path):
+    class _FeatureNoQuestionModel:
+        def chat_json(self, system_prompt: str, messages: list) -> str:
+            prompt_lower = system_prompt.lower()
+            if "request_kind" in prompt_lower and "clarifying_questions" in prompt_lower:
+                return json.dumps(
+                    {
+                        "request_kind": "code_change",
+                        "core_gui_change_requested": False,
+                        "core_gui_change_authorized": False,
+                        "clarifying_questions": [],
+                    }
+                )
+            return json.dumps({"intent": "feature_request", "confidence": 0.9, "reason": "semantic_feature"})
+
+    source_root = tmp_path / "NanoporeRepository"
+    source_root.mkdir(parents=True, exist_ok=True)
+    mlapp = source_root / "SequenceDesigner.mlapp"
+    mlapp.write_text("mock app contents", encoding="utf-8")
+
+    assistant = LocalOperatorAssistant(
+        repo_root=Path(__file__).resolve().parents[1],
+        policy={"assistant_scope": {"intent_classifier": {"enabled": True, "model": "semantic-test"}}},
+    )
+    assistant._intent_classifier = _FeatureNoQuestionModel()
+    assistant._intent_classifier_fallback = None
+
+    response = assistant.handle_message(
+        (
+            "Create a python rewrite from SequenceDesigner.m in directory "
+            f"{source_root} and save as src/nanoporethon/sequence_designer_gui.py"
+        ),
+        session=assistant.init_session(),
+    )
+
+    assert response.intent == "feature_request"
+    assert response.ready_to_run is False
+    assert len(response.followup_questions) == 1
+    question = response.followup_questions[0]
+    assert "SequenceDesigner.m" in question
+    assert "SequenceDesigner.mlapp" in question
+
+
+def test_exact_matlab_file_reference_does_not_trigger_typo_followup(tmp_path: Path):
+    class _FeatureNoQuestionModel:
+        def chat_json(self, system_prompt: str, messages: list) -> str:
+            prompt_lower = system_prompt.lower()
+            if "request_kind" in prompt_lower and "clarifying_questions" in prompt_lower:
+                return json.dumps(
+                    {
+                        "request_kind": "code_change",
+                        "core_gui_change_requested": False,
+                        "core_gui_change_authorized": False,
+                        "clarifying_questions": [],
+                    }
+                )
+            return json.dumps({"intent": "feature_request", "confidence": 0.9, "reason": "semantic_feature"})
+
+    source_root = tmp_path / "NanoporeRepository"
+    source_root.mkdir(parents=True, exist_ok=True)
+    matlab_file = source_root / "SequenceDesigner.m"
+    matlab_file.write_text("function y=SequenceDesigner(); end", encoding="utf-8")
+
+    assistant = LocalOperatorAssistant(
+        repo_root=Path(__file__).resolve().parents[1],
+        policy={"assistant_scope": {"intent_classifier": {"enabled": True, "model": "semantic-test"}}},
+    )
+    assistant._intent_classifier = _FeatureNoQuestionModel()
+    assistant._intent_classifier_fallback = None
+
+    response = assistant.handle_message(
+        (
+            "Create a python rewrite from SequenceDesigner.m in directory "
+            f"{source_root} and save as src/nanoporethon/sequence_designer_gui.py"
+        ),
+        session=assistant.init_session(),
+    )
+
+    assert response.intent == "feature_request"
+    assert response.followup_questions == []
+    assert response.ready_to_run is True
