@@ -259,7 +259,7 @@ Primary package location: `src/nanoporethon/`.
   - **Key behavior**:
     - Validates DNA input to strict A/C/G/T.
     - Computes one expected normalized current level per k-mer window (default `k=5`).
-    - Uses a deterministic hash-based k-mer mapping so repeated runs produce identical signals for the same sequence.
+    - Uses a deterministic strand-oriented k-mer mapping; default orientation is `5' forwards`, with additional selectable orientations for reverse-complement and reverse-order views.
     - Plots the generated consensus signal as a step trace (`I/I0`-style normalized units).
     - Exposes reusable helpers (`sanitize_sequence`, `consensus_signal`) for testability.
 
