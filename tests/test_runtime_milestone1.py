@@ -793,6 +793,9 @@ def test_deterministic_implement_fallback_scaffolds_requested_gui_file(tmp_path)
     generated_text = generated.read_text(encoding="utf-8")
     assert "class SequenceDesignerGUI" in generated_text
     assert "consensus_signal" in generated_text
+    assert "Feeding orientation" in generated_text
+    assert "Read direction" in generated_text
+    assert "Design Notes / Instructions" in generated_text
 
     assert result["status"] == "success"
 
@@ -836,7 +839,11 @@ def test_deterministic_fallback_prefers_explicit_requested_target_over_guardrail
 
     generated = sandbox.sandbox_repo / "src" / "nanoporethon" / "sequence_designer_gui.py"
     assert generated.exists()
-    assert "class SequenceDesignerGUI" in generated.read_text(encoding="utf-8")
+    generated_text = generated.read_text(encoding="utf-8")
+    assert "class SequenceDesignerGUI" in generated_text
+    assert "Feeding orientation" in generated_text
+    assert "Read direction" in generated_text
+    assert "_apply_display_direction" in generated_text
 
     assert result["status"] == "success"
 
