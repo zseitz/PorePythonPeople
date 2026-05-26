@@ -272,6 +272,7 @@ Primary package location: `src/nanoporethon/`.
     - Exposes MATLAB-style edit-at-position controls (position slider/index, A/C/G/T mutation buttons, delete, random mutation) for rapid iterative sequence design.
     - Includes Hel308 mode toggle plus save/export actions for generated traces (figure save and JSON level export).
     - Applies display-order and phase-shift transforms prior to plotting.
+    - When the runtime falls back without model-authored implement actions, it now emits a contract-aware `sequence_designer_gui.py` template instead of a blank GUI placeholder.
     - Is self-contained: sequence sanitization and signal helpers are implemented in the same module (no GUI-to-GUI dependency).
 
 ---

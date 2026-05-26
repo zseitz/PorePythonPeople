@@ -814,7 +814,14 @@ def test_deterministic_implement_fallback_scaffolds_requested_gui_file(tmp_path)
     assert generated.exists()
     generated_text = generated.read_text(encoding="utf-8")
     assert "class SequenceDesignerGui" in generated_text
-    assert "Deterministic fallback scaffold" in generated_text
+    assert "Sequence 5'-" in generated_text
+    assert "Select nucleotide 'N'" in generated_text
+    assert "Predicted currents" in generated_text
+    assert "Save Figure" in generated_text
+    assert "Export Levels" in generated_text
+    assert "build_predicted_currents" in generated_text
+    assert "PhaseShiftSliderValueChanged" in generated_text
+    assert "DisplayorderSwitchValueChanged" in generated_text
     assert "tkinter" in generated_text
     assert "\nfrom __future__ import annotations\n" in generated_text
     ast.parse(generated_text)
@@ -863,7 +870,11 @@ def test_deterministic_fallback_prefers_explicit_requested_target_over_guardrail
     assert generated.exists()
     generated_text = generated.read_text(encoding="utf-8")
     assert "class SequenceDesignerGui" in generated_text
-    assert "Deterministic fallback scaffold" in generated_text
+    assert "Sequence 5'-" in generated_text
+    assert "Select nucleotide 'N'" in generated_text
+    assert "Predicted currents" in generated_text
+    assert "Save Figure" in generated_text
+    assert "Export Levels" in generated_text
     assert "from __future__ import annotations" in generated_text
     ast.parse(generated_text)
 

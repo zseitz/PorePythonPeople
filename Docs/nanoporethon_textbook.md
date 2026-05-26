@@ -351,6 +351,7 @@ What it does:
 - adds MATLAB-style edit-at-position controls (position slider/index plus A/C/G/T/delete/random actions),
 - includes Hel308 toggle plus save-figure and export-levels actions,
 - displays the result as a step trace in normalized $I/I_0$-style units.
+- If the runtime has to fall back without model-authored implement actions, it now generates this contract-aware Sequence Designer GUI instead of a blank placeholder scaffold.
 
 ---
 
