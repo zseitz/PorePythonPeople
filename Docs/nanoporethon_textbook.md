@@ -168,9 +168,9 @@ This makes the workflow both **interactive** and **reproducible**.
 
 Optional utility stage:
 
-- **Consensus preview with `ConsensusMakerGUI`**
-  - enter a DNA sequence,
-  - choose k-mer size,
+- **Sequence design preview with `SequenceDesignerGUI`**
+  - enter a DNA sequence in 5'→3' order,
+  - choose k-mer size, feeding orientation, pore orientation, display order, and phase shift,
   - generate a deterministic expected normalized current trace.
 
 ---
@@ -336,16 +336,16 @@ Behavior summary:
 
 These make the GUIs easier to use by persisting paths and centralizing directory selection behavior.
 
-### 7.8 `ConsensusMakerGUI`
+### 7.8 `SequenceDesignerGUI`
 
-- **File**: `src/nanoporethon/consensus_maker_gui.py`
-- **Role**: sequence-to-signal preview GUI for consensus-style nanopore expectations.
+- **File**: `src/nanoporethon/sequence_designer_gui.py`
+- **Role**: sequence-to-signal design GUI aligned to MATLAB Sequence Designer controls.
 
 What it does:
 
-- validates DNA input (A/C/G/T),
+- validates DNA input (A/C/G/T) entered in 5'→3',
 - computes a deterministic k-mer-based expected signal,
-- lets you choose strand orientation as either the `5'→3' forward strand` or the `5'→3' reverse-complement strand` before signal generation,
+- exposes feeding orientation (5'/3'), pore orientation (forwards/backwards), display order (5'→3'/3'→5'), and phase shift (0..1),
 - displays the result as a step trace in normalized $I/I_0$-style units.
 
 ---

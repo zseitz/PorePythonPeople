@@ -259,17 +259,17 @@ Primary package location: `src/nanoporethon/`.
   - Provides deterministic explanations for common runtime timeline terms (for example `promotion_disabled`, `promotion_skipped`, `promotion_blocked`) to keep post-run Q&A low-friction.
   - Keeps the operational model branch-local and human-supervised by design.
 
-  ### C13. Consensus maker GUI (sequence-to-signal utility)
+  ### C13. Sequence designer GUI (sequence-to-signal utility)
 
   - **File**:
-    - `src/nanoporethon/consensus_maker_gui.py`
-  - **Purpose**: Provide a lightweight GUI that accepts a DNA sequence and displays a deterministic expected consensus nanopore signal.
+    - `src/nanoporethon/sequence_designer_gui.py`
+  - **Purpose**: Provide a deterministic sequence-to-signal design surface aligned with MATLAB Sequence Designer controls.
   - **Key behavior**:
-    - Validates DNA input to strict A/C/G/T.
-    - Computes one expected normalized current level per k-mer window (default `k=5`).
-    - Uses a deterministic strand-oriented k-mer mapping; the GUI exposes two biologically meaningful choices: `5'→3' forward strand` and `5'→3' reverse-complement strand`.
-    - Plots the generated consensus signal as a step trace (`I/I0`-style normalized units).
-    - Exposes reusable helpers (`sanitize_sequence`, `consensus_signal`) for testability.
+    - Validates DNA input to strict A/C/G/T (sequence entered in 5'→3' direction).
+    - Computes deterministic normalized current levels per k-mer window.
+    - Exposes explicit design controls for feeding orientation (5'/3'), pore orientation (forwards/backwards), display order (5'→3'/3'→5'), and phase shift (0..1).
+    - Applies display-order and phase-shift transforms prior to plotting.
+    - Is self-contained: sequence sanitization and signal helpers are implemented in the same module (no GUI-to-GUI dependency).
 
 ---
 

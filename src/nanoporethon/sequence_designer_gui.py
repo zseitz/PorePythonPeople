@@ -15,8 +15,6 @@ from tkinter import messagebox, scrolledtext
 import matplotlib.pyplot as plt
 import numpy as np
 
-from nanoporethon.consensus_maker_gui import consensus_signal, sanitize_sequence
-
 
 _FEEDING_ORIENTATION_OPTIONS = (
     "5'",
@@ -48,6 +46,85 @@ _INSTRUCTION_TEXT = (
     "- Phase shift: normalized offset in [0, 1].\n"
     "- Current is plotted in normalized I/I0 units.\n"
 )
+
+
+_BASE_WEIGHTS = {
+    "A": 0.18,
+    "C": 0.42,
+    "G": 0.66,
+    "T": 0.90,
+}
+
+
+def sanitize_sequence(sequence: str) -> str:
+    """Normalize and validate a DNA sequence."""
+    normalized = "".join(sequence.upper().split())
+    if not normalized:
+        raise ValueError("DNA sequence is empty.")
+
+    invalid = sorted({base for base in normalized if base not in {"A", "C", "G", "T"}})
+    if invalid:
+        raise ValueError(
+            "DNA sequence contains invalid characters: " + ", ".join(invalid)
+        )
+    return normalized
+
+
+def reverse_complement(sequence: str) -> str:
+    """Return reverse complement in 5'→3' coordinates."""
+    translation = str.maketrans("ACGT", "TGCA")
+    return sequence.translate(translation)[::-1]
+
+
+def orient_sequence(sequence: str, orientation: str) -> str:
+    """Apply feed/pore orientation combinations for sequence design preview."""
+    normalized = orientation.strip().lower()
+    mapping = {
+        "5' forwards": sequence,
+        "5' backwards": sequence[::-1],
+        "3' forwards": reverse_complement(sequence),
+        "3' backwards": reverse_complement(sequence)[::-1],
+    }
+    if normalized not in mapping:
+        raise ValueError(f"Unsupported orientation: {orientation}")
+    return mapping[normalized]
+
+
+def _kmer_level(kmer: str) -> float:
+    if not kmer:
+        raise ValueError("k-mer cannot be empty")
+
+    pos_weights = np.linspace(0.85, 1.15, num=len(kmer), dtype=float)
+    raw = 0.0
+    min_raw = 0.0
+    max_raw = 0.0
+    for base, pos_weight in zip(kmer, pos_weights):
+        if base not in _BASE_WEIGHTS:
+            raise ValueError(f"Invalid base in k-mer: {base}")
+        min_raw += _BASE_WEIGHTS["A"] * pos_weight
+        max_raw += _BASE_WEIGHTS["T"] * pos_weight
+        raw += _BASE_WEIGHTS[base] * pos_weight
+
+    if max_raw <= min_raw:
+        return 0.2
+
+    unit = (raw - min_raw) / (max_raw - min_raw)
+    return 0.2 + 0.7 * float(np.clip(unit, 0.0, 1.0))
+
+
+def consensus_signal(sequence: str, kmer_size: int = 5, orientation: str = "5' forwards") -> np.ndarray:
+    """Compute deterministic expected signal levels from oriented k-mer windows."""
+    seq = sanitize_sequence(sequence)
+    if kmer_size < 1:
+        raise ValueError("kmer_size must be >= 1")
+    if len(seq) < kmer_size:
+        raise ValueError(
+            f"DNA sequence length ({len(seq)}) must be at least kmer_size ({kmer_size})."
+        )
+
+    oriented = orient_sequence(seq, orientation)
+    levels = [_kmer_level(oriented[i : i + kmer_size]) for i in range(len(oriented) - kmer_size + 1)]
+    return np.asarray(levels, dtype=float)
 
 
 class SequenceDesignerGUI:
@@ -164,8 +241,6 @@ class SequenceDesignerGUI:
             sequence = sanitize_sequence(raw_sequence)
             kmer_size = int(self.kmer_var.get().strip())
 
-            # Map feed direction into the strand orientation accepted by
-            # consensus_maker_gui helper contracts.
             orientation = f"{feed} {pore_orientation}"
             signal = consensus_signal(sequence, kmer_size=kmer_size, orientation=orientation)
             signal = self._apply_display_settings(signal, display_order, phase_shift)

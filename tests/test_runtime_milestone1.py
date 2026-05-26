@@ -794,6 +794,7 @@ def test_deterministic_implement_fallback_scaffolds_requested_gui_file(tmp_path)
     generated_text = generated.read_text(encoding="utf-8")
     assert "class SequenceDesignerGUI" in generated_text
     assert "consensus_signal" in generated_text
+    assert "consensus_maker_gui" not in generated_text
     assert "Feeding orientation" in generated_text
     assert "Pore orientation" in generated_text
     assert "Display order" in generated_text
@@ -846,6 +847,7 @@ def test_deterministic_fallback_prefers_explicit_requested_target_over_guardrail
     assert generated.exists()
     generated_text = generated.read_text(encoding="utf-8")
     assert "class SequenceDesignerGUI" in generated_text
+    assert "consensus_maker_gui" not in generated_text
     assert "Feeding orientation" in generated_text
     assert "Pore orientation" in generated_text
     assert "Display order" in generated_text
