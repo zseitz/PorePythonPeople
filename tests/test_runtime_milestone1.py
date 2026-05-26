@@ -795,7 +795,9 @@ def test_deterministic_implement_fallback_scaffolds_requested_gui_file(tmp_path)
     assert "class SequenceDesignerGUI" in generated_text
     assert "consensus_signal" in generated_text
     assert "Feeding orientation" in generated_text
-    assert "Read direction" in generated_text
+    assert "Pore orientation" in generated_text
+    assert "Display order" in generated_text
+    assert "Phase shift (0-1)" in generated_text
     assert "Design Notes / Instructions" in generated_text
     assert "\nfrom __future__ import annotations\n" in generated_text
     ast.parse(generated_text)
@@ -845,8 +847,10 @@ def test_deterministic_fallback_prefers_explicit_requested_target_over_guardrail
     generated_text = generated.read_text(encoding="utf-8")
     assert "class SequenceDesignerGUI" in generated_text
     assert "Feeding orientation" in generated_text
-    assert "Read direction" in generated_text
-    assert "_apply_display_direction" in generated_text
+    assert "Pore orientation" in generated_text
+    assert "Display order" in generated_text
+    assert "phase shift" in generated_text.lower()
+    assert "_apply_display_settings" in generated_text
     ast.parse(generated_text)
 
     assert result["status"] == "success"
