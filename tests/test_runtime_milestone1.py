@@ -813,14 +813,9 @@ def test_deterministic_implement_fallback_scaffolds_requested_gui_file(tmp_path)
     generated = sandbox.sandbox_repo / "src" / "nanoporethon" / "sequence_designer_gui.py"
     assert generated.exists()
     generated_text = generated.read_text(encoding="utf-8")
-    assert "class SequenceDesignerGUI" in generated_text
-    assert "consensus_signal" in generated_text
-    assert "consensus_maker_gui" not in generated_text
-    assert "Feeding orientation" in generated_text
-    assert "Pore orientation" in generated_text
-    assert "Display order" in generated_text
-    assert "Phase shift (0-1)" in generated_text
-    assert "Design Notes / Instructions" in generated_text
+    assert "class SequenceDesignerGui" in generated_text
+    assert "Deterministic fallback scaffold" in generated_text
+    assert "tkinter" in generated_text
     assert "\nfrom __future__ import annotations\n" in generated_text
     ast.parse(generated_text)
 
@@ -867,16 +862,23 @@ def test_deterministic_fallback_prefers_explicit_requested_target_over_guardrail
     generated = sandbox.sandbox_repo / "src" / "nanoporethon" / "sequence_designer_gui.py"
     assert generated.exists()
     generated_text = generated.read_text(encoding="utf-8")
-    assert "class SequenceDesignerGUI" in generated_text
-    assert "consensus_maker_gui" not in generated_text
-    assert "Feeding orientation" in generated_text
-    assert "Pore orientation" in generated_text
-    assert "Display order" in generated_text
-    assert "phase shift" in generated_text.lower()
-    assert "_apply_display_settings" in generated_text
+    assert "class SequenceDesignerGui" in generated_text
+    assert "Deterministic fallback scaffold" in generated_text
+    assert "from __future__ import annotations" in generated_text
     ast.parse(generated_text)
 
     assert result["status"] == "success"
+
+
+def test_request_file_context_does_not_assume_downloads_folder(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    executor = SpecialistExecutor(repo_root=repo_root, policy=_policy_with_run_root(tmp_path))
+
+    context = executor._collect_request_file_context(
+        'Use SequenceDesigner.m from my downloads folder and write output as "target.py"'
+    )
+
+    assert context == []
 
 
 def test_executor_uses_owner_specific_adapter_when_present():

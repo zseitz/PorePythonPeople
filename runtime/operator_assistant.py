@@ -28,23 +28,6 @@ _DEFAULT_DOC_FILES = [
     "Docs/feature_request_template.md",
 ]
 
-_CORE_GUI_FILE_HINTS = {
-    "src/nanoporethon/data_navi_gui.py": [
-        "src/nanoporethon/data_navi_gui.py",
-        "data_navi_gui.py",
-        "data_navi_gui",
-        "data navigator gui",
-        "data navigator",
-    ],
-    "src/nanoporethon/event_classifier_gui.py": [
-        "src/nanoporethon/event_classifier_gui.py",
-        "event_classifier_gui.py",
-        "event_classifier_gui",
-        "event classifier gui",
-        "event classifier",
-    ],
-}
-
 
 @dataclass
 class AssistantDecision:
@@ -123,10 +106,8 @@ class LocalOperatorAssistant:
         self._intent_cache: Dict[str, Tuple[str, float, str]] = {}
         self._intent_classifier_fallback: Optional[OllamaAdapter] = None
 
-        self._core_protected_files = [
-            "src/nanoporethon/data_navi_gui.py",
-            "src/nanoporethon/event_classifier_gui.py",
-        ]
+        self._core_gui_file_hints = self._load_protected_file_hints_from_policy()
+        self._core_protected_files = sorted(self._core_gui_file_hints.keys())
 
         classifier_config = {}
         if isinstance(self.policy, dict):
@@ -324,6 +305,8 @@ class LocalOperatorAssistant:
                 "- Do NOT modify core GUI components unless user explicitly authorizes: "
                 + ", ".join(self._core_protected_files)
             )
+            if self._core_protected_files
+            else "- Protected file restrictions: none configured in assistant policy."
         )
 
         request_kind = str(analysis.get("request_kind", "code_change"))
@@ -516,16 +499,6 @@ class LocalOperatorAssistant:
 
         _add_root(self.repo_root)
 
-        lower = text.lower()
-        downloads_dir = Path.home() / "Downloads"
-        if "downloads folder" in lower:
-            _add_root(downloads_dir)
-
-        named_dir_matches = re.findall(r"directory\s+(?:called|named)\s+([A-Za-z0-9_.-]+)", text, flags=re.IGNORECASE)
-        for name in named_dir_matches:
-            if downloads_dir.exists():
-                _add_root(downloads_dir / name)
-
         abs_path_matches = re.findall(r"(/[^\s'\"`]+)", text)
         for raw in abs_path_matches:
             path = Path(raw)
@@ -579,6 +552,9 @@ class LocalOperatorAssistant:
             return False
         core_tokens = ["data_navi_gui", "event_classifier_gui", "core gui", "protected file"]
         intent_tokens = ["allow", "allowed", "modify", "necessary", "interact", "okay"]
+        for file_path in self._core_protected_files:
+            stem = Path(file_path).stem.lower()
+            core_tokens.append(stem)
         return any(token in q for token in core_tokens) and any(token in q for token in intent_tokens)
 
     def _is_core_gui_related_question(self, question: str) -> bool:
@@ -586,13 +562,11 @@ class LocalOperatorAssistant:
         if not q:
             return False
         related_tokens = [
-            "data_navi_gui",
-            "event_classifier_gui",
-            "data navigator gui",
-            "event classifier gui",
             "protected core gui",
             "core gui",
         ]
+        for hints in self._core_gui_file_hints.values():
+            related_tokens.extend(str(hint).lower() for hint in hints)
         return any(token in q for token in related_tokens)
 
     def _planned_core_gui_changes(self, session: Dict[str, Any]) -> Dict[str, Any]:
@@ -603,7 +577,7 @@ class LocalOperatorAssistant:
         combined = "\n".join(str(msg) for msg in feature_messages)
         lower = combined.lower()
         files: List[str] = []
-        for file_path, hints in _CORE_GUI_FILE_HINTS.items():
+        for file_path, hints in self._core_gui_file_hints.items():
             if any(hint in lower for hint in hints):
                 files.append(file_path)
 
@@ -756,9 +730,13 @@ class LocalOperatorAssistant:
         )
 
         user_prompt = (
-            "Protected core GUI files:\n"
-            "- src/nanoporethon/data_navi_gui.py\n"
-            "- src/nanoporethon/event_classifier_gui.py\n\n"
+            "Protected files (policy-configured):\n"
+            + (
+                "\n".join(f"- {path}" for path in self._core_protected_files)
+                if self._core_protected_files
+                else "- (none configured)"
+            )
+            + "\n\n"
             "Feature conversation:\n"
             f"{conversation}\n"
         )
@@ -951,6 +929,32 @@ class LocalOperatorAssistant:
             except OSError:
                 continue
         return cache
+
+    def _load_protected_file_hints_from_policy(self) -> Dict[str, List[str]]:
+        if not isinstance(self.policy, dict):
+            return {}
+
+        raw = self.policy.get("assistant_scope", {}).get("protected_file_hints", {})
+        if not isinstance(raw, dict):
+            return {}
+
+        parsed: Dict[str, List[str]] = {}
+        for file_path, hints in raw.items():
+            if not isinstance(file_path, str) or not file_path.strip():
+                continue
+            entries: List[str] = [file_path.strip().lower()]
+            if isinstance(hints, list):
+                entries.extend(str(h).strip().lower() for h in hints if str(h).strip())
+            # Ensure stable dedupe while preserving order.
+            deduped: List[str] = []
+            seen = set()
+            for item in entries:
+                if item in seen:
+                    continue
+                seen.add(item)
+                deduped.append(item)
+            parsed[file_path.strip()] = deduped
+        return parsed
 
     def _retrieve_relevant_snippets(self, query: str, max_items: int = 3) -> List[str]:
         terms = self._query_terms(query)

@@ -35,6 +35,17 @@ assistant_scope:
   runtime_preflight:
     require_clean_worktree: true
     require_feature_branch: true
+  protected_file_hints:
+    src/nanoporethon/data_navi_gui.py:
+      - data_navi_gui.py
+      - data_navi_gui
+      - data navigator gui
+      - data navigator
+    src/nanoporethon/event_classifier_gui.py:
+      - event_classifier_gui.py
+      - event_classifier_gui
+      - event classifier gui
+      - event classifier
   scope_keywords:
     - nanoporethon
     - porepythonpeople

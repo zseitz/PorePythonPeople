@@ -6,6 +6,28 @@ from runtime.operator_assistant import AssistantStartupError, LocalOperatorAssis
 from runtime.adapters.ollama import OllamaAdapter
 
 
+def _assistant_policy() -> dict:
+    return {
+        "assistant_scope": {
+            "intent_classifier": {"enabled": True, "model": "semantic-test"},
+            "protected_file_hints": {
+                "src/nanoporethon/data_navi_gui.py": [
+                    "data_navi_gui.py",
+                    "data_navi_gui",
+                    "data navigator gui",
+                    "data navigator",
+                ],
+                "src/nanoporethon/event_classifier_gui.py": [
+                    "event_classifier_gui.py",
+                    "event_classifier_gui",
+                    "event classifier gui",
+                    "event classifier",
+                ],
+            },
+        }
+    }
+
+
 class SemanticTestModelAdapter:
     """Semantic mock model for intent classification and feature-session analysis."""
 
@@ -53,7 +75,7 @@ class SemanticTestModelAdapter:
 def _assistant():
     assistant = LocalOperatorAssistant(
         repo_root=Path(__file__).resolve().parents[1],
-        policy={"assistant_scope": {"intent_classifier": {"enabled": True, "model": "semantic-test"}}},
+        policy=_assistant_policy(),
     )
     assistant._intent_classifier = SemanticTestModelAdapter()
     return assistant
@@ -392,7 +414,7 @@ def test_runtime_followup_question_uses_fallback_classifier_when_primary_fails()
 
     assistant = LocalOperatorAssistant(
         repo_root=Path(__file__).resolve().parents[1],
-        policy={"assistant_scope": {"intent_classifier": {"enabled": True, "model": "semantic-test"}}},
+        policy=_assistant_policy(),
     )
     assistant._intent_classifier = _PrimaryTimeoutClassifier()
     assistant._intent_classifier_fallback = _FallbackClassifier()
@@ -420,7 +442,7 @@ def test_strict_mode_error_reports_primary_and_fallback_failures():
 
     assistant = LocalOperatorAssistant(
         repo_root=Path(__file__).resolve().parents[1],
-        policy={"assistant_scope": {"intent_classifier": {"enabled": True, "model": "semantic-test"}}},
+        policy=_assistant_policy(),
     )
     assistant._intent_classifier = _AlwaysFailPrimary()
     assistant._intent_classifier_fallback = _AlwaysFailFallback()
@@ -556,7 +578,7 @@ def test_core_gui_authorization_clarifications_are_collapsed_to_single_prompt():
 
     assistant = LocalOperatorAssistant(
         repo_root=Path(__file__).resolve().parents[1],
-        policy={"assistant_scope": {"intent_classifier": {"enabled": True, "model": "semantic-test"}}},
+        policy=_assistant_policy(),
     )
     assistant._intent_classifier = _RedundantCoreQuestionModel()
 
@@ -606,7 +628,7 @@ def test_ambiguous_model_output_is_capped_to_single_followup_question():
 
     assistant = LocalOperatorAssistant(
         repo_root=Path(__file__).resolve().parents[1],
-        policy={"assistant_scope": {"intent_classifier": {"enabled": True, "model": "semantic-test"}}},
+        policy=_assistant_policy(),
     )
     assistant._intent_classifier = _ManyQuestionModel()
 
@@ -637,7 +659,7 @@ def test_actionable_request_with_possible_model_questions_asks_none_under_strict
 
     assistant = LocalOperatorAssistant(
         repo_root=Path(__file__).resolve().parents[1],
-        policy={"assistant_scope": {"intent_classifier": {"enabled": True, "model": "semantic-test"}}},
+        policy=_assistant_policy(),
     )
     assistant._intent_classifier = _QuestionHappyModel()
 
@@ -668,7 +690,7 @@ def test_truly_vague_request_still_gets_single_blocking_followup():
 
     assistant = LocalOperatorAssistant(
         repo_root=Path(__file__).resolve().parents[1],
-        policy={"assistant_scope": {"intent_classifier": {"enabled": True, "model": "semantic-test"}}},
+        policy=_assistant_policy(),
     )
     assistant._intent_classifier = _VagueQuestionModel()
 
@@ -702,7 +724,7 @@ def test_typoed_matlab_file_reference_prompts_near_match_clarification(tmp_path:
 
     assistant = LocalOperatorAssistant(
         repo_root=Path(__file__).resolve().parents[1],
-        policy={"assistant_scope": {"intent_classifier": {"enabled": True, "model": "semantic-test"}}},
+        policy=_assistant_policy(),
     )
     assistant._intent_classifier = _FeatureNoQuestionModel()
     assistant._intent_classifier_fallback = None
@@ -745,7 +767,7 @@ def test_exact_matlab_file_reference_does_not_trigger_typo_followup(tmp_path: Pa
 
     assistant = LocalOperatorAssistant(
         repo_root=Path(__file__).resolve().parents[1],
-        policy={"assistant_scope": {"intent_classifier": {"enabled": True, "model": "semantic-test"}}},
+        policy=_assistant_policy(),
     )
     assistant._intent_classifier = _FeatureNoQuestionModel()
     assistant._intent_classifier_fallback = None

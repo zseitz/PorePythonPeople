@@ -1132,7 +1132,7 @@ Helpful options:
 - `--approval-mode per_stage`
 - `--resume-run-id <run_id> --resume-choice restart_from_beginning|resume_from_last_completed`
 
-Current runtime behavior includes in-place branch edits, policy-driven verification commands, schema validation with deterministic fallback handling (including explicit output-target precedence, syntax-safe template emission, canonical-source-backed `sequence_designer_gui.py` scaffolding, and richer mlapp-style controls), absolute local file-context ingestion (including `.mlapp` extraction from `matlab/document.xml`), approval-aware resume flow, and optional operator-gated promotion.
+Current runtime behavior includes in-place branch edits, policy-driven verification commands, schema validation with deterministic fallback handling (including explicit output-target precedence, syntax-safe generic Python scaffold emission for missing/invalid implement payloads), absolute local file-context ingestion (including `.mlapp` extraction from `matlab/document.xml`), approval-aware resume flow, and optional operator-gated promotion.
 
 Recommended usage pattern:
 
@@ -1297,13 +1297,13 @@ Chat-first request guidance:
 - The assistant will ask targeted clarifying questions only when needed for missing behavior details or boundaries.
 - If a prompt references a likely-mistyped source filename (for example requesting `SequenceDesigner.m` when `SequenceDesigner.mlapp` exists in the referenced folder), the assistant asks a single near-match confirmation question instead of launching a likely no-op run.
 - When implement-stage model output is unavailable or invalid, runtime deterministic fallback can now scaffold explicitly requested GUI Python targets instead of always completing as a no-op.
-- For `sequence_designer_gui.py` requests specifically, fallback scaffolding includes feeding-orientation controls, pore-orientation controls, display-order controls, phase-shift controls, and an instructions/notations panel so operator-assistant runs remain meaningfully interactive under deterministic fallback.
-- Runtime deterministic sequence-designer scaffolds now emit valid Python top-level indentation and escaped instruction string newlines so generated files can be launched directly without manual cleanup.
+- Runtime deterministic scaffolds are now runtime-generic (not tied to any specific generated app module), preserving architecture independence from application-specific code.
+- Runtime request-file context discovery avoids hardcoded local folder assumptions and relies on explicit referenced paths plus discovered absolute roots.
 - You do not need to pre-fill a long static intake form before getting useful help.
 
 Core-component protection rule:
 
-- `src/nanoporethon/data_navi_gui.py` and `src/nanoporethon/event_classifier_gui.py` are treated as protected by default.
+- Protected files are policy-configured in `runtime/policies.yaml` (repository defaults include `src/nanoporethon/data_navi_gui.py` and `src/nanoporethon/event_classifier_gui.py`).
 - They should only be modified when the user explicitly authorizes such changes.
 
 ---

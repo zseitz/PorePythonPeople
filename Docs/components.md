@@ -188,11 +188,10 @@ Primary package location: `src/nanoporethon/`.
   - Executes full policy-driven stage graph with conditional routing (`refactor_or_docsync`).
   - Parses specialist model output as structured JSON stage payloads, validates required stage fields, and falls back to deterministic payloads when parsing/validation fails.
   - Deterministic implement fallback now attempts targeted scaffold actions for explicit "create new python GUI file at <path>" requests, reducing silent no-op completions when model-authored implement payloads are missing.
-  - Deterministic implement target extraction now prioritizes explicit output-target wording (for example, `as "sequence_designer_gui.py"`) over unrelated `.py` paths embedded in guardrail text, and filters protected-file mentions from fallback target selection.
-  - Deterministic `sequence_designer_gui.py` fallback now prefers the canonical repository source file (`src/nanoporethon/sequence_designer_gui.py`) when available, reducing drift between runtime-generated scaffolds and maintained GUI behavior.
-  - Deterministic `sequence_designer_gui.py` scaffolding includes mlapp-style operator controls (5'/3' feeding orientation, pore orientation, display order, phase-shift tuning, panel instructions/notations, and display-aware plotting annotations) so assistant-driven runs remain usable when implement-stage model actions are unavailable.
-  - Deterministic `sequence_designer_gui.py` fallback template generation now preserves valid top-level Python indentation and escaped instruction newlines so generated GUI files compile and run without import-time indentation errors.
+  - Deterministic implement target extraction now prioritizes explicit output-target wording (for example, `as "new_gui.py"`) over unrelated `.py` paths embedded in guardrail text, and filters protected-file mentions from fallback target selection.
+  - Deterministic fallback scaffolding is runtime-generic (module-level and GUI-level Python stubs) and no longer hardcodes behavior for specific generated application files.
   - Runtime request-file context ingestion supports explicit absolute local paths and `.mlapp` files by extracting `matlab/document.xml`, allowing MATLAB app audits to inform implement-stage payloads and deterministic fallbacks.
+  - Runtime path discovery for request-file context is path-agnostic and avoids hardcoded user-home folder assumptions (for example no implicit `Downloads` dependency).
   - Validates model-authored action payloads against strict per-action schemas, policy-driven size/count limits, and stage-allowed action types before any repository mutation occurs.
   - Applies model-authored edit intents (`write_file`, `append_file`, `replace_in_file`) only after action-schema validation and edit-scope checks succeed.
   - Treats `verify` and `verify_after_refactor` command execution as authoritative gate evidence (`tests_exit_code`/`coverage_exit_code`); model verify output is retained only as metadata and cannot override deterministic verification results.
@@ -252,7 +251,7 @@ Primary package location: `src/nanoporethon/`.
   - Enforces semantic off-topic refusal guardrails (for example medical/political/financial/general lifestyle requests) before any runtime action can occur.
   - Builds a runtime request packet from chat context and launches attended runtime execution locally.
   - Enforces runtime launch preflight before assistant-triggered runs: clean working tree (policy-controlled) plus feature-branch requirement (policy-controlled), with explicit blocked-state diagnostics.
-  - Protects core GUI components by default (`data_navi_gui.py`, `event_classifier_gui.py`) unless user explicitly authorizes modifying them.
+  - Protects policy-configured core files by default (repository default policy includes `data_navi_gui.py` and `event_classifier_gui.py`) unless user explicitly authorizes modifying them.
   - Includes an explicit anti-hallucination quality rubric in generated runtime request packets (contract-safe, evidence-first, surface-consistent, traceable, scoped, operator-supervised).
   - Streams runtime progress to users by reading `.nanopore-runtime/runs/<run_id>/events.jsonl` and surfacing stage/gate/promotion events.
   - Shows a live animated activity indicator (dot-cycling heartbeat) during assistant-processing and runtime execution, including a last-UI-tick timestamp, so users can distinguish active work from a frozen UI even between major timeline events.

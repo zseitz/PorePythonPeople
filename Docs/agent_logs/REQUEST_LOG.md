@@ -130,6 +130,9 @@
 | 2026-05-26 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
 | 2026-05-26 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
 | 2026-05-26 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
+| 2026-05-26 | team | Decouple runtime from app-specific scaffolds and local folder assumptions | GitHub Copilot | `runtime/executor.py`; `runtime/operator_assistant.py`; `runtime/policies.yaml`; `tests/test_runtime_milestone1.py`; `tests/test_operator_assistant.py`; `Docs/components.md`; `Docs/nanoporethon_textbook.md`; `Docs/agent_logs/REQUEST_LOG.md` | completed | Removed sequence-designer hardcoding from runtime fallback, removed implicit Downloads discovery, and moved protected-file awareness to policy-driven configuration. |
+| 2026-05-26 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
+| 2026-05-26 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
 | 2026-05-26 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
 | 2026-05-26 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
 | 2026-05-26 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
