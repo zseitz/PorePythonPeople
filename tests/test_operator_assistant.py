@@ -204,6 +204,17 @@ class MockModelAdapter:
     def chat(self, system_prompt: str, messages: list) -> str:
         """Return pre-configured or default JSON response."""
         user_text = messages[0].get("content", "") if messages else ""
+        prompt_lower = system_prompt.lower()
+
+        if "request_kind" in prompt_lower and "clarifying_questions" in prompt_lower:
+            return json.dumps(
+                {
+                    "request_kind": "code_change",
+                    "core_gui_change_requested": False,
+                    "core_gui_change_authorized": False,
+                    "clarifying_questions": [],
+                }
+            )
 
         # Check if we have a configured response for this text.
         for fragment, response in self.responses.items():
@@ -246,6 +257,14 @@ def test_model_based_classification_for_feature_request():
 def test_model_classification_extracts_embedded_json_object():
     class WrappedJsonModelAdapter:
         def chat_json(self, system_prompt: str, messages: list) -> str:
+            prompt_lower = system_prompt.lower()
+            if "request_kind" in prompt_lower and "clarifying_questions" in prompt_lower:
+                return (
+                    'Analyzer result: {"request_kind": "code_change", '
+                    '"core_gui_change_requested": false, '
+                    '"core_gui_change_authorized": false, '
+                    '"clarifying_questions": []}'
+                )
             return 'Classifier result: {"intent": "feature_request", "confidence": 0.91, "reason": "wrapped_json"}'
 
     policy = {
@@ -323,6 +342,95 @@ def test_classifier_adapter_uses_policy_timeout_and_retries():
     assert isinstance(assistant._intent_classifier, OllamaAdapter)
     assert assistant._intent_classifier.timeout_seconds == 12
     assert assistant._intent_classifier.max_retries == 3
+
+
+def test_classifier_fallback_adapter_uses_policy_config():
+    assistant = LocalOperatorAssistant(
+        repo_root=Path(__file__).resolve().parents[1],
+        policy={
+            "assistant_scope": {
+                "intent_classifier": {
+                    "enabled": True,
+                    "model": "semantic-primary",
+                    "request_timeout_seconds": 12,
+                    "max_retries": 3,
+                    "fallback": {
+                        "enabled": True,
+                        "model": "semantic-fallback",
+                        "request_timeout_seconds": 9,
+                        "max_retries": 1,
+                    },
+                }
+            }
+        },
+    )
+
+    assert isinstance(assistant._intent_classifier_fallback, OllamaAdapter)
+    assert assistant._intent_classifier_fallback.model == "semantic-fallback"
+    assert assistant._intent_classifier_fallback.timeout_seconds == 9
+    assert assistant._intent_classifier_fallback.max_retries == 1
+
+
+def test_runtime_followup_question_uses_fallback_classifier_when_primary_fails():
+    class _PrimaryTimeoutClassifier:
+        model = "primary-timeout"
+
+        def chat_json(self, system_prompt: str, messages: list) -> str:
+            raise RuntimeError("Ollama request timed out. Model=primary-timeout")
+
+    class _FallbackClassifier:
+        model = "fallback-ok"
+
+        def chat_json(self, system_prompt: str, messages: list) -> str:
+            return json.dumps(
+                {
+                    "intent": "runtime_help",
+                    "confidence": 0.93,
+                    "reason": "fallback_runtime_followup",
+                }
+            )
+
+    assistant = LocalOperatorAssistant(
+        repo_root=Path(__file__).resolve().parents[1],
+        policy={"assistant_scope": {"intent_classifier": {"enabled": True, "model": "semantic-test"}}},
+    )
+    assistant._intent_classifier = _PrimaryTimeoutClassifier()
+    assistant._intent_classifier_fallback = _FallbackClassifier()
+
+    response = assistant.handle_message(
+        "what does promotion_disabled mean?",
+        session=assistant.init_session(),
+    )
+    assert response.intent == "runtime_help"
+    assert "promotion_disabled" in response.message
+
+
+def test_strict_mode_error_reports_primary_and_fallback_failures():
+    class _AlwaysFailPrimary:
+        model = "primary-fail"
+
+        def chat_json(self, system_prompt: str, messages: list) -> str:
+            raise RuntimeError("primary timeout")
+
+    class _AlwaysFailFallback:
+        model = "fallback-fail"
+
+        def chat_json(self, system_prompt: str, messages: list) -> str:
+            raise RuntimeError("fallback timeout")
+
+    assistant = LocalOperatorAssistant(
+        repo_root=Path(__file__).resolve().parents[1],
+        policy={"assistant_scope": {"intent_classifier": {"enabled": True, "model": "semantic-test"}}},
+    )
+    assistant._intent_classifier = _AlwaysFailPrimary()
+    assistant._intent_classifier_fallback = _AlwaysFailFallback()
+
+    with pytest.raises(RuntimeError, match="strict mode") as exc_info:
+        assistant.handle_message("what does promotion_disabled mean?", session=assistant.init_session())
+
+    message = str(exc_info.value)
+    assert "primary" in message.lower()
+    assert "fallback" in message.lower()
 
 
 def test_session_continuation_handles_clarifying_responses():

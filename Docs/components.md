@@ -228,10 +228,12 @@ Primary package location: `src/nanoporethon/`.
   - Provides a chat-first local assistant for in-scope repository/runtime interaction.
   - Displays a live intent badge above chat output (for example Feature Request / Runtime Help / Out-of-Scope) so routing decisions are immediately visible.
   - Uses semantic intent classification via local LLM (configurable model, defaults to `mistral:7b` for speed) with JSON-structured responses for reliability.
+  - Uses a strict classifier chain for semantic routing: primary classifier plus optional policy-configured fallback classifier, both requiring valid structured JSON output.
   - Applies policy-configured classifier timeout/retry settings so strict routing fails fast with actionable errors when local model service is slow/unreachable.
   - Requests JSON-mode classifier responses when available and falls back to extracting embedded JSON objects from chatty model output, reducing false startup/health-check failures caused by prose-wrapped responses.
   - Runs in strict LLM mode: classifier availability is a hard startup requirement and non-LLM routing fallback is disabled.
   - Uses LLM-based session analysis (request-kind inference, clarifying-question generation, and core-GUI authorization detection) instead of hard-coded keyword detectors for follow-up routing and request drafting.
+  - Passes recent conversation/session context into classifier prompts so follow-up runtime questions (for example post-run timeline questions) route semantically as in-scope help instead of being treated as disconnected one-off messages.
   - Avoids redundant clarification loops by collapsing overlapping core-GUI authorization questions and remembering explicit user decisions (for example, repeated "No" answers do not trigger the same authorization prompt again).
   - Builds a runtime request preview directly from conversation context (instead of requiring a long static form upfront).
   - Asks targeted clarification questions only when more precision is needed.
@@ -249,6 +251,7 @@ Primary package location: `src/nanoporethon/`.
   - Shows a live animated activity indicator (dot-cycling heartbeat) during assistant-processing and runtime execution, including a last-UI-tick timestamp, so users can distinguish active work from a frozen UI even between major timeline events.
   - Surfaces explicit startup/routing errors in the GUI when classifier initialization fails or model responses are not valid structured JSON.
   - Includes a manual **Health Check** button that validates classifier policy enablement, local Ollama connectivity, model availability, and structured JSON response compliance, with actionable remediation messages.
+  - Provides deterministic explanations for common runtime timeline terms (for example `promotion_disabled`, `promotion_skipped`, `promotion_blocked`) to keep post-run Q&A low-friction.
   - Keeps the operational model branch-local and human-supervised by design.
 
   ### C13. Consensus maker GUI (sequence-to-signal utility)

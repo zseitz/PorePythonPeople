@@ -26,6 +26,12 @@ assistant_scope:
     base_url: http://localhost:11434
     request_timeout_seconds: 45
     max_retries: 2
+    fallback:
+      enabled: true
+      model: qwen2.5:3b
+      base_url: http://localhost:11434
+      request_timeout_seconds: 20
+      max_retries: 1
   runtime_preflight:
     require_clean_worktree: true
     require_feature_branch: true

@@ -120,6 +120,7 @@ class LocalOperatorAssistant:
         self.model_adapter = model_adapter
         self._doc_cache = self._load_docs()
         self._intent_cache: Dict[str, Tuple[str, float, str]] = {}
+        self._intent_classifier_fallback: Optional[OllamaAdapter] = None
 
         self._core_protected_files = [
             "src/nanoporethon/data_navi_gui.py",
@@ -153,6 +154,29 @@ class LocalOperatorAssistant:
                 f"(model={model_name}, base_url={base_url}). Ensure Ollama is running and the model is installed."
             ) from exc
 
+        fallback_config = classifier_config.get("fallback", {}) if isinstance(classifier_config, dict) else {}
+        if isinstance(fallback_config, dict) and bool(fallback_config.get("enabled", False)):
+            fallback_model = str(fallback_config.get("model", "")).strip()
+            if fallback_model:
+                fallback_base_url = str(fallback_config.get("base_url", base_url))
+                fallback_timeout_seconds = int(
+                    fallback_config.get("request_timeout_seconds", max(10, min(timeout_seconds, 30)))
+                )
+                fallback_max_retries = int(fallback_config.get("max_retries", 1))
+                try:
+                    self._intent_classifier_fallback = OllamaAdapter(
+                        model=fallback_model,
+                        base_url=fallback_base_url,
+                        timeout_seconds=fallback_timeout_seconds,
+                        max_retries=fallback_max_retries,
+                    )
+                except Exception as exc:
+                    raise AssistantStartupError(
+                        "Operator assistant startup blocked: failed to initialize fallback intent classifier "
+                        f"(model={fallback_model}, base_url={fallback_base_url}). "
+                        "Either fix the fallback model configuration or disable assistant_scope.intent_classifier.fallback.enabled."
+                    ) from exc
+
     def init_session(self) -> Dict[str, Any]:
         return {
             "history": [],
@@ -161,6 +185,7 @@ class LocalOperatorAssistant:
             "core_change_decision_made": False,
             "latest_runtime_request": None,
             "pending_questions": [],
+            "last_intent": None,
         }
 
     def handle_message(self, text: str, session: Optional[Dict[str, Any]] = None) -> AssistantResponse:
@@ -194,7 +219,8 @@ class LocalOperatorAssistant:
         # Check if we're currently in a feature_request conversation.
         # If so, treat follow-up messages as part of that request (only reject if explicitly out-of-scope).
         in_feature_context = bool(state.get("feature_messages"))
-        decision = self.classify_intent(message, in_feature_context=in_feature_context)
+        decision = self.classify_intent(message, in_feature_context=in_feature_context, session_state=state)
+        state["last_intent"] = decision.intent
 
         if decision.intent == "out_of_scope":
             return AssistantResponse(
@@ -258,7 +284,12 @@ class LocalOperatorAssistant:
             session_updates=state,
         )
 
-    def classify_intent(self, text: str, in_feature_context: bool = False) -> AssistantDecision:
+    def classify_intent(
+        self,
+        text: str,
+        in_feature_context: bool = False,
+        session_state: Optional[Dict[str, Any]] = None,
+    ) -> AssistantDecision:
         msg = text.lower().strip()
 
         # If we're in a feature_request context, treat follow-up messages as part of that request
@@ -266,7 +297,7 @@ class LocalOperatorAssistant:
         if in_feature_context:
             return AssistantDecision("feature_request", 0.88, "in_feature_context_continuation")
 
-        model_decision = self._classify_intent_with_model(msg)
+        model_decision = self._classify_intent_with_model(msg, session_state=session_state)
         if model_decision:
             return model_decision
 
@@ -319,6 +350,10 @@ class LocalOperatorAssistant:
         )
 
     def _answer_domain_question(self, user_text: str) -> str:
+        runtime_event_explanation = self._runtime_event_explanation(user_text)
+        if runtime_event_explanation:
+            return runtime_event_explanation
+
         snippets = self._retrieve_relevant_snippets(user_text, max_items=3)
 
         if self.model_adapter is not None and snippets:
@@ -350,6 +385,25 @@ class LocalOperatorAssistant:
             "I can help with nanoporethon workflows, runtime behavior, and code/docs in this repository. "
             "Try asking with repository-specific terms (for example: runtime, stages, policies, docs, tests, or a file/module name)."
         )
+
+    def _runtime_event_explanation(self, user_text: str) -> Optional[str]:
+        text = (user_text or "").strip().lower()
+        if "promotion_disabled" in text:
+            return (
+                "`promotion_disabled` means the run completed without applying post-closeout file promotion. "
+                "In practice, this happens when runtime promotion is disabled by policy for that run/session. "
+                "Your stage outputs and artifacts are still recorded under `.nanopore-runtime/runs/<run_id>/`; "
+                "it just means no final promotion step was executed."
+            )
+        if "promotion_skipped" in text:
+            return (
+                "`promotion_skipped` means promotion was available but intentionally not applied (for example, operator declined approval)."
+            )
+        if "promotion_blocked" in text:
+            return (
+                "`promotion_blocked` means runtime refused promotion due to a guardrail (for example dirty/changed target paths or policy constraints)."
+            )
+        return None
 
     def _clarifying_questions(self, session: Dict[str, Any], analysis: Dict[str, Any]) -> List[str]:
         questions = analysis.get("clarifying_questions", [])
@@ -598,10 +652,16 @@ class LocalOperatorAssistant:
         )
 
         try:
-            payload = _chat_json_response(
-                self._intent_classifier,
+            payload = self._chat_json_with_classifier_fallback(
                 system_prompt,
                 [{"role": "user", "content": user_prompt}],
+                operation_name="session-analysis",
+                required_keys=[
+                    "request_kind",
+                    "core_gui_change_requested",
+                    "core_gui_change_authorized",
+                    "clarifying_questions",
+                ],
             )
             request_kind = str(payload.get("request_kind", "unknown")).strip().lower()
             if request_kind not in {"code_change", "docs_only", "mixed", "unknown"}:
@@ -615,19 +675,25 @@ class LocalOperatorAssistant:
                 "core_gui_change_authorized": bool(payload.get("core_gui_change_authorized", False)),
                 "clarifying_questions": [str(q).strip() for q in clarifying_questions if str(q).strip()][:3],
             }
-        except (json.JSONDecodeError, ValueError, KeyError, AttributeError) as exc:
+        except RuntimeError as exc:
             raise RuntimeError(
                 "Operator assistant strict mode: session-analysis model did not return valid JSON. "
-                "Non-LLM analysis fallback is disabled."
+                "Non-LLM analysis fallback is disabled. "
+                f"Details: {exc}"
             ) from exc
 
     def _looks_information_question(self, msg: str) -> bool:
         return "?" in msg
 
-    def _classify_intent_with_model(self, text: str) -> Optional[AssistantDecision]:
+    def _classify_intent_with_model(
+        self,
+        text: str,
+        session_state: Optional[Dict[str, Any]] = None,
+    ) -> Optional[AssistantDecision]:
         """Use local model for semantic intent classification with JSON structure.
 
-        Falls back to None if model unavailable or fails, triggering rule-based fallback.
+        Strict mode requires a valid structured response from at least one
+        configured classifier adapter (primary and optional fallback).
         """
         if not self._intent_classifier:
             return None
@@ -642,12 +708,16 @@ class LocalOperatorAssistant:
             '{"intent": "...", "confidence": 0.X, "reason": "..."}'
         )
 
+        classifier_messages = self._build_classifier_messages(text, session_state=session_state)
+
+        payload = self._chat_json_with_classifier_fallback(
+            system_prompt,
+            classifier_messages,
+            operation_name="intent-classification",
+            required_keys=["intent", "confidence", "reason"],
+        )
+
         try:
-            payload = _chat_json_response(
-                self._intent_classifier,
-                system_prompt,
-                [{"role": "user", "content": text}],
-            )
             intent = str(payload.get("intent", "")).lower().strip()
             confidence = float(payload.get("confidence", 0.0))
             reason = str(payload.get("reason", "model_classified"))
@@ -660,11 +730,103 @@ class LocalOperatorAssistant:
                 "out_of_scope",
             }:
                 return AssistantDecision(intent, confidence, reason)
-        except (json.JSONDecodeError, ValueError, KeyError, AttributeError):
-            # Model failed to return valid JSON or parse error; fall back to rules.
-            pass
+
+            raise RuntimeError(
+                "Operator assistant strict mode: classifier returned an unsupported intent value "
+                f"('{intent}')."
+            )
+        except (ValueError, KeyError, AttributeError) as exc:
+            raise RuntimeError(
+                "Operator assistant strict mode: classifier returned malformed structured output. "
+                f"Details: {exc}"
+            ) from exc
 
         return None
+
+    def _build_classifier_messages(
+        self,
+        text: str,
+        session_state: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, str]]:
+        if not isinstance(session_state, dict):
+            return [{"role": "user", "content": text}]
+
+        history = session_state.get("history", [])
+        if not isinstance(history, list):
+            history = []
+        history_tail = history[-8:]
+        rendered_history: List[str] = []
+        for item in history_tail:
+            if not isinstance(item, dict):
+                continue
+            role = str(item.get("role", "user")).strip().lower() or "user"
+            content = str(item.get("text", "")).strip()
+            if content:
+                rendered_history.append(f"{role}: {content}")
+
+        pending_questions = session_state.get("pending_questions", [])
+        if not isinstance(pending_questions, list):
+            pending_questions = []
+        pending_tail = [str(q).strip() for q in pending_questions[:3] if str(q).strip()]
+
+        feature_messages = session_state.get("feature_messages", [])
+        feature_count = len(feature_messages) if isinstance(feature_messages, list) else 0
+        latest_runtime_request = bool(session_state.get("latest_runtime_request"))
+        last_intent = str(session_state.get("last_intent", "")).strip() or "none"
+
+        history_text = "\n".join(f"- {line}" for line in rendered_history) if rendered_history else "- (no prior messages)"
+        pending_text = "\n".join(f"- {line}" for line in pending_tail) if pending_tail else "- (none)"
+
+        content = (
+            f"Current user message:\n{text}\n\n"
+            "Recent conversation context:\n"
+            f"{history_text}\n\n"
+            "Session signals:\n"
+            f"- last_intent: {last_intent}\n"
+            f"- feature_message_count: {feature_count}\n"
+            f"- latest_runtime_request_present: {str(latest_runtime_request).lower()}\n"
+            "Pending follow-up questions:\n"
+            f"{pending_text}\n"
+        )
+        return [{"role": "user", "content": content}]
+
+    def _chat_json_with_classifier_fallback(
+        self,
+        system_prompt: str,
+        messages: List[Dict[str, str]],
+        operation_name: str,
+        required_keys: List[str],
+    ) -> Dict[str, Any]:
+        adapters: List[Tuple[str, Optional[Any]]] = [
+            ("primary", self._intent_classifier),
+            ("fallback", self._intent_classifier_fallback),
+        ]
+
+        errors: List[str] = []
+        for label, adapter in adapters:
+            if adapter is None:
+                continue
+            model_name = getattr(adapter, "model", "unknown")
+            try:
+                payload = _chat_json_response(adapter, system_prompt, messages)
+                missing = [key for key in required_keys if key not in payload]
+                if missing:
+                    errors.append(
+                        f"{label} classifier ({model_name}) missing keys: {', '.join(missing)}"
+                    )
+                    continue
+                return payload
+            except Exception as exc:
+                errors.append(f"{label} classifier ({model_name}) failed: {exc}")
+
+        if not errors:
+            raise RuntimeError(
+                f"Operator assistant strict mode: no classifier adapters available for {operation_name}."
+            )
+        raise RuntimeError(
+            f"Operator assistant strict mode: all {operation_name} classifier attempts failed. "
+            "Diagnostics: " + " | ".join(errors)
+        )
 
     def _load_docs(self) -> Dict[str, str]:
         cache: Dict[str, str] = {}

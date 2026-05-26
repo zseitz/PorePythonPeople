@@ -1276,9 +1276,12 @@ Chat-first request guidance:
 
 - Start by describing the feature/task naturally in one or two sentences.
 - Intent and request-type understanding are inferred semantically by the local LLM (feature work vs question vs docs/help), not by hard-coded keyword checks.
+- Strict semantic routing can use a primary classifier plus an optional fallback classifier from policy; both must produce valid structured JSON outputs.
 - Local model calls for this flow use the Ollama HTTP adapter (`runtime/adapters/ollama.py`) against `/api/chat`; this assistant path is not MCP-server based.
 - Classifier availability is mandatory at startup in strict mode; if local classifier initialization fails, the GUI shows an explicit startup error and disables message routing until fixed.
+- Classifier prompts include recent chat/session context so runtime follow-up questions after a run are interpreted in conversation context (not as isolated messages).
 - Use the **Health Check** button to validate strict-mode prerequisites (classifier enabled in policy, Ollama reachable, model installed, and valid JSON classifier output contract).
+- Common runtime timeline terms (like `promotion_disabled`) are answered directly in-assistant so users can ask immediate post-run questions without switching workflows.
 - For code-edit requests, verification is expected by default (automated tests + behavior checks) and is included in the runtime request guardrails without requiring testing keywords.
 - Generated runtime request packets now include an explicit anti-hallucination quality rubric for each assistant-produced change:
   - Contract-safe (schema/policy/gate compatible)
