@@ -345,7 +345,7 @@ What it does:
 
 - validates DNA input (A/C/G/T),
 - computes a deterministic k-mer-based expected signal,
-- lets you choose strand orientation (`5' forwards`, `3' backwards`, `3' forwards`, or `5' backwards`) before signal generation,
+- lets you choose strand orientation as either the `5'→3' forward strand` or the `5'→3' reverse-complement strand` before signal generation,
 - displays the result as a step trace in normalized $I/I_0$-style units.
 
 ---

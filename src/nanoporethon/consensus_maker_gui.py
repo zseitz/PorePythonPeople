@@ -23,10 +23,8 @@ _BASE_WEIGHTS = {
 
 
 _ORIENTATION_OPTIONS = (
-    "5' forwards",
-    "3' backwards",
-    "3' forwards",
-    "5' backwards",
+    "5'→3' forward strand",
+    "5'→3' reverse-complement strand",
 )
 
 
@@ -54,16 +52,17 @@ def reverse_complement(sequence: str) -> str:
 
 
 def orient_sequence(sequence: str, orientation: str) -> str:
-    """Apply strand/orientation convention before extracting k-mers."""
+    """Apply strand/orientation convention before extracting k-mers.
+
+    The GUI intentionally exposes only two biologically meaningful choices:
+    the sequence as provided in the 5'→3' forward direction, or the reverse-
+    complement strand also read 5'→3'.
+    """
     normalized_orientation = orientation.strip().lower()
-    if normalized_orientation == "5' forwards":
+    if normalized_orientation in {"5' forwards", "5'→3' forward strand".lower()}:
         return sequence
-    if normalized_orientation == "3' backwards":
+    if normalized_orientation in {"3' backwards", "5'→3' reverse-complement strand".lower()}:
         return reverse_complement(sequence)
-    if normalized_orientation == "3' forwards":
-        return sequence[::-1]
-    if normalized_orientation == "5' backwards":
-        return reverse_complement(sequence)[::-1]
     raise ValueError(f"Unsupported orientation: {orientation}")
 
 
