@@ -281,31 +281,72 @@ def _qmer_lookup_levels(sequence: str, profile_key: str) -> np.ndarray | None:
     return np.asarray(values, dtype=float)
 
 
-def build_predicted_currents(sequence: str, *, display_order: str, feeding_orientation: str, pore_orientation: str, hel308: bool, phase_shift: float) -> np.ndarray:
-    sequence = sanitize_sequence(sequence)
-    if not sequence:
+def _qmer_lookup_error(sequence: str, profile_key: str) -> np.ndarray | None:
+    loaded = _load_qmer_map(profile_key)
+    if loaded is None:
+        return None
+
+    kmer_size, _lookup, errors = loaded
+    if len(sequence) < kmer_size:
         return np.asarray([], dtype=float)
 
-    working = _display_sequence(sequence, display_order)
-    if feeding_orientation == FEED_35:
-        working = working[::-1]
-    if pore_orientation == PORE_BACKWARDS:
-        working = reverse_complement(working)
+    kmers = [sequence[index : index + kmer_size] for index in range(len(sequence) - kmer_size + 1)]
+    values: list[float] = []
+    for kmer in kmers:
+        values.append(float(errors.get(kmer, float("nan"))))
+    return np.asarray(values, dtype=float)
 
-    profile_key, _warning, _numstep, _details = _select_map_profile(
+
+def _build_prediction_trace(sequence: str, *, display_order: str, feeding_orientation: str, pore_orientation: str, hel308: bool, phase_shift: float) -> tuple[np.ndarray, np.ndarray, dict[str, object]]:
+    sequence = sanitize_sequence(sequence)
+    if not sequence:
+        empty = np.asarray([], dtype=float)
+        context = prediction_context(
+            feeding_orientation=feeding_orientation,
+            pore_orientation=pore_orientation,
+            hel308=hel308,
+        )
+        return empty, empty, context
+
+    context = prediction_context(
         feeding_orientation=feeding_orientation,
         pore_orientation=pore_orientation,
         hel308=hel308,
     )
+    profile_key = str(context["profile_key"])
 
-    mapped = _qmer_lookup_levels(working, profile_key)
+    # MLAPP parity: orientation/feed select q-mer map profile; sequence itself is not transformed.
+    mapped = _qmer_lookup_levels(sequence, profile_key)
     if mapped is not None:
-        return _phase_shift_levels(mapped, phase_shift)
+        levels = _phase_shift_levels(mapped, phase_shift)
+        errors = _qmer_lookup_error(sequence, profile_key)
+        if errors is None:
+            errors = np.full(levels.shape, np.nan, dtype=float)
+    else:
+        # Synthetic fallback when map profile is unavailable.
+        window = 6 if hel308 else 5
+        raw = [_kmer_current(kmer, hel308) for kmer in _sliding_windows(sequence, window)]
+        levels = _phase_shift_levels(_normalize_current(raw), phase_shift)
+        errors = np.full(levels.shape, np.nan, dtype=float)
 
-    # Synthetic fallback when q-mer map is unavailable.
-    window = 6 if hel308 else 5
-    raw = [_kmer_current(kmer, hel308) for kmer in _sliding_windows(working, window)]
-    return _phase_shift_levels(_normalize_current(raw), phase_shift)
+    # MLAPP export/display semantics: 3'->5' reverses output order.
+    if display_order == DISPLAY_35:
+        levels = levels[::-1]
+        errors = errors[::-1]
+
+    return levels, errors, context
+
+
+def build_predicted_currents(sequence: str, *, display_order: str, feeding_orientation: str, pore_orientation: str, hel308: bool, phase_shift: float) -> np.ndarray:
+    levels, _errors, _context = _build_prediction_trace(
+        sequence,
+        display_order=display_order,
+        feeding_orientation=feeding_orientation,
+        pore_orientation=pore_orientation,
+        hel308=hel308,
+        phase_shift=phase_shift,
+    )
+    return levels
 
 
 def prediction_context(*, feeding_orientation: str, pore_orientation: str, hel308: bool) -> dict[str, object]:
@@ -400,17 +441,34 @@ class SequenceDesignerModel:
         self.clamp_editing_position()
 
     def export_payload(self) -> dict[str, object]:
+        levels, errors, context = _build_prediction_trace(
+            self.sequence,
+            display_order=self.display_order,
+            feeding_orientation=self.feeding_orientation,
+            pore_orientation=self.pore_orientation,
+            hel308=self.hel308,
+            phase_shift=self.phase_shift,
+        )
+        details = str(context["details"])
+        if self.display_order == DISPLAY_53:
+            details = f"{details} - ordered 5p to 3p"
+            x = np.arange(1, levels.size + 2, dtype=float) + 2 * int(context["numstep"]) - 1
+        else:
+            details = f"{details} - ordered 3p to 5p"
+            x = np.arange(1, levels.size + 2, dtype=float) + 3 * int(context["numstep"]) - 1
+
         return {
             "sequence": self.sanitized_sequence(),
             "display_sequence": self.display_sequence(),
-            "levels": build_predicted_currents(
-                self.sequence,
-                display_order=self.display_order,
-                feeding_orientation=self.feeding_orientation,
-                pore_orientation=self.pore_orientation,
-                hel308=self.hel308,
-                phase_shift=self.phase_shift,
-            ).tolist(),
+            "levels": levels.tolist(),
+            "error": errors.tolist(),
+            "x": x.tolist(),
+            "details": details,
+            "phase": float(self.phase_shift),
+            "numstep": int(context["numstep"]),
+            "map_filename": context["map_filename"],
+            "map_field": context["map_field"],
+            "warning_text": context["warning_text"],
         }
 
 
