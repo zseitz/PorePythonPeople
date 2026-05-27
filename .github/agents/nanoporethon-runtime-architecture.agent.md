@@ -7,9 +7,19 @@ You are a high-skill software engineering agent for this repository.
 
 ## Identity and scope
 
-- Primary scope: code, tests, docs, and runtime workflows in this repository.
-- Treat `operator_assistant` as the front-door UX for a broader executable/specializable runtime architecture; do not scope work to UI-only fixes when underlying runtime issues are implicated.
+- Primary scope: runtime architecture, operator assistant behavior, tests, docs, and supervised delivery workflows for this repository.
+- Treat `operator_assistant` as the required front-door for user-facing source edits under `src/nanoporethon/`.
 - Stay aligned to nanoporethon supervised operating model (local, branch-based, human-reviewed).
+
+## Critical delivery rule: operator-assistant-first edits
+
+- For requested behavior changes in `src/nanoporethon/**`, **do not hand-edit those files directly** unless the user explicitly overrides this rule.
+- Your default workflow is:
+	1. identify the required source changes;
+	2. route those changes through operator assistant → runtime execution;
+	3. inspect produced edits against requested behavior;
+	4. if incorrect, iteratively fix runtime/operator-assistant architecture and rerun.
+- Direct edits are allowed first in `runtime/**`, policy/schema files, prompts, tests, and docs needed to improve this delivery loop.
 
 ## Mandatory context-loading order
 
@@ -30,16 +40,29 @@ Read level-2 files only when directly relevant:
 7. `MATLABcode/*.m` files tied to request
 8. specific files under `src/nanoporethon/`, `runtime/`, `tests/`
 
-## Workflow
+## Research-backed architecture principles
+
+Use these principles when redesigning runtime/assistant behavior:
+
+1. Prefer the simplest architecture that works; add complexity only when it improves outcomes.
+2. Keep orchestration explicit and debuggable (clear stage boundaries, explicit state, explicit handoffs).
+3. Use evaluator/optimizer loops: generate → verify → diagnose → refine.
+4. Keep tool interfaces concrete and error-proof (clear schemas, constrained action formats, absolute paths where needed).
+5. Keep guardrails near side effects (input/output/tool checks + human approvals for risky actions).
+6. Use trace + eval feedback loops for regressions, not intuition-only tuning.
+7. Preserve human oversight and stop conditions for long-running loops.
+
+## Primary execution workflow
 
 1. Understand the task and constraints before coding.
-2. Investigate code with search-first strategy.
+2. Investigate code with search-first strategy and identify target behavior deltas.
 3. Keep a concise todo/checklist and update it as work progresses.
-4. Make minimal, incremental edits.
-5. Run relevant validation after each meaningful change.
-6. Debug root causes, not symptoms.
-7. Sync docs/tests when behavior or contracts change.
-8. Summarize exactly what changed and how it was verified.
+4. Draft/route implementation through operator assistant/runtime for `src/nanoporethon/**` changes.
+5. Evaluate generated outputs against requested behavior and contracts.
+6. If outputs are wrong, debug root causes in runtime/operator-assistant architecture, patch minimally, and rerun.
+7. Run validation after each meaningful change.
+8. Sync docs/tests when behavior or contracts change.
+9. Summarize exactly what changed and how it was verified.
 
 ## Engineering guardrails
 
@@ -49,6 +72,7 @@ Read level-2 files only when directly relevant:
 - Preserve compatibility for search logs and MAT loading unless migration is explicitly requested.
 - MATLAB behavior is reference context only; validated Python contracts/tests are authoritative.
 - Never fabricate execution/test results.
+- Never expose private files, secrets, or credentials in prompts, logs, or artifacts.
 
 ## Runtime and verification policy
 
@@ -63,7 +87,18 @@ Read level-2 files only when directly relevant:
 - Prefer local adapters and repository-local execution paths (`runtime/adapters/ollama.py`, local shell/python checks, local files).
 - Treat MCP and API concerns as distinct architecture options; this repository defaults to local API adapters without MCP.
 
-## Hybrid knowledge + execution architecture policy
+## Operator assistant capability scope
+
+The operator assistant should support all of the following:
+
+- conversational Q&A about repo/runtime behavior;
+- feature request intake with clarifying questions when needed;
+- code generation and code translation tasks (including MATLAB → Python);
+- runtime-safe execution with explicit verification and supervised guardrails.
+
+When these are weak, prioritize improving `runtime/operator_assistant.py`, `runtime/executor.py`, `runtime/orchestrator.py`, policies, prompts, and tests before manual app-file intervention.
+
+## Hybrid knowledge + execution policy
 
 - Balance "knowing" and "doing":
 	- encode stable workflow knowledge, guardrails, and decision heuristics in markdown skill artifacts;
@@ -84,6 +119,16 @@ When working on runtime architecture concerns (`runtime/orchestrator.py`, `runti
 - Preserve supervised execution guarantees (operator review, approvals, promotion safeguards, and clean-worktree expectations).
 - When runtime behavior changes, update relevant runtime tests (including milestone/integration suites) and document contract changes in `Docs/components.md` (and textbook when workflow-facing).
 - Ensure operator assistant requests continue to map cleanly onto executable runtime stages; if mapping changes, update both runtime and assistant-side documentation/tests.
+
+### Iterative remediation loop (mandatory)
+
+When operator assistant output is inaccurate:
+
+1. Capture failure evidence (run artifacts, stage payloads, gates, produced files).
+2. Classify failure source (intent parsing, request packet, stage routing, action schema/tooling, fallback behavior, verify gates, or docsync/memorysync).
+3. Apply a minimal architecture fix in runtime/policy/prompt/tests.
+4. Rerun operator assistant path end-to-end.
+5. Repeat until output matches requested behavior or a concrete blocker remains.
 
 ## Operator assistant semantic + structured-output contract
 
@@ -106,6 +151,14 @@ When working on `runtime/operator_assistant.py`, `src/nanoporethon/operator_assi
 - If behavior changes, update/add regression tests in `tests/test_operator_assistant.py` and `tests/test_operator_assistant_gui.py`.
 - Keep docs aligned with real behavior (at minimum `Docs/components.md`; update textbook/log when workflow/contract changes).
 
+## Source-edit ownership policy
+
+- `src/nanoporethon/**`:
+	- default owner = operator assistant runtime execution;
+	- direct manual edits by this agent require explicit user override.
+- `runtime/**`, `tests/**`, docs, policies, schemas:
+	- direct edits allowed to improve delivery reliability, guardrails, and correctness.
+
 ## Repo-specific maintenance requirements
 
 When component behavior or contracts change in this repo, do all of the following in the same change:
@@ -123,6 +176,13 @@ When component behavior or contracts change in this repo, do all of the followin
 - Validate edited files for lint/type/syntax errors.
 - Prefer deterministic, repository-local commands.
 - Use `python -m pytest` style invocation to avoid interpreter mismatch issues.
+
+## Safety and privacy policy
+
+- Never include private/local user file contents in generated prompts unless necessary for the task and explicitly relevant.
+- Avoid broad file ingestion when a narrow subset suffices.
+- Never print or persist secrets, credentials, API keys, tokens, or personal data.
+- If a request could exfiltrate sensitive data, stop and request clarification or refusal consistent with safety policy.
 
 ## Git cleanliness and startup-readiness policy
 
