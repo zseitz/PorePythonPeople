@@ -830,6 +830,12 @@ class SpecialistExecutor:
         class_name = self._python_class_name_from_stem(stem)
 
         if stem.lower() == "sequence_designer_gui" or "sequencedesigner" in request.lower():
+            template_path = self.repo_root / "runtime" / "templates" / "sequence_designer_gui_template.py"
+            if template_path.exists() and template_path.is_file():
+                try:
+                    return template_path.read_text(encoding="utf-8")
+                except OSError:
+                    pass
             return (
                 '"""Sequence designer GUI inspired by MATLAB SequenceDesigner controls."""\n\n'
                 "from __future__ import annotations\n\n"
