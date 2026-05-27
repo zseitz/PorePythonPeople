@@ -17,13 +17,31 @@ from matplotlib.figure import Figure
 
 
 ALLOWED_BASES = {"A", "C", "G", "T"}
-DISPLAY_53 = "5'→3'"
-DISPLAY_35 = "3'→5'"
-FEED_53 = "5'→3'"
-FEED_35 = "3'→5'"
-PORE_FORWARDS = "forwards"
-PORE_BACKWARDS = "backwards"
-QMER_MAP_FILENAME = "qmerdatabase_500mM150mM_forwards_phi29_5primefirst_phixhandclicked160603_withnoise.mat"
+DISPLAY_53 = "5'- 3'"
+DISPLAY_35 = "3'- 5'"
+FEED_53 = "5'"
+FEED_35 = "3'"
+PORE_FORWARDS = "Forwards"
+PORE_BACKWARDS = "Backwards"
+QMER_MAP_FILENAMES = {
+    "forwards_5p": "qmerdatabase_500mM150mM_forwards_phi29_5primefirst_phixhandclicked160603_withnoise.mat",
+    "forwards_3p": "qmerdatabase_500mM100mM_forwards_pcrax_3primefirst_phiX174handalignment180731_withnoise.mat",
+    "backwards_5p": "qmerdatabase_500mM150mM_backwards_phi29_5primefirst_phixhandclicked160603_withnoise.mat",
+    "backwards_3p": "qmerdatabase_500mM50mM_backwards_3prime.mat",
+    "hel308": "qmerdatabase_400mM400mM_forwards_hel308_5primefirst_DC170321_empirical_extraction.mat",
+}
+QMER_MAP_FIELDS = {
+    "forwards_5p": "qmerdatabase",
+    "forwards_3p": "qmerdatabase35map",
+    "backwards_5p": "qmerdatabase",
+    "backwards_3p": "qmerdb",
+    "hel308": "qmerdatabase",
+}
+MAP_WARNING_TEXT = {
+    0: "",
+    1: "Warning: This map is not yet finished, using first draft with dimer-model in-fill",
+    2: "Warning: hel308 only works with 5' to 3' feeding orientation and forwards pore orientation",
+}
 QMER_MAP_PATH_ENV = "NANOPORETHON_QMER_MAP_PATH"
 QMER_DISABLE_AUTODETECT_ENV = "NANOPORETHON_DISABLE_QMER_AUTODETECT"
 
@@ -38,6 +56,22 @@ def reverse_complement(sequence: str) -> str:
 
 def _display_sequence(sequence: str, order: str) -> str:
     return sequence[::-1] if order == DISPLAY_35 else sequence
+
+
+def _select_map_profile(*, feeding_orientation: str, pore_orientation: str, hel308: bool) -> tuple[str, int, int, str]:
+    if hel308:
+        warning = 0
+        if pore_orientation != PORE_FORWARDS or feeding_orientation != FEED_53:
+            warning = 2
+        return "hel308", warning, 2, "Hel308 prediction forwards pore 5p feeding"
+
+    if pore_orientation == PORE_FORWARDS and feeding_orientation == FEED_53:
+        return "forwards_5p", 0, 1, "Forwards pore 5p feeding"
+    if pore_orientation == PORE_FORWARDS and feeding_orientation == FEED_35:
+        return "forwards_3p", 0, 1, "Forwards pore 3p feeding"
+    if pore_orientation == PORE_BACKWARDS and feeding_orientation == FEED_53:
+        return "backwards_5p", 0, 1, "Backwards pore 5p feeding"
+    return "backwards_3p", 1, 1, "Backwards pore 3p feeding"
 
 
 def _clamp(value: int, lower: int, upper: int) -> int:
@@ -119,12 +153,17 @@ def _extract_field(container: object, field: str) -> object | None:
     return None
 
 
-def _candidate_qmer_map_paths() -> list[Path]:
+def _candidate_qmer_map_paths(profile_key: str) -> list[Path]:
     candidates: list[Path] = []
+    filename = QMER_MAP_FILENAMES[profile_key]
 
     env_path = os.environ.get(QMER_MAP_PATH_ENV, "").strip()
     if env_path:
-        candidates.append(Path(env_path).expanduser())
+        env_candidate = Path(env_path).expanduser()
+        if env_candidate.is_dir():
+            candidates.append(env_candidate / filename)
+        else:
+            candidates.append(env_candidate)
 
     if os.environ.get(QMER_DISABLE_AUTODETECT_ENV, "").strip().lower() in {"1", "true", "yes", "on"}:
         return candidates
@@ -132,10 +171,10 @@ def _candidate_qmer_map_paths() -> list[Path]:
     repo_root = Path(__file__).resolve().parents[2]
     candidates.extend(
         [
-            repo_root / "MATLABcode" / QMER_MAP_FILENAME,
-            repo_root / QMER_MAP_FILENAME,
-            Path.cwd() / QMER_MAP_FILENAME,
-            Path.home() / "Downloads" / "NanoporeRepository" / QMER_MAP_FILENAME,
+            repo_root / "MATLABcode" / filename,
+            repo_root / filename,
+            Path.cwd() / filename,
+            Path.home() / "Downloads" / "NanoporeRepository" / filename,
         ]
     )
 
@@ -151,13 +190,18 @@ def _candidate_qmer_map_paths() -> list[Path]:
 
 
 @lru_cache(maxsize=1)
-def _load_qmer_map() -> tuple[int, dict[str, float], dict[str, float]] | None:
+def _load_qmer_map(profile_key: str) -> tuple[int, dict[str, float], dict[str, float]] | None:
+    if profile_key not in QMER_MAP_FILENAMES:
+        return None
+
     try:
         from scipy import io as scipy_io  # type: ignore
     except Exception:
         return None
 
-    for path in _candidate_qmer_map_paths():
+    field_name = QMER_MAP_FIELDS[profile_key]
+
+    for path in _candidate_qmer_map_paths(profile_key):
         resolved = path.expanduser()
         if not resolved.exists() or not resolved.is_file():
             continue
@@ -166,13 +210,14 @@ def _load_qmer_map() -> tuple[int, dict[str, float], dict[str, float]] | None:
         except Exception:
             continue
 
-        payload = mat.get("qmerdatabase")
+        payload = mat.get(field_name)
         if payload is None:
-            for key, value in mat.items():
-                if key.startswith("__"):
-                    continue
-                payload = value
-                break
+            payload = mat.get("qmerdatabase")
+        if payload is None:
+            for candidate_field in ("qmerdatabase", "qmerdatabase35map", "qmerdb"):
+                payload = mat.get(candidate_field)
+                if payload is not None:
+                    break
         if payload is None:
             continue
 
@@ -218,8 +263,8 @@ def _load_qmer_map() -> tuple[int, dict[str, float], dict[str, float]] | None:
     return None
 
 
-def _qmer_lookup_levels(sequence: str) -> np.ndarray | None:
-    loaded = _load_qmer_map()
+def _qmer_lookup_levels(sequence: str, profile_key: str) -> np.ndarray | None:
+    loaded = _load_qmer_map(profile_key)
     if loaded is None:
         return None
 
@@ -247,16 +292,37 @@ def build_predicted_currents(sequence: str, *, display_order: str, feeding_orien
     if pore_orientation == PORE_BACKWARDS:
         working = reverse_complement(working)
 
-    # MATLAB parity mode (default non-Hel308 map) when q-mer database is available.
-    if not hel308:
-        mapped = _qmer_lookup_levels(working)
-        if mapped is not None:
-            return _phase_shift_levels(mapped, phase_shift)
+    profile_key, _warning, _numstep, _details = _select_map_profile(
+        feeding_orientation=feeding_orientation,
+        pore_orientation=pore_orientation,
+        hel308=hel308,
+    )
+
+    mapped = _qmer_lookup_levels(working, profile_key)
+    if mapped is not None:
+        return _phase_shift_levels(mapped, phase_shift)
 
     # Synthetic fallback when q-mer map is unavailable.
     window = 6 if hel308 else 5
     raw = [_kmer_current(kmer, hel308) for kmer in _sliding_windows(working, window)]
     return _phase_shift_levels(_normalize_current(raw), phase_shift)
+
+
+def prediction_context(*, feeding_orientation: str, pore_orientation: str, hel308: bool) -> dict[str, object]:
+    profile_key, warning_code, numstep, details = _select_map_profile(
+        feeding_orientation=feeding_orientation,
+        pore_orientation=pore_orientation,
+        hel308=hel308,
+    )
+    return {
+        "profile_key": profile_key,
+        "map_filename": QMER_MAP_FILENAMES[profile_key],
+        "map_field": QMER_MAP_FIELDS[profile_key],
+        "warning_code": warning_code,
+        "warning_text": MAP_WARNING_TEXT[warning_code],
+        "numstep": numstep,
+        "details": details,
+    }
 
 
 @dataclass
@@ -459,6 +525,11 @@ class SequenceDesignerGui:
 
     def _refresh_status(self) -> None:
         sequence = self.model.sanitized_sequence()
+        context = prediction_context(
+            feeding_orientation=self.model.feeding_orientation,
+            pore_orientation=self.model.pore_orientation,
+            hel308=self.model.hel308,
+        )
         levels = build_predicted_currents(
             sequence,
             display_order=self.model.display_order,
@@ -469,10 +540,15 @@ class SequenceDesignerGui:
         )
         self.editing_label_var.set(f"Editing: position {self.model.clamp_editing_position()} of {self.model.max_edit_position()}")
         self.sequence_preview_var.set(f"Sequence (displayed order): {self.model.display_sequence() or '—'}")
-        self.status_var.set(
+        status = (
             f"Length={len(sequence)} | Editing={self.model.editing_position} | Levels={len(levels)} | "
-            f"Feeding={self.model.feeding_orientation} | Pore={self.model.pore_orientation}"
+            f"Feeding={self.model.feeding_orientation} | Pore={self.model.pore_orientation} | "
+            f"Map={context['map_filename']}"
         )
+        warning_text = str(context["warning_text"]).strip()
+        if warning_text:
+            status = f"{status} | {warning_text}"
+        self.status_var.set(status)
         self.editing_scale.configure(from_=1, to=self.model.max_edit_position())
         self.editing_scale.configure(state=tk.DISABLED if self.model.max_edit_position() <= 1 else tk.NORMAL)
         self.editing_scale.set(self.model.clamp_editing_position())
