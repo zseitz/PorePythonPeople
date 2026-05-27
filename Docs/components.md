@@ -275,6 +275,8 @@ Primary package location: `src/nanoporethon/`.
     - Applies display-order and phase-shift transforms prior to plotting.
     - Uses q-mer-map lookup when available (with env override `NANOPORETHON_QMER_MAP_PATH` and auto-detect disable switch `NANOPORETHON_DISABLE_QMER_AUTODETECT`) to match MATLAB-aligned default level outputs for the validated reference sequence.
     - Supports MLAPP-style map-profile branching for exhaustive parity targets: forwards/backwards pore orientation × 5'/3' feeding orientation plus Hel308 profile handling, including branch-specific warning semantics.
+    - For MLAPP parity, feeding/pore choices are applied via map-profile selection (rather than sequence transformation), while display order controls output ordering semantics.
+    - Export payload now carries MATLAB-aligned parity metadata (levels, error, x-axis indices, details text, phase, and numstep) for golden acceptance checks.
     - When the runtime falls back without model-authored implement actions, it now emits a contract-aware `sequence_designer_gui.py` template instead of a blank GUI placeholder.
     - Is self-contained: sequence sanitization and signal helpers are implemented in the same module (no GUI-to-GUI dependency).
 
