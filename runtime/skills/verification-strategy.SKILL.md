@@ -13,6 +13,7 @@ Purpose: keep deterministic verify outputs as source-of-truth while improving re
 - Evidence-first: tests pass and behavior checks are executed.
 - Report failures with concise root-cause hints.
 - If no tests are collected, honor per-stage policy (`allow_no_tests_collected`).
+- For MATLAB-parity components, include golden-output checks (numeric and branch-semantics) as explicit acceptance evidence, not optional commentary.
 
 ## Output shape guidance
 

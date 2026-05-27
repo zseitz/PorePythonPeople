@@ -16,9 +16,9 @@ from nanoporethon.sequence_designer_gui import (
 
 def _write_qmer_map(path: Path, *, field_name: str, value: float) -> None:
     scipy_io = pytest.importorskip("scipy.io")
-    qmers = np.array(["AAAA", "AAAT", "AATC", "ATCG", "TCGA"], dtype=object)
-    means = np.array([[value, value + 0.01, value + 0.02, value + 0.03, value + 0.04]], dtype=float)
-    errs = np.array([[0.001, 0.001, 0.001, 0.001, 0.001]], dtype=float)
+    qmers = np.array(["AAAA", "TTTT"], dtype=object)
+    means = np.array([[value, value + 0.5]], dtype=float)
+    errs = np.array([[0.001, 0.001]], dtype=float)
     payload = {
         field_name: {
             "qmer": qmers,
@@ -138,7 +138,7 @@ def test_build_predicted_currents_uses_map_selected_by_profile(monkeypatch, tmp_
     monkeypatch.delenv("NANOPORETHON_DISABLE_QMER_AUTODETECT", raising=False)
     monkeypatch.setenv("NANOPORETHON_QMER_MAP_PATH", str(tmp_path))
 
-    sequence = "AAAATCGA"
+    sequence = "AAAAAAA"
 
     _load_qmer_map.cache_clear()
     lv_f5 = build_predicted_currents(
@@ -182,5 +182,5 @@ def test_build_predicted_currents_uses_map_selected_by_profile(monkeypatch, tmp_
 
     assert lv_f5.size > 0 and np.allclose(lv_f5[0], 0.11)
     assert lv_f3.size > 0 and np.allclose(lv_f3[0], 0.21)
-    assert lv_b5.size > 0 and np.allclose(lv_b5[0], 0.31)
+    assert lv_b5.size > 0 and np.allclose(lv_b5[0], 0.81)
     assert lv_h.size > 0 and np.allclose(lv_h[0], 0.51)

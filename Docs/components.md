@@ -274,8 +274,19 @@ Primary package location: `src/nanoporethon/`.
     - Includes Hel308 mode toggle plus save/export actions for generated traces (figure save and JSON level export).
     - Applies display-order and phase-shift transforms prior to plotting.
     - Uses q-mer-map lookup when available (with env override `NANOPORETHON_QMER_MAP_PATH` and auto-detect disable switch `NANOPORETHON_DISABLE_QMER_AUTODETECT`) to match MATLAB-aligned default level outputs for the validated reference sequence.
+    - Supports MLAPP-style map-profile branching for exhaustive parity targets: forwards/backwards pore orientation × 5'/3' feeding orientation plus Hel308 profile handling, including branch-specific warning semantics.
     - When the runtime falls back without model-authored implement actions, it now emits a contract-aware `sequence_designer_gui.py` template instead of a blank GUI placeholder.
     - Is self-contained: sequence sanitization and signal helpers are implemented in the same module (no GUI-to-GUI dependency).
+
+#### Golden output acceptance workflow (sequence designer)
+
+- Treat MATLAB-derived numeric traces and branch semantics as **golden acceptance targets** for this component.
+- Runtime/template updates are not considered complete until:
+  1. default validated reference-sequence output parity passes,
+  2. branch-profile selection semantics (forwards/backwards, 5'/3', hel308 warnings) are covered by tests,
+  3. regenerated `src/nanoporethon/sequence_designer_gui.py` is produced through the runtime path,
+  4. verification evidence is recorded in run artifacts/tests.
+- This workflow is used to both improve deterministic fallback quality and establish a clear quality floor for Porsche-generated code.
 
 ---
 

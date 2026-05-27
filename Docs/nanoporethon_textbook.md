@@ -1120,6 +1120,20 @@ Example prompt for a feature run:
 
 - "Add <feature>. Update nearest tests. If behavior/contracts change, sync `Docs/components.md` and relevant textbook sections. Run verification gates, record artifacts, and complete memory + closeout stages."
 
+### 15.6.1 Golden output acceptance workflow (Sequence Designer parity)
+
+When iterating on `sequence_designer_gui.py`, use the following acceptance loop:
+
+1. Extract or confirm MATLAB reference behavior (including branch-specific map selection and warning semantics).
+2. Encode parity intent in runtime/template behavior first (for deterministic fallback quality floor).
+3. Regenerate `src/nanoporethon/sequence_designer_gui.py` through runtime execution (not ad-hoc manual edits).
+4. Verify both:
+  - exact numeric parity for validated golden sequences/settings, and
+  - branch coverage across forwards/backwards, feeding 5'/3', and hel308 warning modes.
+5. Treat runtime success as insufficient unless the parity tests and branch acceptance checks pass.
+
+This keeps Porsche output quality anchored to measurable acceptance evidence rather than subjective visual similarity.
+
 ### 15.7 Runtime entrypoint (usable now)
 
 Run with:
