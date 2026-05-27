@@ -1130,7 +1130,12 @@ When iterating on `sequence_designer_gui.py`, use the following acceptance loop:
 4. Verify both:
   - exact numeric parity for validated golden sequences/settings, and
   - branch coverage across forwards/backwards, feeding 5'/3', and hel308 warning modes.
-5. Treat runtime success as insufficient unless the parity tests and branch acceptance checks pass.
+5. Generate the parity scorecard artifact bundle:
+  - `python -m runtime.sequence_designer_parity_scorecard`
+  - outputs:
+    - `.nanopore-runtime/parity/sequence_designer/latest/sequence_designer_parity_scorecard.json`
+    - `.nanopore-runtime/parity/sequence_designer/latest/sequence_designer_parity_scorecard.md`
+6. Treat runtime success as insufficient unless the parity tests, branch acceptance checks, and parity scorecard all pass.
 
 This keeps Porsche output quality anchored to measurable acceptance evidence rather than subjective visual similarity.
 

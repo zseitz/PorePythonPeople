@@ -277,6 +277,7 @@ Primary package location: `src/nanoporethon/`.
     - Supports MLAPP-style map-profile branching for exhaustive parity targets: forwards/backwards pore orientation × 5'/3' feeding orientation plus Hel308 profile handling, including branch-specific warning semantics.
     - For MLAPP parity, feeding/pore choices are applied via map-profile selection (rather than sequence transformation), while display order controls output ordering semantics.
     - Export payload now carries MATLAB-aligned parity metadata (levels, error, x-axis indices, details text, phase, and numstep) for golden acceptance checks.
+    - Provides a dedicated parity scorecard generator at `runtime/sequence_designer_parity_scorecard.py` that emits JSON/Markdown graduation artifacts under `.nanopore-runtime/parity/sequence_designer/latest/`.
     - When the runtime falls back without model-authored implement actions, it now emits a contract-aware `sequence_designer_gui.py` template instead of a blank GUI placeholder.
     - Is self-contained: sequence sanitization and signal helpers are implemented in the same module (no GUI-to-GUI dependency).
 
@@ -289,6 +290,7 @@ Primary package location: `src/nanoporethon/`.
   3. regenerated `src/nanoporethon/sequence_designer_gui.py` is produced through the runtime path,
   4. verification evidence is recorded in run artifacts/tests.
 - This workflow is used to both improve deterministic fallback quality and establish a clear quality floor for Porsche-generated code.
+- Recommended evidence bundle now includes the parity scorecard artifacts (`sequence_designer_parity_scorecard.json` and `.md`) in addition to pytest output.
 
 ---
 
