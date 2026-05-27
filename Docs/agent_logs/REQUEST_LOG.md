@@ -148,3 +148,7 @@
 | 2026-05-26 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
 | 2026-05-26 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
 | 2026-05-26 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
+| 2026-05-27 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
+| 2026-05-27 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
+| 2026-05-27 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
+| 2026-05-27 | team | Add q-mer-parity deterministic sequence-designer template and validation coverage | GitHub Copilot | `runtime/executor.py`; `runtime/templates/sequence_designer_gui_template.py`; `src/nanoporethon/sequence_designer_gui.py`; `tests/test_sequence_designer_qmer_parity.py`; `Docs/components.md`; `Docs/agent_logs/REQUEST_LOG.md` | completed | Added template-backed runtime fallback for sequence designer, regenerated file through runtime execution, and verified MATLAB default-sequence parity against local q-mer map with targeted tests. |

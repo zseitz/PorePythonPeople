@@ -188,6 +188,7 @@ Primary package location: `src/nanoporethon/`.
   - Executes full policy-driven stage graph with conditional routing (`refactor_or_docsync`).
   - Parses specialist model output as structured JSON stage payloads, validates required stage fields, and falls back to deterministic payloads when parsing/validation fails.
   - Deterministic implement fallback now attempts targeted scaffold actions for explicit "create new python GUI file at <path>" requests, reducing silent no-op completions when model-authored implement payloads are missing.
+  - Deterministic implement fallback now supports template-backed outputs under `runtime/templates/` (including `sequence_designer_gui_template.py`) so generated files can preserve higher-fidelity behavior without requiring model-authored implement actions.
   - Deterministic implement target extraction now prioritizes explicit output-target wording (for example, `as "new_gui.py"`) over unrelated `.py` paths embedded in guardrail text, and filters protected-file mentions from fallback target selection.
   - Deterministic fallback scaffolding is runtime-generic (module-level and GUI-level Python stubs) and no longer hardcodes behavior for specific generated application files.
   - Runtime request-file context ingestion supports explicit absolute local paths and `.mlapp` files by extracting `matlab/document.xml`, allowing MATLAB app audits to inform implement-stage payloads and deterministic fallbacks.
@@ -272,6 +273,7 @@ Primary package location: `src/nanoporethon/`.
     - Exposes MATLAB-style edit-at-position controls (position slider/index, A/C/G/T mutation buttons, delete, random mutation) for rapid iterative sequence design.
     - Includes Hel308 mode toggle plus save/export actions for generated traces (figure save and JSON level export).
     - Applies display-order and phase-shift transforms prior to plotting.
+    - Uses q-mer-map lookup when available (with env override `NANOPORETHON_QMER_MAP_PATH` and auto-detect disable switch `NANOPORETHON_DISABLE_QMER_AUTODETECT`) to match MATLAB-aligned default level outputs for the validated reference sequence.
     - When the runtime falls back without model-authored implement actions, it now emits a contract-aware `sequence_designer_gui.py` template instead of a blank GUI placeholder.
     - Is self-contained: sequence sanitization and signal helpers are implemented in the same module (no GUI-to-GUI dependency).
 

@@ -6,11 +6,13 @@ from nanoporethon.sequence_designer_gui import (
     DISPLAY_53,
     FEED_53,
     PORE_FORWARDS,
+    _load_qmer_map,
     build_predicted_currents,
 )
 
 
 def test_build_predicted_currents_falls_back_when_qmer_map_disabled(monkeypatch):
+    _load_qmer_map.cache_clear()
     monkeypatch.setenv("NANOPORETHON_DISABLE_QMER_AUTODETECT", "1")
     monkeypatch.setenv("NANOPORETHON_QMER_MAP_PATH", "/definitely/missing/map.mat")
 
@@ -28,6 +30,7 @@ def test_build_predicted_currents_falls_back_when_qmer_map_disabled(monkeypatch)
 
 
 def test_build_predicted_currents_matches_real_qmer_map_when_available(monkeypatch):
+    _load_qmer_map.cache_clear()
     scipy = pytest.importorskip("scipy.io")
     del scipy
 

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import random
 import tkinter as tk
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from tkinter import filedialog
 
@@ -21,6 +23,9 @@ FEED_53 = "5'→3'"
 FEED_35 = "3'→5'"
 PORE_FORWARDS = "forwards"
 PORE_BACKWARDS = "backwards"
+QMER_MAP_FILENAME = "qmerdatabase_500mM150mM_forwards_phi29_5primefirst_phixhandclicked160603_withnoise.mat"
+QMER_MAP_PATH_ENV = "NANOPORETHON_QMER_MAP_PATH"
+QMER_DISABLE_AUTODETECT_ENV = "NANOPORETHON_DISABLE_QMER_AUTODETECT"
 
 
 def sanitize_sequence(text: str) -> str:
@@ -96,15 +101,159 @@ def _phase_shift_levels(levels: list[float] | np.ndarray, phase_shift: float) ->
     return np.interp(x, x - shift, arr, left=arr[0], right=arr[-1])
 
 
+def _unwrap_singleton(value: object) -> object:
+    current = value
+    while isinstance(current, np.ndarray) and current.size == 1:
+        current = current.item()
+    return current
+
+
+def _extract_field(container: object, field: str) -> object | None:
+    target = _unwrap_singleton(container)
+    if hasattr(target, field):
+        return getattr(target, field)
+    if isinstance(target, dict):
+        return target.get(field)
+    if isinstance(target, np.ndarray) and target.dtype.names and field in target.dtype.names:
+        return target[field]
+    return None
+
+
+def _candidate_qmer_map_paths() -> list[Path]:
+    candidates: list[Path] = []
+
+    env_path = os.environ.get(QMER_MAP_PATH_ENV, "").strip()
+    if env_path:
+        candidates.append(Path(env_path).expanduser())
+
+    if os.environ.get(QMER_DISABLE_AUTODETECT_ENV, "").strip().lower() in {"1", "true", "yes", "on"}:
+        return candidates
+
+    repo_root = Path(__file__).resolve().parents[2]
+    candidates.extend(
+        [
+            repo_root / "MATLABcode" / QMER_MAP_FILENAME,
+            repo_root / QMER_MAP_FILENAME,
+            Path.cwd() / QMER_MAP_FILENAME,
+            Path.home() / "Downloads" / "NanoporeRepository" / QMER_MAP_FILENAME,
+        ]
+    )
+
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for path in candidates:
+        normalized = str(path.expanduser())
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(path)
+    return deduped
+
+
+@lru_cache(maxsize=1)
+def _load_qmer_map() -> tuple[int, dict[str, float], dict[str, float]] | None:
+    try:
+        from scipy import io as scipy_io  # type: ignore
+    except Exception:
+        return None
+
+    for path in _candidate_qmer_map_paths():
+        resolved = path.expanduser()
+        if not resolved.exists() or not resolved.is_file():
+            continue
+        try:
+            mat = scipy_io.loadmat(resolved, squeeze_me=True, struct_as_record=False)
+        except Exception:
+            continue
+
+        payload = mat.get("qmerdatabase")
+        if payload is None:
+            for key, value in mat.items():
+                if key.startswith("__"):
+                    continue
+                payload = value
+                break
+        if payload is None:
+            continue
+
+        qmer_raw = _extract_field(payload, "qmer")
+        mean_raw = _extract_field(payload, "mean")
+        error_raw = _extract_field(payload, "error")
+        if qmer_raw is None or mean_raw is None:
+            continue
+
+        qmers = [str(item) for item in np.asarray(_unwrap_singleton(qmer_raw), dtype=object).ravel().tolist()]
+        if not qmers:
+            continue
+
+        mean_arr = np.asarray(_unwrap_singleton(mean_raw), dtype=float)
+        if mean_arr.ndim == 1:
+            means = mean_arr
+        elif mean_arr.ndim >= 2:
+            means = mean_arr[0]
+        else:
+            continue
+
+        error_lookup: dict[str, float] = {}
+        if error_raw is not None:
+            err_arr = np.asarray(_unwrap_singleton(error_raw), dtype=float)
+            if err_arr.ndim == 1:
+                errs = err_arr
+            elif err_arr.ndim >= 2:
+                errs = err_arr[0]
+            else:
+                errs = np.asarray([], dtype=float)
+            for qmer, val in zip(qmers, errs.tolist()):
+                error_lookup[qmer] = float(val)
+
+        if len(qmers) != len(means):
+            continue
+
+        level_lookup = {qmer: float(level) for qmer, level in zip(qmers, means.tolist())}
+        kmer_size = len(qmers[0])
+        if kmer_size <= 0:
+            continue
+        return kmer_size, level_lookup, error_lookup
+
+    return None
+
+
+def _qmer_lookup_levels(sequence: str) -> np.ndarray | None:
+    loaded = _load_qmer_map()
+    if loaded is None:
+        return None
+
+    kmer_size, lookup, _errors = loaded
+    if len(sequence) < kmer_size:
+        return np.asarray([], dtype=float)
+
+    kmers = [sequence[index : index + kmer_size] for index in range(len(sequence) - kmer_size + 1)]
+    values: list[float] = []
+    for kmer in kmers:
+        if kmer not in lookup:
+            return None
+        values.append(lookup[kmer])
+    return np.asarray(values, dtype=float)
+
+
 def build_predicted_currents(sequence: str, *, display_order: str, feeding_orientation: str, pore_orientation: str, hel308: bool, phase_shift: float) -> np.ndarray:
     sequence = sanitize_sequence(sequence)
     if not sequence:
         return np.asarray([], dtype=float)
+
     working = _display_sequence(sequence, display_order)
     if feeding_orientation == FEED_35:
         working = working[::-1]
     if pore_orientation == PORE_BACKWARDS:
         working = reverse_complement(working)
+
+    # MATLAB parity mode (default non-Hel308 map) when q-mer database is available.
+    if not hel308:
+        mapped = _qmer_lookup_levels(working)
+        if mapped is not None:
+            return _phase_shift_levels(mapped, phase_shift)
+
+    # Synthetic fallback when q-mer map is unavailable.
     window = 6 if hel308 else 5
     raw = [_kmer_current(kmer, hel308) for kmer in _sliding_windows(working, window)]
     return _phase_shift_levels(_normalize_current(raw), phase_shift)
@@ -152,7 +301,7 @@ class SequenceDesignerModel:
     def mutate_selected_base(self, new_base: str) -> None:
         base = new_base.upper()
         if base not in ALLOWED_BASES:
-            raise ValueError(f'Unsupported nucleotide: {new_base!r}')
+            raise ValueError(f"Unsupported nucleotide: {new_base!r}")
         sequence = self.sanitized_sequence()
         insert_index = self.insertion_index()
         selected_index = self.selected_display_index()
@@ -164,7 +313,7 @@ class SequenceDesignerModel:
         else:
             chars = list(sequence)
             chars[selected_index] = base
-            self.sequence = ''.join(chars)
+            self.sequence = "".join(chars)
         self.clamp_editing_position()
 
     def randomize_selected_base(self) -> None:
@@ -181,14 +330,14 @@ class SequenceDesignerModel:
         else:
             chars = list(sequence)
             del chars[selected_index]
-            self.sequence = ''.join(chars)
+            self.sequence = "".join(chars)
         self.clamp_editing_position()
 
     def export_payload(self) -> dict[str, object]:
         return {
-            'sequence': self.sanitized_sequence(),
-            'display_sequence': self.display_sequence(),
-            'levels': build_predicted_currents(
+            "sequence": self.sanitized_sequence(),
+            "display_sequence": self.display_sequence(),
+            "levels": build_predicted_currents(
                 self.sequence,
                 display_order=self.display_order,
                 feeding_orientation=self.feeding_orientation,
@@ -202,18 +351,18 @@ class SequenceDesignerModel:
 class SequenceDesignerGui:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title('Sequence Designer')
+        self.root.title("Sequence Designer")
         self.model = SequenceDesignerModel()
-        self.sequence_var = tk.StringVar(value='')
+        self.sequence_var = tk.StringVar(value="")
         self.editing_var = tk.IntVar(value=1)
         self.feeding_orientation_var = tk.StringVar(value=FEED_53)
         self.pore_orientation_var = tk.StringVar(value=PORE_FORWARDS)
         self.display_order_var = tk.StringVar(value=DISPLAY_53)
         self.hel308_var = tk.BooleanVar(value=False)
         self.phase_shift_var = tk.DoubleVar(value=0.0)
-        self.status_var = tk.StringVar(value='Ready')
-        self.sequence_preview_var = tk.StringVar(value='Sequence (displayed order): —')
-        self.editing_label_var = tk.StringVar(value='Editing: position 1 of 2')
+        self.status_var = tk.StringVar(value="Ready")
+        self.sequence_preview_var = tk.StringVar(value="Sequence (displayed order): —")
+        self.editing_label_var = tk.StringVar(value="Editing: position 1 of 2")
         self._build_ui()
         self.updateFig()
 
@@ -226,48 +375,66 @@ class SequenceDesignerGui:
         seq_frame.pack(fill=tk.X, pady=(0, 8))
         self.sequence_entry = tk.Entry(seq_frame, textvariable=self.sequence_var, width=34)
         self.sequence_entry.pack(fill=tk.X, padx=8, pady=8)
-        self.sequence_entry.bind('<Return>', self.Sequence5EditFieldValueChanged)
-        self.sequence_entry.bind('<FocusOut>', self.Sequence5EditFieldValueChanged)
-        edit_frame = tk.LabelFrame(controls, text='Editing')
+        self.sequence_entry.bind("<Return>", self.Sequence5EditFieldValueChanged)
+        self.sequence_entry.bind("<FocusOut>", self.Sequence5EditFieldValueChanged)
+        edit_frame = tk.LabelFrame(controls, text="Editing")
         edit_frame.pack(fill=tk.X, pady=(0, 8))
-        self.editing_scale = tk.Scale(edit_frame, from_=1, to=2, orient=tk.HORIZONTAL, resolution=1, variable=self.editing_var, command=self.EditingSliderValueChanged, length=260)
+        self.editing_scale = tk.Scale(
+            edit_frame,
+            from_=1,
+            to=2,
+            orient=tk.HORIZONTAL,
+            resolution=1,
+            variable=self.editing_var,
+            command=self.EditingSliderValueChanged,
+            length=260,
+        )
         self.editing_scale.pack(fill=tk.X, padx=8, pady=(8, 2))
-        tk.Label(edit_frame, textvariable=self.editing_label_var, anchor='w').pack(fill=tk.X, padx=8, pady=(0, 8))
-        tk.Label(controls, text="Select nucleotide 'N'", anchor='w').pack(fill=tk.X, pady=(0, 4))
+        tk.Label(edit_frame, textvariable=self.editing_label_var, anchor="w").pack(fill=tk.X, padx=8, pady=(0, 8))
+        tk.Label(controls, text="Select nucleotide 'N'", anchor="w").pack(fill=tk.X, pady=(0, 4))
         buttons = tk.Frame(controls)
         buttons.pack(fill=tk.X, pady=(0, 8))
-        for base in ('A', 'C', 'G', 'T'):
+        for base in ("A", "C", "G", "T"):
             tk.Button(buttons, text=base, width=5, command=lambda b=base: self._mutate_and_refresh(b)).pack(side=tk.LEFT, padx=(0, 4))
-        tk.Button(buttons, text='Random', width=7, command=self.RandomButtonPushed).pack(side=tk.LEFT, padx=(4, 4))
-        tk.Button(buttons, text='Delete', width=7, command=self.DeleteButtonPushed).pack(side=tk.LEFT)
-        orient = tk.LabelFrame(controls, text='Orientation controls')
+        tk.Button(buttons, text="Random", width=7, command=self.RandomButtonPushed).pack(side=tk.LEFT, padx=(4, 4))
+        tk.Button(buttons, text="Delete", width=7, command=self.DeleteButtonPushed).pack(side=tk.LEFT)
+        orient = tk.LabelFrame(controls, text="Orientation controls")
         orient.pack(fill=tk.X, pady=(0, 8))
-        self._option_row(orient, 'Feeding orientation', self.feeding_orientation_var, [FEED_53, FEED_35])
-        self._option_row(orient, 'Pore orientation', self.pore_orientation_var, [PORE_FORWARDS, PORE_BACKWARDS])
-        self._option_row(orient, 'Display order', self.display_order_var, [DISPLAY_53, DISPLAY_35])
-        tk.Checkbutton(orient, text='Hel308', variable=self.hel308_var, command=self.Hel308SwitchValueChanged).pack(anchor='w', padx=8, pady=(4, 4))
-        phase = tk.LabelFrame(controls, text='Phase Shift')
+        self._option_row(orient, "Feeding orientation", self.feeding_orientation_var, [FEED_53, FEED_35])
+        self._option_row(orient, "Pore orientation", self.pore_orientation_var, [PORE_FORWARDS, PORE_BACKWARDS])
+        self._option_row(orient, "Display order", self.display_order_var, [DISPLAY_53, DISPLAY_35])
+        tk.Checkbutton(orient, text="Hel308", variable=self.hel308_var, command=self.Hel308SwitchValueChanged).pack(anchor="w", padx=8, pady=(4, 4))
+        phase = tk.LabelFrame(controls, text="Phase Shift")
         phase.pack(fill=tk.X, pady=(0, 8))
-        self.phase_scale = tk.Scale(phase, from_=0.0, to=1.0, orient=tk.HORIZONTAL, resolution=0.01, variable=self.phase_shift_var, command=self.PhaseShiftSliderValueChanged, length=260)
+        self.phase_scale = tk.Scale(
+            phase,
+            from_=0.0,
+            to=1.0,
+            orient=tk.HORIZONTAL,
+            resolution=0.01,
+            variable=self.phase_shift_var,
+            command=self.PhaseShiftSliderValueChanged,
+            length=260,
+        )
         self.phase_scale.pack(fill=tk.X, padx=8, pady=8)
         action = tk.Frame(controls)
         action.pack(fill=tk.X, pady=(0, 8))
-        tk.Button(action, text='Save Figure', command=self.SaveFigureButtonPushed).pack(side=tk.LEFT, padx=(0, 6))
-        tk.Button(action, text='Export Levels', command=self.ExportLevelsButtonPushed).pack(side=tk.LEFT)
-        tk.Label(controls, textvariable=self.status_var, anchor='w', wraplength=330, fg='#444').pack(fill=tk.X, pady=(4, 0))
+        tk.Button(action, text="Save Figure", command=self.SaveFigureButtonPushed).pack(side=tk.LEFT, padx=(0, 6))
+        tk.Button(action, text="Export Levels", command=self.ExportLevelsButtonPushed).pack(side=tk.LEFT)
+        tk.Label(controls, textvariable=self.status_var, anchor="w", wraplength=330, fg="#444").pack(fill=tk.X, pady=(4, 0))
         plot = tk.Frame(outer)
         plot.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
-        tk.Label(plot, text='Predicted currents', font=('TkDefaultFont', 13, 'bold'), anchor='w').pack(fill=tk.X)
+        tk.Label(plot, text="Predicted currents", font=("TkDefaultFont", 13, "bold"), anchor="w").pack(fill=tk.X)
         self.figure = Figure(figsize=(8.0, 5.8), dpi=100, tight_layout=True)
         self.axes = self.figure.add_subplot(111)
         self.canvas = FigureCanvasTkAgg(self.figure, master=plot)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-        tk.Label(plot, textvariable=self.sequence_preview_var, anchor='w', wraplength=760).pack(fill=tk.X, pady=(8, 0))
+        tk.Label(plot, textvariable=self.sequence_preview_var, anchor="w", wraplength=760).pack(fill=tk.X, pady=(8, 0))
 
     def _option_row(self, parent: tk.Widget, label: str, variable: tk.StringVar, values: list[str]) -> None:
         row = tk.Frame(parent)
         row.pack(fill=tk.X, padx=8, pady=(4, 0))
-        tk.Label(row, text=label, anchor='w').pack(side=tk.LEFT)
+        tk.Label(row, text=label, anchor="w").pack(side=tk.LEFT)
         tk.OptionMenu(row, variable, *values, command=lambda _value: self.updateFig()).pack(side=tk.RIGHT)
 
     def _sync_from_widgets(self) -> None:
@@ -292,10 +459,20 @@ class SequenceDesignerGui:
 
     def _refresh_status(self) -> None:
         sequence = self.model.sanitized_sequence()
-        levels = build_predicted_currents(sequence, display_order=self.model.display_order, feeding_orientation=self.model.feeding_orientation, pore_orientation=self.model.pore_orientation, hel308=self.model.hel308, phase_shift=self.model.phase_shift)
-        self.editing_label_var.set(f'Editing: position {self.model.clamp_editing_position()} of {self.model.max_edit_position()}')
-        self.sequence_preview_var.set(f'Sequence (displayed order): {self.model.display_sequence() or "—"}')
-        self.status_var.set(f'Length={len(sequence)} | Editing={self.model.editing_position} | Levels={len(levels)} | Feeding={self.model.feeding_orientation} | Pore={self.model.pore_orientation}')
+        levels = build_predicted_currents(
+            sequence,
+            display_order=self.model.display_order,
+            feeding_orientation=self.model.feeding_orientation,
+            pore_orientation=self.model.pore_orientation,
+            hel308=self.model.hel308,
+            phase_shift=self.model.phase_shift,
+        )
+        self.editing_label_var.set(f"Editing: position {self.model.clamp_editing_position()} of {self.model.max_edit_position()}")
+        self.sequence_preview_var.set(f"Sequence (displayed order): {self.model.display_sequence() or '—'}")
+        self.status_var.set(
+            f"Length={len(sequence)} | Editing={self.model.editing_position} | Levels={len(levels)} | "
+            f"Feeding={self.model.feeding_orientation} | Pore={self.model.pore_orientation}"
+        )
         self.editing_scale.configure(from_=1, to=self.model.max_edit_position())
         self.editing_scale.configure(state=tk.DISABLED if self.model.max_edit_position() <= 1 else tk.NORMAL)
         self.editing_scale.set(self.model.clamp_editing_position())
@@ -308,23 +485,30 @@ class SequenceDesignerGui:
 
     def updateFig(self) -> None:
         self._sync_from_widgets()
-        levels = build_predicted_currents(self.model.sequence, display_order=self.model.display_order, feeding_orientation=self.model.feeding_orientation, pore_orientation=self.model.pore_orientation, hel308=self.model.hel308, phase_shift=self.model.phase_shift)
+        levels = build_predicted_currents(
+            self.model.sequence,
+            display_order=self.model.display_order,
+            feeding_orientation=self.model.feeding_orientation,
+            pore_orientation=self.model.pore_orientation,
+            hel308=self.model.hel308,
+            phase_shift=self.model.phase_shift,
+        )
         self.axes.clear()
-        self.axes.set_title('Predicted currents', loc='left')
-        self.axes.set_xlabel('Sequence position')
-        self.axes.set_ylabel('Normalized current')
+        self.axes.set_title("Predicted currents", loc="left")
+        self.axes.set_xlabel("Sequence position")
+        self.axes.set_ylabel("Normalized current")
         if levels.size == 0:
-            self.axes.text(0.5, 0.5, 'Enter a DNA sequence to generate a trace', ha='center', va='center', transform=self.axes.transAxes)
+            self.axes.text(0.5, 0.5, "Enter a DNA sequence to generate a trace", ha="center", va="center", transform=self.axes.transAxes)
             self.axes.set_xlim(0, 1)
             self.axes.set_ylim(0, 1)
         else:
             x = np.arange(1, levels.size + 1)
-            self.axes.plot(x, levels, color='#1f4aa8', linewidth=2.0, marker='o', markersize=3.5)
-            self.axes.axhline(float(np.min(levels)), color='#888', linestyle='--', linewidth=1.0)
-            self.axes.axhline(float(np.max(levels)), color='#888', linestyle='--', linewidth=1.0)
+            self.axes.plot(x, levels, color="#1f4aa8", linewidth=2.0, marker="o", markersize=3.5)
+            self.axes.axhline(float(np.min(levels)), color="#888", linestyle="--", linewidth=1.0)
+            self.axes.axhline(float(np.max(levels)), color="#888", linestyle="--", linewidth=1.0)
             self.axes.set_xlim(1, max(1, levels.size))
             self.axes.set_ylim(0.0, 1.0)
-            self.axes.text(0.5, -0.16, self.model.display_sequence(), ha='center', va='top', transform=self.axes.transAxes, fontsize=10, family='monospace')
+            self.axes.text(0.5, -0.16, self.model.display_sequence(), ha="center", va="top", transform=self.axes.transAxes, fontsize=10, family="monospace")
         self.axes.grid(True, alpha=0.18)
         self.canvas.draw_idle()
         self._refresh_status()
@@ -366,22 +550,49 @@ class SequenceDesignerGui:
         self._sync_from_widgets()
         self.updateFig()
 
-    def AButtonPushed(self) -> None: self._mutate_and_refresh('A')
-    def CButtonPushed(self) -> None: self._mutate_and_refresh('C')
-    def GButtonPushed(self) -> None: self._mutate_and_refresh('G')
-    def TButtonPushed(self) -> None: self._mutate_and_refresh('T')
-    def RandomButtonPushed(self) -> None: self._mutate_and_refresh(random.choice(sorted(ALLOWED_BASES)))
+    def AButtonPushed(self) -> None:
+        self._mutate_and_refresh("A")
+
+    def CButtonPushed(self) -> None:
+        self._mutate_and_refresh("C")
+
+    def GButtonPushed(self) -> None:
+        self._mutate_and_refresh("G")
+
+    def TButtonPushed(self) -> None:
+        self._mutate_and_refresh("T")
+
+    def RandomButtonPushed(self) -> None:
+        self._mutate_and_refresh(random.choice(sorted(ALLOWED_BASES)))
+
     def DeleteButtonPushed(self) -> None:
-        self._sync_from_widgets(); self.model.delete_selected_base(); self._sync_widgets_from_model(); self.updateFig()
+        self._sync_from_widgets()
+        self.model.delete_selected_base()
+        self._sync_widgets_from_model()
+        self.updateFig()
+
     def SaveFigureButtonPushed(self) -> None:
-        path = filedialog.asksaveasfilename(parent=self.root, title='Save predicted currents figure', defaultextension='.png', filetypes=[('PNG image', '*.png'), ('PDF file', '*.pdf'), ('SVG file', '*.svg'), ('All files', '*.*')])
+        path = filedialog.asksaveasfilename(
+            parent=self.root,
+            title="Save predicted currents figure",
+            defaultextension=".png",
+            filetypes=[("PNG image", "*.png"), ("PDF file", "*.pdf"), ("SVG file", "*.svg"), ("All files", "*.*")],
+        )
         if path:
             self.figure.savefig(Path(path), dpi=160)
+
     def ExportLevelsButtonPushed(self) -> None:
-        path = filedialog.asksaveasfilename(parent=self.root, title='Export predicted levels', defaultextension='.json', filetypes=[('JSON file', '*.json'), ('All files', '*.*')])
+        path = filedialog.asksaveasfilename(
+            parent=self.root,
+            title="Export predicted levels",
+            defaultextension=".json",
+            filetypes=[("JSON file", "*.json"), ("All files", "*.*")],
+        )
         if path:
-            Path(path).write_text(json.dumps(self.model.export_payload(), indent=2), encoding='utf-8')
-    def run(self) -> None: self.root.mainloop()
+            Path(path).write_text(json.dumps(self.model.export_payload(), indent=2), encoding="utf-8")
+
+    def run(self) -> None:
+        self.root.mainloop()
 
 
 def run_gui() -> None:
@@ -389,5 +600,5 @@ def run_gui() -> None:
     SequenceDesignerGui(root).run()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     run_gui()
