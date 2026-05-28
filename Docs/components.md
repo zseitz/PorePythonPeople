@@ -262,9 +262,8 @@ Primary package location: `src/nanoporethon/`.
   - Surfaces explicit routing errors in the GUI when message processing fails.
   - Includes a manual **Health Check** button that validates scope-gate policy readiness (anchors, grounding files, sensitive-domain config) with actionable remediation messages.
   - Provides deterministic explanations for common runtime timeline terms (for example `promotion_disabled`, `promotion_skipped`, `promotion_blocked`) to keep post-run Q&A low-friction.
-  - Provides a persona-driven interactibility prompt suite at `Docs/operator_assistant_interactibility_prompt_suite.md` (derived from `UseCases` + `UserPersonas`) to exercise realistic in-scope and adversarial conversations.
-  - Provides a scorecard generator at `runtime/operator_assistant_interactibility_scorecard.py` that can execute those prompts against the local assistant and emit JSON/Markdown artifacts under `.nanopore-runtime/parity/porsche_interactibility/latest/`.
-  - Interactibility scorecard live mode evaluates each prompt in an independent fresh assistant session to prevent cross-case conversation contamination.
+  - Answers any question pertaining to the repository — code, docs, architecture, AI/agent concepts, or nanoporethon science — using the local Ollama model (from `model_provider` policy) when available. Falls back to relevant doc/code snippet excerpts when the model is not reachable.
+  - Treats common guided-workflow phrasing (for example confusion, reproducibility/checklist, safeguards, and capability-redirect prompts) as in-scope support requests.
   - Keeps the operational model branch-local and human-supervised by design.
 
   ### C13. Sequence designer GUI (sequence-to-signal utility)

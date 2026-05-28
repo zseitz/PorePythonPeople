@@ -211,7 +211,18 @@ class OperatorAssistantGUI:
         self.assistant: Optional[LocalOperatorAssistant] = None
         self.assistant_startup_error: Optional[str] = None
         try:
-            self.assistant = LocalOperatorAssistant(repo_root=self.repo_root, policy=self.policy)
+            _mp = self.policy.get("model_provider") or {}
+            _model_adapter = OllamaAdapter(
+                model=str(_mp.get("model", "qwen2.5:3b")),
+                base_url=str(_mp.get("base_url", "http://localhost:11434")),
+                timeout_seconds=int(_mp.get("request_timeout_seconds", 180)),
+                max_retries=int(_mp.get("max_retries", 1)),
+            )
+            self.assistant = LocalOperatorAssistant(
+                repo_root=self.repo_root,
+                policy=self.policy,
+                model_adapter=_model_adapter,
+            )
         except AssistantStartupError as exc:
             self.assistant_startup_error = str(exc)
 

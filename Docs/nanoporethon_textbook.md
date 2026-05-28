@@ -1315,9 +1315,8 @@ Chat-first request guidance:
 - When implement-stage model output is unavailable or invalid, runtime deterministic fallback can now scaffold explicitly requested GUI Python targets instead of always completing as a no-op.
 - Runtime deterministic scaffolds are now runtime-generic (not tied to any specific generated app module), preserving architecture independence from application-specific code.
 - Runtime request-file context discovery avoids hardcoded local folder assumptions and relies on explicit referenced paths plus discovered absolute roots.
-- Persona-driven interactibility prompts are maintained in `Docs/operator_assistant_interactibility_prompt_suite.md` and can be scored with `python -m runtime.operator_assistant_interactibility_scorecard`.
-- Live scorecard evaluation runs each prompt in a fresh session to avoid cross-prompt context carryover.
-- Interactibility scorecard outputs are written to `.nanopore-runtime/parity/porsche_interactibility/latest/` (`porsche_interactibility_scorecard.json` and `.md`) for repeatable graduation evidence.
+- Porsche answers any question about the repository — code, documentation, runtime/agent design, AI concepts used in the project, and nanoporethon science — using the configured local model (`model_provider.model` in `runtime/policies.yaml`).
+- When Ollama is not running, Porsche falls back to relevant doc/code excerpts for context.
 - You do not need to pre-fill a long static intake form before getting useful help.
 
 Core-component protection rule:

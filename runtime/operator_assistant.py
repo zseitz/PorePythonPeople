@@ -397,12 +397,11 @@ class LocalOperatorAssistant:
         if self.model_adapter is not None and snippets:
             context_text = "\n\n".join(snippets)
             system_prompt = (
-                "You are a local nanoporethon operator assistant. "
-                "You MUST stay in scope: nanoporethon usage, repository architecture, runtime workflow, code/docs guidance, "
-                "and nanoporethon scientific explanations grounded in local project materials. "
-                "Answer using ONLY the supplied local context. If the context is insufficient, say so explicitly instead of guessing. "
-                "If asked for unrelated or sensitive advice, refuse and redirect to in-scope help. "
-                "Be concise and practical."
+                "You are a helpful local assistant for the PorePythonPeople repository. "
+                "Answer questions about the repository's code, documentation, architecture, tests, runtime/agent design, "
+                "AI/agent concepts used in the project, and nanoporethon science. "
+                "Use the supplied context as your primary source; if the context is insufficient, say so honestly. "
+                "Be direct, practical, and concise. Do not refuse repository-relevant questions."
             )
             try:
                 response = self.model_adapter.chat(
@@ -893,8 +892,8 @@ class LocalOperatorAssistant:
         has_code = any(term in lower for term in code_terms)
         has_runtime = any(term in lower for term in runtime_terms)
 
+        # Science terms → nanopore_science_explanation (always try to answer)
         if has_science:
-            mode = "grounded_answer" if has_anchor else "clarify"
             return AssistantDecision(
                 intent="nanopore_science_explanation",
                 confidence=0.82,
@@ -903,13 +902,11 @@ class LocalOperatorAssistant:
                 sensitivity_class="normal",
                 domain_anchor_present=has_anchor,
                 grounding_required=True,
-                allowed_response_mode=mode,
-                should_ask_clarifying_question=not has_anchor,
-                clarifying_question=self._grounding_anchor_question("nanopore_science_explanation") if not has_anchor else "",
+                allowed_response_mode="grounded_answer",
             )
 
+        # Code file/module terms + question → code_explanation
         if has_code and is_question:
-            mode = "grounded_answer" if has_anchor else "clarify"
             return AssistantDecision(
                 intent="code_explanation",
                 confidence=0.85,
@@ -918,13 +915,11 @@ class LocalOperatorAssistant:
                 sensitivity_class="normal",
                 domain_anchor_present=has_anchor,
                 grounding_required=True,
-                allowed_response_mode=mode,
-                should_ask_clarifying_question=not has_anchor,
-                clarifying_question=self._grounding_anchor_question("code_explanation") if not has_anchor else "",
+                allowed_response_mode="grounded_answer",
             )
 
-        if has_runtime and is_question:
-            mode = "runtime_explanation" if has_anchor else "clarify"
+        # Runtime/orchestration terms → runtime_help
+        if has_runtime and (is_question or has_anchor):
             return AssistantDecision(
                 intent="runtime_help",
                 confidence=0.86,
@@ -933,109 +928,32 @@ class LocalOperatorAssistant:
                 sensitivity_class="normal",
                 domain_anchor_present=has_anchor,
                 grounding_required=True,
-                allowed_response_mode=mode,
-                should_ask_clarifying_question=not has_anchor,
-                clarifying_question=self._grounding_anchor_question("runtime_help") if not has_anchor else "",
+                allowed_response_mode="runtime_explanation",
             )
 
-        if is_question and has_anchor:
-            if has_runtime:
-                return AssistantDecision(
-                    intent="runtime_help",
-                    confidence=0.8,
-                    reason="deterministic_runtime_question",
-                    scope_class="runtime_operations",
-                    sensitivity_class="normal",
-                    domain_anchor_present=True,
-                    grounding_required=True,
-                    allowed_response_mode="runtime_explanation",
-                )
+        # Any question (anchored or not) → repo_question, always try to answer
+        if is_question:
             return AssistantDecision(
                 intent="repo_question",
                 confidence=0.8,
                 reason="deterministic_repo_question",
                 scope_class="repo_knowledge",
                 sensitivity_class="normal",
-                domain_anchor_present=True,
+                domain_anchor_present=has_anchor,
                 grounding_required=True,
                 allowed_response_mode="grounded_answer",
             )
 
-        if is_question and not has_anchor and has_guided_cue:
-            return AssistantDecision(
-                intent="repo_question",
-                confidence=0.72,
-                reason="deterministic_guided_question",
-                scope_class="repo_knowledge",
-                sensitivity_class="normal",
-                domain_anchor_present=False,
-                grounding_required=True,
-                allowed_response_mode="clarify",
-                should_ask_clarifying_question=True,
-                clarifying_question=self._grounding_anchor_question("repo_question"),
-            )
-
-        if is_question and not has_anchor:
-            return AssistantDecision(
-                intent="out_of_scope",
-                confidence=0.95,
-                reason="question_without_repo_anchor",
-                scope_class="out_of_scope",
-                sensitivity_class="normal",
-                domain_anchor_present=False,
-                grounding_required=False,
-                allowed_response_mode="refuse",
-            )
-
-        if not is_question and not has_anchor and has_guided_cue:
-            routed_intent = "runtime_help" if has_runtime else "repo_question"
-            return AssistantDecision(
-                intent=routed_intent,
-                confidence=0.68,
-                reason="deterministic_guided_statement",
-                scope_class="runtime_operations" if routed_intent == "runtime_help" else "repo_knowledge",
-                sensitivity_class="normal",
-                domain_anchor_present=False,
-                grounding_required=True,
-                allowed_response_mode="clarify",
-                should_ask_clarifying_question=True,
-                clarifying_question=self._grounding_anchor_question(routed_intent),
-            )
-
-        if not is_question and not explicit_feature_request and has_anchor:
-            routed_intent = "runtime_help" if has_runtime else "repo_question"
-            return AssistantDecision(
-                intent=routed_intent,
-                confidence=0.7,
-                reason="deterministic_anchor_statement",
-                scope_class="runtime_operations" if routed_intent == "runtime_help" else "repo_knowledge",
-                sensitivity_class="normal",
-                domain_anchor_present=True,
-                grounding_required=True,
-                allowed_response_mode="runtime_explanation" if routed_intent == "runtime_help" else "grounded_answer",
-            )
-
-        if not is_question:
-            return AssistantDecision(
-                intent="feature_request",
-                confidence=0.72,
-                reason="deterministic_non_question_feature",
-                scope_class="repo_workflow",
-                sensitivity_class="normal",
-                domain_anchor_present=has_anchor,
-                grounding_required=False,
-                allowed_response_mode="feature_request",
-            )
-
+        # Non-question without explicit action verb → feature_request
         return AssistantDecision(
-            intent="repo_question" if has_anchor else "out_of_scope",
-            confidence=0.72 if has_anchor else 0.95,
-            reason="deterministic_default",
-            scope_class="repo_knowledge" if has_anchor else "out_of_scope",
+            intent="feature_request",
+            confidence=0.72,
+            reason="deterministic_non_question_feature",
+            scope_class="repo_workflow",
             sensitivity_class="normal",
             domain_anchor_present=has_anchor,
-            grounding_required=has_anchor,
-            allowed_response_mode="grounded_answer" if has_anchor else "refuse",
+            grounding_required=False,
+            allowed_response_mode="feature_request",
         )
 
     def _contains_sensitive_or_offtopic_content(self, lower: str) -> bool:

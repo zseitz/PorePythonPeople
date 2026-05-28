@@ -76,13 +76,14 @@ def test_runtime_question_is_in_scope():
     assert response.intent == "runtime_help"
 
 
-def test_confused_user_question_stays_in_scope_with_clarification():
+def test_confused_user_question_stays_in_scope_and_is_answered():
     assistant = _assistant()
     response = assistant.handle_message(
         "I clicked around and now I'm confused. What should I do next?",
         session=assistant.init_session(),
     )
     assert response.intent == "repo_question"
+    assert response.intent != "out_of_scope"
 
 
 def test_runtime_safeguards_question_routes_to_runtime_help():
@@ -113,15 +114,15 @@ def test_nanopore_science_question_routes_and_is_grounded():
     assert response.followup_questions == []
 
 
-def test_unanchored_science_question_requests_grounding_clarification():
+def test_unanchored_science_question_is_answered_without_clarification():
     assistant = _assistant()
     response = assistant.handle_message(
         "Can you explain the chemistry behind that signal?",
         session=assistant.init_session(),
     )
     assert response.intent == "nanopore_science_explanation"
-    assert len(response.followup_questions) == 1
-    assert "ground" in response.followup_questions[0].lower()
+    # Should attempt an answer, not refuse or ask for a grounding anchor
+    assert response.followup_questions == []
 
 
 def test_code_question_routes_to_code_explanation():
@@ -131,6 +132,17 @@ def test_code_question_routes_to_code_explanation():
         session=assistant.init_session(),
     )
     assert response.intent == "code_explanation"
+
+
+def test_plain_how_to_question_is_answered_not_refused():
+    """Any repo-relevant how-to question should be answered, not refused."""
+    assistant = _assistant()
+    response = assistant.handle_message(
+        "How do I run event classifier?",
+        session=assistant.init_session(),
+    )
+    assert response.intent != "out_of_scope"
+    assert response.followup_questions == []
 
 
 def test_feature_request_generates_runtime_request_preview():
