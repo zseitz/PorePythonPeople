@@ -1,7 +1,7 @@
 """Local operator assistant for attended runtime workflows.
 
 Chat-first Option-B implementation:
-- strict domain guardrails with deterministic out-of-scope refusal
+- semantic scope routing with grounded answer modes
 - conversational feature-request drafting (no mandatory long form)
 - just-in-time clarification questions when requests are ambiguous
 - default protection for core GUIs unless explicitly authorized by user
@@ -19,14 +19,82 @@ from typing import Dict, List, Optional, Tuple, Any
 from .adapters.ollama import OllamaAdapter
 
 
-_DEFAULT_DOC_FILES = [
+_DEFAULT_GROUNDING_FILES = [
     "README.md",
     "Docs/components.md",
     "Docs/nanoporethon_textbook.md",
     "Docs/UseCases.md",
     "Docs/technology_context.md",
     "Docs/feature_request_template.md",
+    "runtime/policies.yaml",
+    "runtime/operator_assistant.py",
+    "src/nanoporethon/sequence_designer_gui.py",
 ]
+
+_DEFAULT_DOMAIN_ANCHORS = [
+    "nanoporethon",
+    "nanopore",
+    "pore",
+    "workflow",
+    "experiment",
+    "experiments",
+    "folder",
+    "folders",
+    "event quality",
+    "gui",
+    "runtime",
+    "orchestrator",
+    "operator assistant",
+    "stage",
+    "gate",
+    "policy",
+    "promotion",
+    "docs",
+    "tests",
+    "repo",
+    "repository",
+    "qmer",
+    "q-mer",
+    "hel308",
+    "sequence designer",
+    "event classifier",
+    "data navigator",
+    "trace",
+    "signal",
+    "current",
+    "consensus",
+    "matlab",
+    ".py",
+    ".md",
+    ".yaml",
+    ".json",
+    ".m",
+    ".mlapp",
+]
+
+_DEFAULT_SENSITIVE_DOMAINS = [
+    "medical or diagnostic advice",
+    "legal advice",
+    "financial or investment advice",
+    "political persuasion",
+    "general lifestyle or relationship counseling",
+]
+
+_ALLOWED_INTENTS = {
+    "feature_request",
+    "runtime_help",
+    "code_explanation",
+    "repo_question",
+    "nanopore_science_explanation",
+    "out_of_scope",
+}
+
+_GROUNDED_ANSWER_INTENTS = {
+    "runtime_help",
+    "code_explanation",
+    "repo_question",
+    "nanopore_science_explanation",
+}
 
 
 @dataclass
@@ -34,6 +102,13 @@ class AssistantDecision:
     intent: str
     confidence: float
     reason: str
+    scope_class: str = "unknown"
+    sensitivity_class: str = "normal"
+    domain_anchor_present: bool = False
+    grounding_required: bool = False
+    allowed_response_mode: str = "refuse"
+    should_ask_clarifying_question: bool = False
+    clarifying_question: str = ""
 
 
 @dataclass
@@ -102,62 +177,16 @@ class LocalOperatorAssistant:
         self.repo_root = (repo_root or Path.cwd()).resolve()
         self.policy = policy or {}
         self.model_adapter = model_adapter
+        self._grounding_files = self._load_grounding_files_from_policy()
+        self._domain_anchors = self._load_domain_anchors_from_policy()
+        self._sensitive_domains = self._load_sensitive_domains_from_policy()
         self._doc_cache = self._load_docs()
         self._intent_cache: Dict[str, Tuple[str, float, str]] = {}
+        self._intent_classifier: Optional[Any] = None
         self._intent_classifier_fallback: Optional[OllamaAdapter] = None
 
         self._core_gui_file_hints = self._load_protected_file_hints_from_policy()
         self._core_protected_files = sorted(self._core_gui_file_hints.keys())
-
-        classifier_config = {}
-        if isinstance(self.policy, dict):
-            classifier_config = self.policy.get("assistant_scope", {}).get("intent_classifier", {})
-
-        if not isinstance(classifier_config, dict) or not bool(classifier_config.get("enabled")):
-            raise AssistantStartupError(
-                "Operator assistant startup blocked: assistant_scope.intent_classifier.enabled must be true. "
-                "Strict mode requires a local classifier model for all routing behavior."
-            )
-
-        model_name = str(classifier_config.get("model", "mistral:7b"))
-        base_url = str(classifier_config.get("base_url", "http://localhost:11434"))
-        timeout_seconds = int(classifier_config.get("request_timeout_seconds", 180))
-        max_retries = int(classifier_config.get("max_retries", 1))
-        try:
-            self._intent_classifier: OllamaAdapter = OllamaAdapter(
-                model=model_name,
-                base_url=base_url,
-                timeout_seconds=timeout_seconds,
-                max_retries=max_retries,
-            )
-        except Exception as exc:
-            raise AssistantStartupError(
-                "Operator assistant startup blocked: failed to initialize local intent classifier "
-                f"(model={model_name}, base_url={base_url}). Ensure Ollama is running and the model is installed."
-            ) from exc
-
-        fallback_config = classifier_config.get("fallback", {}) if isinstance(classifier_config, dict) else {}
-        if isinstance(fallback_config, dict) and bool(fallback_config.get("enabled", False)):
-            fallback_model = str(fallback_config.get("model", "")).strip()
-            if fallback_model:
-                fallback_base_url = str(fallback_config.get("base_url", base_url))
-                fallback_timeout_seconds = int(
-                    fallback_config.get("request_timeout_seconds", max(10, min(timeout_seconds, 30)))
-                )
-                fallback_max_retries = int(fallback_config.get("max_retries", 1))
-                try:
-                    self._intent_classifier_fallback = OllamaAdapter(
-                        model=fallback_model,
-                        base_url=fallback_base_url,
-                        timeout_seconds=fallback_timeout_seconds,
-                        max_retries=fallback_max_retries,
-                    )
-                except Exception as exc:
-                    raise AssistantStartupError(
-                        "Operator assistant startup blocked: failed to initialize fallback intent classifier "
-                        f"(model={fallback_model}, base_url={fallback_base_url}). "
-                        "Either fix the fallback model configuration or disable assistant_scope.intent_classifier.fallback.enabled."
-                    ) from exc
 
     def init_session(self) -> Dict[str, Any]:
         return {
@@ -205,17 +234,35 @@ class LocalOperatorAssistant:
         in_feature_context = bool(state.get("feature_messages"))
         decision = self.classify_intent(message, in_feature_context=in_feature_context, session_state=state)
         state["last_intent"] = decision.intent
+        state["last_scope_class"] = decision.scope_class
 
-        if decision.intent == "out_of_scope":
+        if decision.allowed_response_mode == "refuse" or decision.intent == "out_of_scope":
+            refusal_tail = (
+                "I also can’t help with sensitive advisory requests such as medical, legal, financial, or political guidance."
+                if decision.sensitivity_class == "blocked"
+                else "I can’t help with unrelated requests outside those repository/runtime roles."
+            )
             return AssistantResponse(
-                intent=decision.intent,
+                intent="out_of_scope",
                 confidence=decision.confidence,
                 reason=decision.reason,
                 message=(
                     "I’m scoped to nanoporethon workflows, runtime/agent architecture, and this repository’s code/docs. "
-                    "I can’t help with off-topic advice (for example medical, political, financial, legal, or general lifestyle/cooking requests)."
+                    f"{refusal_tail}"
                 ),
                 followup_questions=[],
+                ready_to_run=False,
+                runtime_request=None,
+                session_updates=state,
+            )
+
+        if decision.allowed_response_mode == "clarify" and decision.clarifying_question:
+            return AssistantResponse(
+                intent=decision.intent,
+                confidence=decision.confidence,
+                reason=decision.reason,
+                message=decision.clarifying_question,
+                followup_questions=[decision.clarifying_question],
                 ready_to_run=False,
                 runtime_request=None,
                 session_updates=state,
@@ -256,7 +303,7 @@ class LocalOperatorAssistant:
                 session_updates=state,
             )
 
-        answer = self._answer_domain_question(message)
+        answer = self._answer_domain_question(message, decision=decision)
         return AssistantResponse(
             intent=decision.intent,
             confidence=decision.confidence,
@@ -276,19 +323,20 @@ class LocalOperatorAssistant:
     ) -> AssistantDecision:
         msg = text.lower().strip()
 
-        # If we're in a feature_request context, treat follow-up messages as part of that request
-        # (unless they're explicitly out-of-scope via forbidden patterns, which we already checked).
+        # Continue feature requests across follow-up turns.
         if in_feature_context:
-            return AssistantDecision("feature_request", 0.88, "in_feature_context_continuation")
+            return AssistantDecision(
+                "feature_request",
+                0.88,
+                "in_feature_context_continuation",
+                scope_class="repo_workflow",
+                sensitivity_class="normal",
+                domain_anchor_present=True,
+                grounding_required=False,
+                allowed_response_mode="feature_request",
+            )
 
-        model_decision = self._classify_intent_with_model(msg, session_state=session_state)
-        if model_decision:
-            return model_decision
-
-        raise RuntimeError(
-            "Operator assistant strict mode: intent classifier did not return valid JSON intent output. "
-            "Non-LLM routing fallback is disabled."
-        )
+        return self._classify_intent_simple(msg, session_state=session_state)
 
     def _build_runtime_request_from_session(self, session: Dict[str, Any], analysis: Dict[str, Any]) -> str:
         feature_messages = session.get("feature_messages", [])
@@ -335,25 +383,40 @@ class LocalOperatorAssistant:
             "- Update tests/docs/request log as required by repository policy when behavior/contracts change.\n"
         )
 
-    def _answer_domain_question(self, user_text: str) -> str:
+    def _answer_domain_question(self, user_text: str, decision: Optional[AssistantDecision] = None) -> str:
         runtime_event_explanation = self._runtime_event_explanation(user_text)
         if runtime_event_explanation:
             return runtime_event_explanation
 
-        snippets = self._retrieve_relevant_snippets(user_text, max_items=3)
+        scope_class = decision.scope_class if decision is not None else "repo_knowledge"
+        snippets = self._retrieve_relevant_snippets(user_text, max_items=3, scope_class=scope_class)
+
+        if decision is not None and decision.grounding_required and not snippets:
+            return self._ungrounded_answer_message(decision)
 
         if self.model_adapter is not None and snippets:
             context_text = "\n\n".join(snippets)
             system_prompt = (
                 "You are a local nanoporethon operator assistant. "
-                "You MUST stay in scope: nanoporethon usage, repository architecture, runtime workflow, and code/docs guidance. "
-                "If asked for unrelated advice, refuse and redirect to in-scope help. "
+                "You MUST stay in scope: nanoporethon usage, repository architecture, runtime workflow, code/docs guidance, "
+                "and nanoporethon scientific explanations grounded in local project materials. "
+                "Answer using ONLY the supplied local context. If the context is insufficient, say so explicitly instead of guessing. "
+                "If asked for unrelated or sensitive advice, refuse and redirect to in-scope help. "
                 "Be concise and practical."
             )
             try:
                 response = self.model_adapter.chat(
                     system_prompt,
-                    [{"role": "user", "content": f"Question:\n{user_text}\n\nContext:\n{context_text}"}],
+                    [
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Question:\n{user_text}\n\n"
+                                f"Requested scope class: {scope_class}\n"
+                                f"Context:\n{context_text}"
+                            ),
+                        }
+                    ],
                 )
                 if response.strip():
                     return response.strip()
@@ -362,15 +425,17 @@ class LocalOperatorAssistant:
                 pass
 
         if snippets:
+            intro = "Here’s what I can tell from local repository docs and code:"
+            if scope_class == "nanopore_science":
+                intro = "Here’s the nanoporethon-grounded explanation I can support from local docs/code:"
+            elif scope_class == "runtime_operations":
+                intro = "Here’s the runtime-grounded explanation I can support from local docs/code:"
             return (
-                "Here’s what I can tell from local repository docs:\n\n"
+                f"{intro}\n\n"
                 + "\n\n".join(f"- {self._compress_snippet(s)}" for s in snippets)
             )
 
-        return (
-            "I can help with nanoporethon workflows, runtime behavior, and code/docs in this repository. "
-            "Try asking with repository-specific terms (for example: runtime, stages, policies, docs, tests, or a file/module name)."
-        )
+        return self._ungrounded_answer_message(decision)
 
     def _runtime_event_explanation(self, user_text: str) -> Optional[str]:
         text = (user_text or "").strip().lower()
@@ -704,73 +769,333 @@ class LocalOperatorAssistant:
             session["core_change_decision_made"] = True
 
     def _analyze_feature_session_with_model(self, session: Dict[str, Any]) -> Dict[str, Any]:
-        default_payload: Dict[str, Any] = {
-            "request_kind": "code_change",
-            "core_gui_change_requested": False,
-            "core_gui_change_authorized": False,
-            "clarifying_questions": [],
-        }
-
         feature_messages = session.get("feature_messages", [])
         if not isinstance(feature_messages, list):
-            raise RuntimeError(
-                "Operator assistant strict mode: feature session state is invalid and cannot be analyzed."
-            )
+            feature_messages = []
 
-        conversation = "\n".join(f"- {str(msg)}" for msg in feature_messages[-12:])
-        system_prompt = (
-            "You are a semantic analyzer for a local coding assistant. "
-            "Infer request characteristics from the conversation (no keyword matching). "
-            "Return ONLY valid JSON with keys: "
-            "request_kind, core_gui_change_requested, core_gui_change_authorized, clarifying_questions. "
-            "Rules: request_kind must be one of [code_change, docs_only, mixed, unknown]. "
-            "If core GUI files are likely targeted, set core_gui_change_requested=true. "
-            "If the user explicitly authorizes those core GUI edits, set core_gui_change_authorized=true. "
-            "clarifying_questions must be an array of 0-3 concise strings and should only include genuinely missing details."
+        combined = "\n".join(str(msg) for msg in feature_messages[-12:]).lower()
+        planned_core = self._planned_core_gui_changes(session)
+
+        docs_markers = {"readme", "docs/", "documentation", "textbook", "components.md"}
+        code_markers = {
+            "python",
+            ".py",
+            "module",
+            "function",
+            "class",
+            "runtime",
+            "gui",
+            "test",
+            "feature",
+            "implement",
+            "refactor",
+            "fix",
+            "add",
+            "create",
+            "build",
+            "modify",
+            "update",
+            "export",
+        }
+
+        has_docs = any(marker in combined for marker in docs_markers)
+        has_code = any(marker in combined for marker in code_markers)
+        if has_docs and not has_code:
+            request_kind = "docs_only"
+        elif has_docs and has_code:
+            request_kind = "mixed"
+        elif has_code:
+            request_kind = "code_change"
+        else:
+            request_kind = "unknown"
+
+        lowered_messages = [str(msg).lower() for msg in feature_messages]
+        auth_phrases = (
+            "you can modify",
+            "you may modify",
+            "authorized to modify",
+            "permission granted",
+            "allowed to modify",
+        )
+        core_authorized = any(
+            any(auth in msg for auth in auth_phrases)
+            and any(Path(path).stem.lower() in msg or path.lower() in msg for path in planned_core["files"])
+            for msg in lowered_messages
         )
 
-        user_prompt = (
-            "Protected files (policy-configured):\n"
-            + (
-                "\n".join(f"- {path}" for path in self._core_protected_files)
-                if self._core_protected_files
-                else "- (none configured)"
+        clarifying_questions: List[str] = []
+        if request_kind == "unknown" and not self._request_seems_actionable(session, {"request_kind": request_kind}):
+            clarifying_questions = ["What should be changed?"]
+
+        return {
+            "request_kind": request_kind,
+            "core_gui_change_requested": bool(planned_core["files"]),
+            "core_gui_change_authorized": core_authorized,
+            "clarifying_questions": clarifying_questions,
+        }
+
+    def _classify_intent_simple(
+        self,
+        text: str,
+        session_state: Optional[Dict[str, Any]] = None,
+    ) -> AssistantDecision:
+        lower = (text or "").strip().lower()
+        if not lower:
+            return AssistantDecision(intent="out_of_scope", confidence=1.0, reason="empty_message")
+
+        if self._contains_sensitive_or_offtopic_content(lower):
+            return AssistantDecision(
+                intent="out_of_scope",
+                confidence=0.99,
+                reason="sensitive_or_offtopic",
+                scope_class="out_of_scope",
+                sensitivity_class="blocked",
+                domain_anchor_present=False,
+                grounding_required=False,
+                allowed_response_mode="refuse",
             )
-            + "\n\n"
-            "Feature conversation:\n"
-            f"{conversation}\n"
+
+        explicit_feature_request = self._is_feature_request(lower)
+        if explicit_feature_request:
+            return AssistantDecision(
+                intent="feature_request",
+                confidence=0.9,
+                reason="deterministic_feature_request",
+                scope_class="repo_workflow",
+                sensitivity_class="normal",
+                domain_anchor_present=self._has_domain_anchor(lower, session_state=session_state),
+                grounding_required=False,
+                allowed_response_mode="feature_request",
+            )
+
+        has_anchor = self._has_domain_anchor(lower, session_state=session_state)
+        is_question = self._looks_information_question(lower)
+        has_guided_cue = self._has_guided_workflow_cue(lower)
+
+        science_terms = {"q-mer", "qmer", "hel308", "chemistry", "physics", "signal", "current"}
+        code_terms = {".py", "module", "function", "class", "operator_assistant.py", "file"}
+        runtime_terms = {
+            "runtime",
+            "stage",
+            "gate",
+            "promotion",
+            "run",
+            "orchestrator",
+            "policy",
+            "safeguard",
+            "safeguards",
+            "supervised",
+            "standardized",
+            "processing",
+        }
+
+        has_science = any(term in lower for term in science_terms)
+        has_code = any(term in lower for term in code_terms)
+        has_runtime = any(term in lower for term in runtime_terms)
+
+        if has_science:
+            mode = "grounded_answer" if has_anchor else "clarify"
+            return AssistantDecision(
+                intent="nanopore_science_explanation",
+                confidence=0.82,
+                reason="deterministic_science_route",
+                scope_class="nanopore_science",
+                sensitivity_class="normal",
+                domain_anchor_present=has_anchor,
+                grounding_required=True,
+                allowed_response_mode=mode,
+                should_ask_clarifying_question=not has_anchor,
+                clarifying_question=self._grounding_anchor_question("nanopore_science_explanation") if not has_anchor else "",
+            )
+
+        if has_code and is_question:
+            mode = "grounded_answer" if has_anchor else "clarify"
+            return AssistantDecision(
+                intent="code_explanation",
+                confidence=0.85,
+                reason="deterministic_code_route",
+                scope_class="repo_code",
+                sensitivity_class="normal",
+                domain_anchor_present=has_anchor,
+                grounding_required=True,
+                allowed_response_mode=mode,
+                should_ask_clarifying_question=not has_anchor,
+                clarifying_question=self._grounding_anchor_question("code_explanation") if not has_anchor else "",
+            )
+
+        if has_runtime and is_question:
+            mode = "runtime_explanation" if has_anchor else "clarify"
+            return AssistantDecision(
+                intent="runtime_help",
+                confidence=0.86,
+                reason="deterministic_runtime_route",
+                scope_class="runtime_operations",
+                sensitivity_class="normal",
+                domain_anchor_present=has_anchor,
+                grounding_required=True,
+                allowed_response_mode=mode,
+                should_ask_clarifying_question=not has_anchor,
+                clarifying_question=self._grounding_anchor_question("runtime_help") if not has_anchor else "",
+            )
+
+        if is_question and has_anchor:
+            if has_runtime:
+                return AssistantDecision(
+                    intent="runtime_help",
+                    confidence=0.8,
+                    reason="deterministic_runtime_question",
+                    scope_class="runtime_operations",
+                    sensitivity_class="normal",
+                    domain_anchor_present=True,
+                    grounding_required=True,
+                    allowed_response_mode="runtime_explanation",
+                )
+            return AssistantDecision(
+                intent="repo_question",
+                confidence=0.8,
+                reason="deterministic_repo_question",
+                scope_class="repo_knowledge",
+                sensitivity_class="normal",
+                domain_anchor_present=True,
+                grounding_required=True,
+                allowed_response_mode="grounded_answer",
+            )
+
+        if is_question and not has_anchor and has_guided_cue:
+            return AssistantDecision(
+                intent="repo_question",
+                confidence=0.72,
+                reason="deterministic_guided_question",
+                scope_class="repo_knowledge",
+                sensitivity_class="normal",
+                domain_anchor_present=False,
+                grounding_required=True,
+                allowed_response_mode="clarify",
+                should_ask_clarifying_question=True,
+                clarifying_question=self._grounding_anchor_question("repo_question"),
+            )
+
+        if is_question and not has_anchor:
+            return AssistantDecision(
+                intent="out_of_scope",
+                confidence=0.95,
+                reason="question_without_repo_anchor",
+                scope_class="out_of_scope",
+                sensitivity_class="normal",
+                domain_anchor_present=False,
+                grounding_required=False,
+                allowed_response_mode="refuse",
+            )
+
+        if not is_question and not has_anchor and has_guided_cue:
+            routed_intent = "runtime_help" if has_runtime else "repo_question"
+            return AssistantDecision(
+                intent=routed_intent,
+                confidence=0.68,
+                reason="deterministic_guided_statement",
+                scope_class="runtime_operations" if routed_intent == "runtime_help" else "repo_knowledge",
+                sensitivity_class="normal",
+                domain_anchor_present=False,
+                grounding_required=True,
+                allowed_response_mode="clarify",
+                should_ask_clarifying_question=True,
+                clarifying_question=self._grounding_anchor_question(routed_intent),
+            )
+
+        if not is_question and not explicit_feature_request and has_anchor:
+            routed_intent = "runtime_help" if has_runtime else "repo_question"
+            return AssistantDecision(
+                intent=routed_intent,
+                confidence=0.7,
+                reason="deterministic_anchor_statement",
+                scope_class="runtime_operations" if routed_intent == "runtime_help" else "repo_knowledge",
+                sensitivity_class="normal",
+                domain_anchor_present=True,
+                grounding_required=True,
+                allowed_response_mode="runtime_explanation" if routed_intent == "runtime_help" else "grounded_answer",
+            )
+
+        if not is_question:
+            return AssistantDecision(
+                intent="feature_request",
+                confidence=0.72,
+                reason="deterministic_non_question_feature",
+                scope_class="repo_workflow",
+                sensitivity_class="normal",
+                domain_anchor_present=has_anchor,
+                grounding_required=False,
+                allowed_response_mode="feature_request",
+            )
+
+        return AssistantDecision(
+            intent="repo_question" if has_anchor else "out_of_scope",
+            confidence=0.72 if has_anchor else 0.95,
+            reason="deterministic_default",
+            scope_class="repo_knowledge" if has_anchor else "out_of_scope",
+            sensitivity_class="normal",
+            domain_anchor_present=has_anchor,
+            grounding_required=has_anchor,
+            allowed_response_mode="grounded_answer" if has_anchor else "refuse",
         )
 
-        try:
-            payload = self._chat_json_with_classifier_fallback(
-                system_prompt,
-                [{"role": "user", "content": user_prompt}],
-                operation_name="session-analysis",
-                required_keys=[
-                    "request_kind",
-                    "core_gui_change_requested",
-                    "core_gui_change_authorized",
-                    "clarifying_questions",
-                ],
-            )
-            request_kind = str(payload.get("request_kind", "unknown")).strip().lower()
-            if request_kind not in {"code_change", "docs_only", "mixed", "unknown"}:
-                request_kind = "unknown"
-            questions_raw = payload.get("clarifying_questions", [])
-            clarifying_questions = questions_raw if isinstance(questions_raw, list) else []
+    def _contains_sensitive_or_offtopic_content(self, lower: str) -> bool:
+        sensitive_patterns = [
+            "medical advice",
+            "diagnosis",
+            "medication",
+            "chest pain",
+            "legal advice",
+            "invest",
+            "stocks",
+            "crypto",
+            "vote",
+            "election",
+            "brownie",
+            "recipe",
+            "meaning of life",
+        ]
+        return any(pattern in lower for pattern in sensitive_patterns)
 
-            return {
-                "request_kind": request_kind,
-                "core_gui_change_requested": bool(payload.get("core_gui_change_requested", False)),
-                "core_gui_change_authorized": bool(payload.get("core_gui_change_authorized", False)),
-                "clarifying_questions": [str(q).strip() for q in clarifying_questions if str(q).strip()][:3],
-            }
-        except RuntimeError as exc:
-            raise RuntimeError(
-                "Operator assistant strict mode: session-analysis model did not return valid JSON. "
-                "Non-LLM analysis fallback is disabled. "
-                f"Details: {exc}"
-            ) from exc
+    def _is_feature_request(self, lower: str) -> bool:
+        action_terms = {
+            "add",
+            "build",
+            "create",
+            "generate",
+            "implement",
+            "modify",
+            "refactor",
+            "update",
+            "fix",
+            "export",
+            "remake",
+            "rewrite",
+            "make",
+        }
+        if any(re.search(rf"\b{re.escape(term)}\b", lower) for term in action_terms):
+            return True
+        return False
+
+    def _has_guided_workflow_cue(self, lower: str) -> bool:
+        cues = {
+            "what should i do next",
+            "i'm confused",
+            "im confused",
+            "different pore type",
+            "configurable",
+            "hard assumptions",
+            "compare traces",
+            "reproducible",
+            "daily checklist",
+            "quality review",
+            "consistent exports",
+            "supervised",
+            "standardized processing",
+            "safeguards",
+            "what can you help me with",
+            "what can you help with",
+        }
+        return any(cue in lower for cue in cues)
 
     def _looks_information_question(self, msg: str) -> bool:
         return "?" in msg
@@ -788,14 +1113,30 @@ class LocalOperatorAssistant:
         if not self._intent_classifier:
             return None
 
+        capability_modes = [
+            "feature_request",
+            "runtime_help",
+            "code_explanation",
+            "repo_question",
+            "nanopore_science_explanation",
+        ]
+        sensitive_domains = "; ".join(self._sensitive_domains[:5])
         system_prompt = (
-            "You are a semantic intent classifier for a code assistant. "
-            "Analyze the user message semantically and classify it as one of: feature_request, "
-            "runtime_help, code_explanation, repo_question, or out_of_scope. "
-            "Treat nanoporethon/repository/runtime/code/docs assistance as in scope. "
-            "Treat unrelated lifestyle, medical, political, legal, or investing requests as out_of_scope. "
-            "Respond with ONLY valid JSON (no markdown, no explanation): "
-            '{"intent": "...", "confidence": 0.X, "reason": "..."}'
+            "You are a semantic scope and intent classifier for a local nanoporethon operator assistant. "
+            "Use positive scope matching: only classify as in-scope when the message clearly belongs to one of the allowed capability modes "
+            f"({', '.join(capability_modes)}). "
+            "Classify implementation/edit/build/test/doc requests as feature_request. "
+            "Classify runtime execution, stages, promotion, gates, policies, logs, or run-artifact questions as runtime_help. "
+            "Classify code/module/file/function explanations as code_explanation. "
+            "Classify repository/docs/workflow questions as repo_question. "
+            "Classify nanoporethon scientific or algorithmic explanations grounded in local project materials as nanopore_science_explanation. "
+            "Use out_of_scope for unrelated requests or sensitive advisory requests. "
+            f"Sensitive blocked domains include: {sensitive_domains}. "
+            "If a question seems vaguely scientific or technical but lacks a clear nanoporethon/repository anchor, set domain_anchor_present=false "
+            "and allowed_response_mode=clarify. "
+            "Respond with ONLY valid JSON (no markdown, no explanation). Required keys: intent, confidence, reason. "
+            "Optional keys: scope_class, sensitivity_class, domain_anchor_present, grounding_required, allowed_response_mode, "
+            "should_ask_clarifying_question, clarifying_question."
         )
 
         classifier_messages = self._build_classifier_messages(text, session_state=session_state)
@@ -808,18 +1149,22 @@ class LocalOperatorAssistant:
         )
 
         try:
-            intent = str(payload.get("intent", "")).lower().strip()
-            confidence = float(payload.get("confidence", 0.0))
-            reason = str(payload.get("reason", "model_classified"))
+            normalized = self._normalize_classifier_payload(payload, text=text, session_state=session_state)
+            intent = normalized["intent"]
 
-            if intent in {
-                "feature_request",
-                "runtime_help",
-                "code_explanation",
-                "repo_question",
-                "out_of_scope",
-            }:
-                return AssistantDecision(intent, confidence, reason)
+            if intent in _ALLOWED_INTENTS:
+                return AssistantDecision(
+                    intent=intent,
+                    confidence=normalized["confidence"],
+                    reason=normalized["reason"],
+                    scope_class=normalized["scope_class"],
+                    sensitivity_class=normalized["sensitivity_class"],
+                    domain_anchor_present=normalized["domain_anchor_present"],
+                    grounding_required=normalized["grounding_required"],
+                    allowed_response_mode=normalized["allowed_response_mode"],
+                    should_ask_clarifying_question=normalized["should_ask_clarifying_question"],
+                    clarifying_question=normalized["clarifying_question"],
+                )
 
             raise RuntimeError(
                 "Operator assistant strict mode: classifier returned an unsupported intent value "
@@ -920,7 +1265,7 @@ class LocalOperatorAssistant:
 
     def _load_docs(self) -> Dict[str, str]:
         cache: Dict[str, str] = {}
-        for rel in _DEFAULT_DOC_FILES:
+        for rel in self._grounding_files:
             path = self.repo_root / rel
             if not path.exists() or not path.is_file():
                 continue
@@ -956,15 +1301,63 @@ class LocalOperatorAssistant:
             parsed[file_path.strip()] = deduped
         return parsed
 
-    def _retrieve_relevant_snippets(self, query: str, max_items: int = 3) -> List[str]:
+    def _load_grounding_files_from_policy(self) -> List[str]:
+        if not isinstance(self.policy, dict):
+            return list(_DEFAULT_GROUNDING_FILES)
+
+        raw = self.policy.get("assistant_scope", {}).get("grounding_files", _DEFAULT_GROUNDING_FILES)
+        values = self._normalize_text_list(raw)
+        return values or list(_DEFAULT_GROUNDING_FILES)
+
+    def _load_domain_anchors_from_policy(self) -> List[str]:
+        if not isinstance(self.policy, dict):
+            return list(_DEFAULT_DOMAIN_ANCHORS)
+
+        raw = self.policy.get("assistant_scope", {}).get("domain_anchors", _DEFAULT_DOMAIN_ANCHORS)
+        values = self._normalize_text_list(raw)
+        return values or list(_DEFAULT_DOMAIN_ANCHORS)
+
+    def _load_sensitive_domains_from_policy(self) -> List[str]:
+        if not isinstance(self.policy, dict):
+            return list(_DEFAULT_SENSITIVE_DOMAINS)
+
+        raw = self.policy.get("assistant_scope", {}).get("sensitive_domains", _DEFAULT_SENSITIVE_DOMAINS)
+        values = self._normalize_text_list(raw)
+        return values or list(_DEFAULT_SENSITIVE_DOMAINS)
+
+    def _normalize_text_list(self, raw: Any) -> List[str]:
+        if not isinstance(raw, list):
+            return []
+
+        normalized: List[str] = []
+        seen = set()
+        for item in raw:
+            value = str(item).strip()
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            normalized.append(value)
+        return normalized
+
+    def _retrieve_relevant_snippets(self, query: str, max_items: int = 3, scope_class: str = "unknown") -> List[str]:
         terms = self._query_terms(query)
         scored: List[Tuple[int, str, str]] = []
         for rel, text in self._doc_cache.items():
             lower = text.lower()
-            score = sum(lower.count(term) for term in terms)
+            path_lower = rel.lower()
+            score = sum(lower.count(term) for term in terms) + sum(path_lower.count(term) * 2 for term in terms)
+            if scope_class == "runtime_operations" and rel.startswith("runtime/"):
+                score += 2
+            if scope_class == "nanopore_science" and (
+                "sequence_designer" in path_lower
+                or "technology_context" in path_lower
+                or "nanoporethon_textbook" in path_lower
+                or "components" in path_lower
+            ):
+                score += 2
             if score <= 0:
                 continue
-            snippet = text[:900].strip()
+            snippet = self._extract_snippet_window(text, terms)
             scored.append((score, rel, snippet))
 
         scored.sort(key=lambda t: t[0], reverse=True)
@@ -975,6 +1368,178 @@ class LocalOperatorAssistant:
         words = [w for w in re.split(r"[^a-zA-Z0-9_]+", query.lower()) if len(w) >= 3]
         stop = {"the", "and", "for", "with", "that", "this", "how", "what", "when", "where", "why"}
         return [w for w in words if w not in stop][:10]
+
+    def _extract_snippet_window(self, text: str, terms: List[str], max_chars: int = 700) -> str:
+        if not text:
+            return ""
+
+        lower = text.lower()
+        for term in terms:
+            idx = lower.find(term)
+            if idx < 0:
+                continue
+            start = max(0, idx - 220)
+            end = min(len(text), start + max_chars)
+            snippet = text[start:end].strip()
+            prefix = "..." if start > 0 else ""
+            suffix = "..." if end < len(text) else ""
+            return f"{prefix}{snippet}{suffix}"
+
+        fallback = text[:max_chars].strip()
+        if len(text) > max_chars:
+            fallback += "..."
+        return fallback
+
+    def _normalize_classifier_payload(
+        self,
+        payload: Dict[str, Any],
+        text: str,
+        session_state: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        intent = str(payload.get("intent", "")).lower().strip()
+        confidence = float(payload.get("confidence", 0.0))
+        reason = str(payload.get("reason", "model_classified")).strip() or "model_classified"
+
+        if intent not in _ALLOWED_INTENTS:
+            raise RuntimeError(
+                "Operator assistant strict mode: classifier returned an unsupported intent value "
+                f"('{intent}')."
+            )
+
+        scope_class = str(payload.get("scope_class", "")).strip().lower() or self._intent_default_scope_class(intent)
+        sensitivity_class = str(payload.get("sensitivity_class", "")).strip().lower()
+        if sensitivity_class not in {"normal", "sensitive", "blocked"}:
+            sensitivity_class = "blocked" if intent == "out_of_scope" else "normal"
+
+        raw_anchor = payload.get("domain_anchor_present", None)
+        if isinstance(raw_anchor, bool):
+            domain_anchor_present = raw_anchor
+        else:
+            domain_anchor_present = self._has_domain_anchor(text, session_state=session_state)
+
+        raw_grounding_required = payload.get("grounding_required", None)
+        grounding_required = (
+            bool(raw_grounding_required)
+            if isinstance(raw_grounding_required, bool)
+            else intent in _GROUNDED_ANSWER_INTENTS
+        )
+
+        allowed_response_mode = str(payload.get("allowed_response_mode", "")).strip().lower()
+        if allowed_response_mode not in {"feature_request", "runtime_explanation", "grounded_answer", "clarify", "refuse"}:
+            allowed_response_mode = self._default_response_mode(
+                intent=intent,
+                sensitivity_class=sensitivity_class,
+                domain_anchor_present=domain_anchor_present,
+                grounding_required=grounding_required,
+            )
+
+        should_ask_clarifying_question = bool(payload.get("should_ask_clarifying_question", False))
+        clarifying_question = str(payload.get("clarifying_question", "")).strip()
+        if (
+            not clarifying_question
+            and grounding_required
+            and not domain_anchor_present
+            and intent in {"repo_question", "code_explanation", "nanopore_science_explanation"}
+        ):
+            should_ask_clarifying_question = True
+            clarifying_question = self._grounding_anchor_question(intent)
+
+        if allowed_response_mode == "grounded_answer" and grounding_required and not domain_anchor_present:
+            allowed_response_mode = "clarify"
+
+        if allowed_response_mode == "clarify" and not clarifying_question:
+            clarifying_question = self._grounding_anchor_question(intent)
+
+        return {
+            "intent": intent,
+            "confidence": confidence,
+            "reason": reason,
+            "scope_class": scope_class,
+            "sensitivity_class": sensitivity_class,
+            "domain_anchor_present": domain_anchor_present,
+            "grounding_required": grounding_required,
+            "allowed_response_mode": allowed_response_mode,
+            "should_ask_clarifying_question": should_ask_clarifying_question,
+            "clarifying_question": clarifying_question,
+        }
+
+    def _intent_default_scope_class(self, intent: str) -> str:
+        mapping = {
+            "feature_request": "repo_workflow",
+            "runtime_help": "runtime_operations",
+            "code_explanation": "repo_code",
+            "repo_question": "repo_knowledge",
+            "nanopore_science_explanation": "nanopore_science",
+            "out_of_scope": "out_of_scope",
+        }
+        return mapping.get(intent, "unknown")
+
+    def _default_response_mode(
+        self,
+        intent: str,
+        sensitivity_class: str,
+        domain_anchor_present: bool,
+        grounding_required: bool,
+    ) -> str:
+        if sensitivity_class == "blocked" or intent == "out_of_scope":
+            return "refuse"
+        if intent == "feature_request":
+            return "feature_request"
+        if intent == "runtime_help":
+            return "runtime_explanation"
+        if grounding_required and not domain_anchor_present:
+            return "clarify"
+        return "grounded_answer"
+
+    def _has_domain_anchor(
+        self,
+        text: str,
+        session_state: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        lower = (text or "").strip().lower()
+        if not lower:
+            return False
+
+        if any(anchor.lower() in lower for anchor in self._domain_anchors):
+            return True
+
+        if re.search(r"[A-Za-z0-9_./\\-]+\.(py|md|yaml|json|m|mlapp)\b", lower):
+            return True
+
+        if isinstance(session_state, dict):
+            if session_state.get("latest_runtime_request"):
+                return True
+            feature_messages = session_state.get("feature_messages", [])
+            if isinstance(feature_messages, list) and feature_messages:
+                return True
+            last_scope_class = str(session_state.get("last_scope_class", "")).strip().lower()
+            if last_scope_class and last_scope_class != "out_of_scope":
+                return True
+
+        return False
+
+    def _grounding_anchor_question(self, intent: str) -> str:
+        if intent == "nanopore_science_explanation":
+            return (
+                "Which nanoporethon component, file, or local reference should I ground that nanopore explanation in? "
+                "For example: a runtime module, `sequence_designer_gui.py`, a docs section, or a MATLAB reference."
+            )
+        return (
+            "Which nanoporethon component, workflow, file, or local reference should I ground that answer in? "
+            "Mention a module, docs section, runtime stage, or file path and I’ll stay anchored there."
+        )
+
+    def _ungrounded_answer_message(self, decision: Optional[AssistantDecision]) -> str:
+        if decision is not None and decision.intent == "nanopore_science_explanation":
+            return (
+                "I can explain nanoporethon scientific or algorithmic behavior, but only when I can ground it in local repo materials. "
+                "Mention the relevant component, file, workflow, or reference so I can stay evidence-first."
+            )
+        return (
+            "I can help with nanoporethon workflows, runtime behavior, repository/code questions, and grounded nanopore explanations. "
+            "Mention a repository-specific term (for example: runtime, stage, policy, docs, tests, q-mer map, or a file/module name) "
+            "so I can anchor the answer locally."
+        )
 
     def _compress_snippet(self, snippet: str) -> str:
         s = " ".join(snippet.split())

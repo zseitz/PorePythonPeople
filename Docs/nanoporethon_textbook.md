@@ -1171,9 +1171,7 @@ Current recommended model map:
   - `doc_sync` → `qwen2.5:3b`
   - `memory_sync` → `qwen2.5:3b`
 
-Operator-assistant classifier recommendation remains separate from specialist generation routing:
-
-- `assistant_scope.intent_classifier.model` → `mistral:7b` (kept for strict JSON routing stability)
+Operator-assistant topic enforcement is deterministic and policy-driven (scope gate) rather than classifier-model-driven.
 
 Recommended context planning (operational estimates):
 
@@ -1227,7 +1225,6 @@ That means `nanoporethon` can often benefit from faster quantized local models w
 
 Current configured agent/model ownership in `runtime/policies.yaml` is:
 
-- **Operator-assistant intent classifier** → `mistral:7b`
 - **Orchestrator runtime global default** → `qwen2.5:3b`
 - **Specialists inheriting the global default**:
   - `orchestrator`
@@ -1240,7 +1237,6 @@ Current configured agent/model ownership in `runtime/policies.yaml` is:
 
 As checked against the local Ollama metadata during documentation review on **2026-05-08**, the currently installed model variants reported:
 
-- `mistral:7b` → `Q4_K_M`
 - `qwen2.5:3b` → `Q4_K_M`
 - `qwen3:4b` → `Q4_K_M`
 
@@ -1248,7 +1244,6 @@ So, on the machine used for this update, the effective current map is:
 
 | Agent / role | Configured model | Reported quant |
 |---|---|---|
-| Operator-assistant intent classifier | `mistral:7b` | `Q4_K_M` |
 | `orchestrator` specialist | `qwen2.5:3b` | `Q4_K_M` |
 | `feature_builder` specialist | `qwen3:4b` | `Q4_K_M` |
 | `refactor` specialist | `qwen3:4b` | `Q4_K_M` |
@@ -1264,7 +1259,6 @@ Important caveat: the **model name** in policy and the **quant installed on a pa
 
 Practical recommendation for the default policy:
 
-- keep the **intent classifier** on `mistral:7b Q4_K_M` for routing stability,
 - keep the **global runtime default** on `qwen2.5:3b Q4_K_M` for portability,
 - upgrade the code-heavy **`feature_builder`** and **`refactor`** specialists to `qwen3:4b Q4_K_M`,
 - and keep **`doc_sync`**, **`memory_sync`**, **`orchestrator`**, and **`verifier`** on lighter models unless real usage shows a quality bottleneck.
@@ -1287,7 +1281,7 @@ When in doubt, the authoritative local check is Ollama model metadata (for examp
 Important guardrail behavior:
 
 - The assistant is domain-scoped to nanoporethon/runtime/repository workflows.
-- Off-topic requests are deterministically refused (for example: cooking recipes, medical advice, political advice, investment advice, legal advice, general lifestyle counseling).
+- Off-topic requests are refused before runtime execution, and sensitive advisory domains (for example medical, legal, political, or investment guidance) are explicitly blocked rather than answered approximately.
 - Scope checks occur before runtime execution so out-of-scope prompts cannot trigger implementation actions.
 
 Operationally, this keeps Option B interactive while preserving the project’s intended model:
@@ -1299,12 +1293,13 @@ Operationally, this keeps Option B interactive while preserving the project’s 
 Chat-first request guidance:
 
 - Start by describing the feature/task naturally in one or two sentences.
-- Intent and request-type understanding are inferred semantically by the local LLM (feature work vs question vs docs/help), not by hard-coded keyword checks.
-- Strict semantic routing can use a primary classifier plus an optional fallback classifier from policy; both must produce valid structured JSON outputs.
+- Routing uses a deterministic scope gate: `feature_request`, `runtime_help`, `code_explanation`, `repo_question`, and `nanopore_science_explanation` are allowed; everything else is redirected or blocked.
+- The deterministic scope gate also treats common guidance-style phrasing (for example confusion after clicking around, safeguards/checklist/reproducibility requests, and "what can you help with" redirects) as in-scope support.
 - Local model calls for this flow use the Ollama HTTP adapter (`runtime/adapters/ollama.py`) against `/api/chat`; this assistant path is not MCP-server based.
-- Classifier availability is mandatory at startup in strict mode; if local classifier initialization fails, the GUI shows an explicit startup error and disables message routing until fixed.
-- Classifier prompts include recent chat/session context so runtime follow-up questions after a run are interpreted in conversation context (not as isolated messages).
-- Use the **Health Check** button to validate strict-mode prerequisites (classifier enabled in policy, Ollama reachable, model installed, and valid JSON classifier output contract).
+- Message routing does not require classifier startup availability.
+- Session context is still used so runtime follow-up questions after a run are interpreted in conversation context (not as isolated messages).
+- Scientific or algorithmic nanopore questions are allowed when they can be grounded in local project materials; if the question is too broad (for example generic chemistry/physics with no repo anchor), the assistant asks for one grounding reference instead of improvising.
+- Use the **Health Check** button to validate scope-gate prerequisites (domain anchors, grounding files, and sensitive-domain policy values).
 - Common runtime timeline terms (like `promotion_disabled`) are answered directly in-assistant so users can ask immediate post-run questions without switching workflows.
 - For code-edit requests, verification is expected by default (automated tests + behavior checks) and is included in the runtime request guardrails without requiring testing keywords.
 - Generated runtime request packets now include an explicit anti-hallucination quality rubric for each assistant-produced change:
@@ -1315,10 +1310,14 @@ Chat-first request guidance:
   - Scoped (minimal relevant diffs)
   - Operator-supervised (branch-local, human-reviewed flow)
 - The assistant will ask targeted clarifying questions only when needed for missing behavior details or boundaries.
+- For explanation-style prompts, “needed” now includes missing local grounding: mention the relevant file, runtime stage, docs section, q-mer map, MATLAB reference, or component name if you want a scientific/code explanation rather than a refusal.
 - If a prompt references a likely-mistyped source filename (for example requesting `SequenceDesigner.m` when `SequenceDesigner.mlapp` exists in the referenced folder), the assistant asks a single near-match confirmation question instead of launching a likely no-op run.
 - When implement-stage model output is unavailable or invalid, runtime deterministic fallback can now scaffold explicitly requested GUI Python targets instead of always completing as a no-op.
 - Runtime deterministic scaffolds are now runtime-generic (not tied to any specific generated app module), preserving architecture independence from application-specific code.
 - Runtime request-file context discovery avoids hardcoded local folder assumptions and relies on explicit referenced paths plus discovered absolute roots.
+- Persona-driven interactibility prompts are maintained in `Docs/operator_assistant_interactibility_prompt_suite.md` and can be scored with `python -m runtime.operator_assistant_interactibility_scorecard`.
+- Live scorecard evaluation runs each prompt in a fresh session to avoid cross-prompt context carryover.
+- Interactibility scorecard outputs are written to `.nanopore-runtime/parity/porsche_interactibility/latest/` (`porsche_interactibility_scorecard.json` and `.md`) for repeatable graduation evidence.
 - You do not need to pre-fill a long static intake form before getting useful help.
 
 Core-component protection rule:

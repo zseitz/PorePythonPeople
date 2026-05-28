@@ -218,7 +218,7 @@ Primary package location: `src/nanoporethon/`.
   - Applies a hard wall-clock timeout around specialist model calls; on timeout/error the stage records a warning and falls back to deterministic payload behavior instead of stalling run progression.
   - Loads stage-specific markdown skill context via `runtime/skill_loader.py` and injects bounded `skill_context` into specialist model payloads to improve plan/implementation quality without changing deterministic gates.
   - Supports optional per-specialist model-provider overrides (with global fallback) so different agents can use different local models.
-  - Current balanced default routing keeps the global runtime default on `qwen2.5:3b`, routes coding-heavy `feature_builder` and `refactor` stages to `qwen3:4b`, keeps lightweight `doc_sync`/`memory_sync` on `qwen2.5:3b`, and keeps the operator-assistant classifier on `mistral:7b` so attended runtime remains viable on 16 GB-class machines while improving code-stage quality.
+  - Current balanced default routing keeps the global runtime default on `qwen2.5:3b`, routes coding-heavy `feature_builder` and `refactor` stages to `qwen3:4b`, and keeps lightweight `doc_sync`/`memory_sync` on `qwen2.5:3b` so attended runtime remains viable on 16 GB-class machines while improving code-stage quality.
   - Supports optional operator approval pauses at stage transitions, persisting pending approvals in run state so blocked runs can be resumed safely.
   - Supports operator-selected resume behavior for interrupted runs.
   - Is intentionally a secondary development aid for the main nanoporethon codebase, so guardrails should optimize for safe occasional use instead of heavy always-on platform complexity.
@@ -233,13 +233,15 @@ Primary package location: `src/nanoporethon/`.
 - **Key behavior**:
   - Provides a chat-first local assistant for in-scope repository/runtime interaction.
   - Displays a live intent badge above chat output (for example Feature Request / Runtime Help / Out-of-Scope) so routing decisions are immediately visible.
-  - Uses semantic intent classification via local LLM (configurable model, defaults to `mistral:7b` for speed) with JSON-structured responses for reliability.
-  - Uses a strict classifier chain for semantic routing: primary classifier plus optional policy-configured fallback classifier, both requiring valid structured JSON output.
-  - Applies policy-configured classifier timeout/retry settings so strict routing fails fast with actionable errors when local model service is slow/unreachable.
-  - Requests JSON-mode classifier responses when available and falls back to extracting embedded JSON objects from chatty model output, reducing false startup/health-check failures caused by prose-wrapped responses.
-  - Runs in strict LLM mode: classifier availability is a hard startup requirement and non-LLM routing fallback is disabled.
+  - Uses a deterministic scope gate for routing before any answer/run action: off-topic/sensitive prompts are refused, anchored in-scope prompts are answered, and broad unanchored prompts get a single grounding clarification.
+  - Does not require model-based intent classification for on-topic enforcement.
+  - Treats common guided-workflow phrasing (for example confusion, reproducibility/checklist, safeguards, and capability-redirect prompts) as in-scope support requests rather than off-topic by default.
+  - Uses a positive capability model in policy (`feature_request`, `runtime_help`, `code_explanation`, `repo_question`, `nanopore_science_explanation`) instead of denylist-style topic filtering.
+  - Supports a dedicated `nanopore_science_explanation` route for scientific/algorithmic nanoporethon questions when they can be grounded in local repository materials.
+  - Requires a repository/domain anchor (for example runtime terms, file/module references, q-mer/sequence-designer concepts, or retrieved local snippets) before answering explanation-style prompts.
+  - Fails closed on ungrounded questions: if a scientific/code question lacks a clear local anchor, the assistant asks for one precise grounding clarification instead of guessing.
   - Uses LLM-based session analysis (request-kind inference, clarifying-question generation, and core-GUI authorization detection) instead of hard-coded keyword detectors for follow-up routing and request drafting.
-  - Passes recent conversation/session context into classifier prompts so follow-up runtime questions (for example post-run timeline questions) route semantically as in-scope help instead of being treated as disconnected one-off messages.
+  - Uses recent conversation/session context for continuation handling so follow-up runtime questions (for example post-run timeline questions) stay in-scope instead of being treated as disconnected one-off messages.
   - Avoids redundant clarification loops by collapsing overlapping core-GUI authorization questions and remembering explicit user decisions (for example, repeated "No" answers do not trigger the same authorization prompt again).
   - Builds a runtime request preview directly from conversation context (instead of requiring a long static form upfront).
   - Asks targeted clarification questions only when more precision is needed.
@@ -249,16 +251,20 @@ Primary package location: `src/nanoporethon/`.
   - **Session-aware continuation**: Follow-up responses to clarifying questions (e.g., answering "both" to a verification question) are recognized as continuations of the active feature request and NOT re-evaluated against scope rules, preventing context loss in multi-turn conversations.
   - **Default verification policy for code changes**: Feature requests are treated as code-changing by default (unless clearly docs-only), and runtime request packets automatically require both automated tests and behavior checks without requiring users to include testing keywords.
   - Classifies intents into in-scope runtime/repo workflows vs out-of-scope domains.
-  - Enforces semantic off-topic refusal guardrails (for example medical/political/financial/general lifestyle requests) before any runtime action can occur.
+  - Separates off-topic refusal from sensitive-domain blocking: unrelated prompts are redirected, while sensitive advisory domains (for example medical/legal/financial/political guidance) are explicitly blocked before any runtime action can occur.
+  - Grounds answer-mode responses in configured local docs/code files (`assistant_scope.grounding_files`) and refuses to freewheel beyond retrieved local evidence.
   - Builds a runtime request packet from chat context and launches attended runtime execution locally.
   - Enforces runtime launch preflight before assistant-triggered runs: clean working tree (policy-controlled) plus feature-branch requirement (policy-controlled), with explicit blocked-state diagnostics.
   - Protects policy-configured core files by default (repository default policy includes `data_navi_gui.py` and `event_classifier_gui.py`) unless user explicitly authorizes modifying them.
   - Includes an explicit anti-hallucination quality rubric in generated runtime request packets (contract-safe, evidence-first, surface-consistent, traceable, scoped, operator-supervised).
   - Streams runtime progress to users by reading `.nanopore-runtime/runs/<run_id>/events.jsonl` and surfacing stage/gate/promotion events.
   - Shows a live animated activity indicator (dot-cycling heartbeat) during assistant-processing and runtime execution, including a last-UI-tick timestamp, so users can distinguish active work from a frozen UI even between major timeline events.
-  - Surfaces explicit startup/routing errors in the GUI when classifier initialization fails or model responses are not valid structured JSON.
-  - Includes a manual **Health Check** button that validates classifier policy enablement, local Ollama connectivity, model availability, and structured JSON response compliance, with actionable remediation messages.
+  - Surfaces explicit routing errors in the GUI when message processing fails.
+  - Includes a manual **Health Check** button that validates scope-gate policy readiness (anchors, grounding files, sensitive-domain config) with actionable remediation messages.
   - Provides deterministic explanations for common runtime timeline terms (for example `promotion_disabled`, `promotion_skipped`, `promotion_blocked`) to keep post-run Q&A low-friction.
+  - Provides a persona-driven interactibility prompt suite at `Docs/operator_assistant_interactibility_prompt_suite.md` (derived from `UseCases` + `UserPersonas`) to exercise realistic in-scope and adversarial conversations.
+  - Provides a scorecard generator at `runtime/operator_assistant_interactibility_scorecard.py` that can execute those prompts against the local assistant and emit JSON/Markdown artifacts under `.nanopore-runtime/parity/porsche_interactibility/latest/`.
+  - Interactibility scorecard live mode evaluates each prompt in an independent fresh assistant session to prevent cross-case conversation contamination.
   - Keeps the operational model branch-local and human-supervised by design.
 
   ### C13. Sequence designer GUI (sequence-to-signal utility)

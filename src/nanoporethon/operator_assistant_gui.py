@@ -46,6 +46,7 @@ def _intent_badge_style(intent: str, confidence: float) -> Tuple[str, str]:
         "feature_request": "#0a7d33",
         "runtime_help": "#1f4aa8",
         "code_explanation": "#6a3dad",
+        "nanopore_science_explanation": "#0b7285",
         "repo_question": "#444444",
         "out_of_scope": "#b42318",
         "unknown": "#555555",
@@ -102,92 +103,43 @@ def _classifier_health_check(
     policy: Dict[str, object],
     adapter_factory: Callable[..., Any] = OllamaAdapter,
 ) -> Dict[str, str]:
-    assistant_scope = policy.get("assistant_scope", {}) if isinstance(policy, dict) else {}
-    classifier_cfg = assistant_scope.get("intent_classifier", {}) if isinstance(assistant_scope, dict) else {}
+    del adapter_factory  # retained for backwards-compatible signature in tests/callers.
 
-    if not isinstance(classifier_cfg, dict) or not bool(classifier_cfg.get("enabled")):
+    assistant_scope = policy.get("assistant_scope", {}) if isinstance(policy, dict) else {}
+    if not isinstance(assistant_scope, dict):
         return {
             "ok": "false",
             "status": "config_error",
-            "message": (
-                "Classifier is disabled in policy. Set assistant_scope.intent_classifier.enabled=true "
-                "to run the operator assistant in strict LLM mode."
-            ),
+            "message": "assistant_scope policy block is missing or invalid.",
         }
 
-    model = str(classifier_cfg.get("model", "mistral:7b"))
-    base_url = str(classifier_cfg.get("base_url", "http://localhost:11434"))
+    domain_anchors = assistant_scope.get("domain_anchors", [])
+    grounding_files = assistant_scope.get("grounding_files", [])
+    sensitive_domains = assistant_scope.get("sensitive_domains", [])
 
-    try:
-        adapter = adapter_factory(model=model, base_url=base_url)
-    except Exception as exc:
+    if not isinstance(domain_anchors, list) or len(domain_anchors) == 0:
         return {
             "ok": "false",
-            "status": "adapter_init_error",
-            "message": (
-                f"Failed to initialize classifier adapter (model={model}, base_url={base_url}). "
-                f"Details: {exc}"
-            ),
+            "status": "config_error",
+            "message": "assistant_scope.domain_anchors must be a non-empty list.",
         }
-
-    try:
-        payload = _chat_json_response(
-            adapter,
-            "Return ONLY valid JSON: {\"intent\": \"feature_request\", \"confidence\": 0.9, \"reason\": \"healthcheck\"}",
-            [{"role": "user", "content": "Health check: classify this as feature_request."}],
-        )
-    except Exception as exc:
-        msg = str(exc)
-        lowered = msg.lower()
-        if "not found" in lowered and "model" in lowered:
-            return {
-                "ok": "false",
-                "status": "model_missing",
-                "message": (
-                    f"Classifier model '{model}' is not available in local Ollama. "
-                    "Install/pull it and retry (for example: ollama pull <model>). "
-                    f"Details: {msg}"
-                ),
-            }
-        if any(token in lowered for token in ["connection refused", "failed to connect", "timed out", "connection error"]):
-            return {
-                "ok": "false",
-                "status": "service_unreachable",
-                "message": (
-                    f"Cannot reach Ollama at {base_url}. Ensure the local service is running and accessible. "
-                    f"Details: {msg}"
-                ),
-            }
-        if "json" in lowered or "no json object found" in lowered or "empty model output" in lowered:
-            return {
-                "ok": "false",
-                "status": "malformed_output",
-                "message": (
-                    "Classifier returned non-JSON output during health check. "
-                    f"Details: {msg}"
-                ),
-            }
+    if not isinstance(grounding_files, list) or len(grounding_files) == 0:
         return {
             "ok": "false",
-            "status": "chat_error",
-            "message": f"Classifier call failed for model={model} at {base_url}. Details: {msg}",
+            "status": "config_error",
+            "message": "assistant_scope.grounding_files must be a non-empty list.",
         }
-
-    intent = str(payload.get("intent", "")).strip().lower()
-    if intent not in {"feature_request", "runtime_help", "code_explanation", "repo_question", "out_of_scope"}:
+    if not isinstance(sensitive_domains, list) or len(sensitive_domains) == 0:
         return {
             "ok": "false",
-            "status": "invalid_schema",
-            "message": (
-                "Classifier JSON is missing/invalid 'intent' value. "
-                f"Received intent={intent!r}."
-            ),
+            "status": "config_error",
+            "message": "assistant_scope.sensitive_domains must be a non-empty list.",
         }
 
     return {
         "ok": "true",
         "status": "healthy",
-        "message": f"Classifier healthy (model={model}, base_url={base_url}, intent={intent}).",
+        "message": "Scope-gate policy is healthy (anchors + grounding files + sensitive domains configured).",
     }
 
 
@@ -368,7 +320,7 @@ class OperatorAssistantGUI:
             self._set_intent_badge("out_of_scope", 1.0)
             self._log_chat(
                 "assistant",
-                "Startup error: strict local-LLM mode is required for routing and session analysis. "
+                "Startup error: operator assistant failed to initialize. "
                 f"{self.assistant_startup_error}",
             )
 
@@ -476,7 +428,7 @@ class OperatorAssistantGUI:
         except RuntimeError as exc:
             self._log_chat(
                 "assistant",
-                "Routing error: strict LLM mode requires valid structured model output for each message. "
+                "Routing error while processing this message. "
                 f"Details: {exc}",
             )
             self._set_intent_badge("out_of_scope", 1.0)
@@ -528,7 +480,7 @@ class OperatorAssistantGUI:
             "assistant",
             "Health check failed "
             f"[{status}]: {message} "
-            "Fix the issue and run Health Check again before relying on strict routing.",
+            "Fix the issue and run Health Check again before relying on assistant routing.",
         )
 
     def _start_runtime(self) -> None:

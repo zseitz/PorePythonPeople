@@ -17,21 +17,7 @@ runtime:
 
 assistant_scope:
   # Local operator-assistant guardrails (Option B):
-  # deterministic scope checks + intent gating before any runtime action.
-  intent_classifier:
-    enabled: true
-    # Strict mode: classifier availability is mandatory; startup is blocked if unavailable.
-    # Recommended fast models: mistral:7b, neural-chat, orca-mini:3b
-    model: mistral:7b
-    base_url: http://localhost:11434
-    request_timeout_seconds: 45
-    max_retries: 2
-    fallback:
-      enabled: true
-      model: qwen2.5:3b
-      base_url: http://localhost:11434
-      request_timeout_seconds: 20
-      max_retries: 1
+  # deterministic scope gate + grounded answer gating before any runtime action.
   runtime_preflight:
     require_clean_worktree: true
     require_feature_branch: true
@@ -46,14 +32,37 @@ assistant_scope:
       - event_classifier_gui
       - event classifier gui
       - event classifier
-  scope_keywords:
+  capability_modes:
+    - feature_request
+    - runtime_help
+    - code_explanation
+    - repo_question
+    - nanopore_science_explanation
+  grounding_files:
+    - README.md
+    - Docs/components.md
+    - Docs/nanoporethon_textbook.md
+    - Docs/UseCases.md
+    - Docs/technology_context.md
+    - Docs/feature_request_template.md
+    - runtime/policies.yaml
+    - runtime/operator_assistant.py
+    - src/nanoporethon/sequence_designer_gui.py
+  domain_anchors:
     - nanoporethon
-    - porepythonpeople
+    - workflow
+    - experiment
+    - experiments
+    - folder
+    - folders
+    - event quality
+    - gui
     - runtime
     - orchestrator
     - stage
     - gate
     - policy
+    - promotion
     - docs
     - tests
     - code
@@ -61,25 +70,23 @@ assistant_scope:
     - feature
     - repository
     - repo
-  forbidden_patterns:
-    - "\\brecipe\\b"
-    - "\\bcook(ing)?\\b"
-    - "\\bbrownie\\b"
-    - "\\bmedical\\b"
-    - "\\bdiagnos(e|is|ing)\\b"
-    - "\\btreatment\\b"
-    - "\\bpolitic(al|s)?\\b"
-    - "\\belection\\b"
-    - "\\binvest(ing|ment)?\\b"
-    - "\\bstock(s)?\\b"
-    - "\\bcrypto\\b"
-    - "\\bfinancial\\b"
-    - "\\blegal\\b"
-    - "\\blawsuit\\b"
-    - "\\btherap(y|ist)\\b"
-    - "\\brelationship advice\\b"
-    - "\\bphilosoph(y|ical)\\b"
-    - "\\bmeaning of life\\b"
+    - nanopore
+    - qmer
+    - q-mer
+    - hel308
+    - sequence designer
+    - event classifier
+    - data navigator
+    - matlab
+    - signal
+    - trace
+    - current
+  sensitive_domains:
+    - medical or diagnostic advice
+    - legal advice
+    - financial or investment advice
+    - political persuasion
+    - general lifestyle or relationship counseling
 
 model_provider:
   adapter: ollama

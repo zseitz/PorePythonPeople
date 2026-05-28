@@ -28,108 +28,62 @@ def test_intent_badge_style_defaults_for_unknown_intent():
     assert color == "#555555"
 
 
-class _HealthyAdapter:
-    def __init__(self, model: str, base_url: str):
-        self.model = model
-        self.base_url = base_url
-
-    def chat(self, system_prompt: str, messages: list) -> str:
-        return '{"intent": "feature_request", "confidence": 0.92, "reason": "ok"}'
-
-
-class _ModelMissingAdapter:
-    def __init__(self, model: str, base_url: str):
-        pass
-
-    def chat(self, system_prompt: str, messages: list) -> str:
-        raise RuntimeError("model 'mistral:7b' not found")
-
-
-class _ConnectionErrorAdapter:
-    def __init__(self, model: str, base_url: str):
-        pass
-
-    def chat(self, system_prompt: str, messages: list) -> str:
-        raise RuntimeError("connection refused")
-
-
-class _MalformedAdapter:
-    def __init__(self, model: str, base_url: str):
-        pass
-
-    def chat(self, system_prompt: str, messages: list) -> str:
-        return "not json"
-
-
-class _WrappedJsonAdapter:
-    def __init__(self, model: str, base_url: str):
-        self.model = model
-        self.base_url = base_url
-
-    def chat_json(self, system_prompt: str, messages: list) -> str:
-        return 'Sure — here is the result: {"intent": "feature_request", "confidence": 0.9, "reason": "healthcheck"}'
+def test_intent_badge_style_for_nanopore_science_is_distinct():
+    text, color = _intent_badge_style("nanopore_science_explanation", 0.77)
+    assert "Nanopore Science Explanation" in text
+    assert color == "#0b7285"
 
 
 def test_classifier_health_check_healthy():
     policy = {
         "assistant_scope": {
-            "intent_classifier": {"enabled": True, "model": "mistral:7b", "base_url": "http://localhost:11434"}
+            "domain_anchors": ["runtime", "nanoporethon"],
+            "grounding_files": ["Docs/components.md"],
+            "sensitive_domains": ["medical advice"],
         }
     }
-    result = _classifier_health_check(policy, adapter_factory=_HealthyAdapter)
+    result = _classifier_health_check(policy)
     assert result["ok"] == "true"
     assert result["status"] == "healthy"
 
 
-def test_classifier_health_check_disabled_config():
-    policy = {"assistant_scope": {"intent_classifier": {"enabled": False}}}
-    result = _classifier_health_check(policy, adapter_factory=_HealthyAdapter)
+def test_classifier_health_check_missing_anchors():
+    policy = {
+        "assistant_scope": {
+            "domain_anchors": [],
+            "grounding_files": ["Docs/components.md"],
+            "sensitive_domains": ["medical advice"],
+        }
+    }
+    result = _classifier_health_check(policy)
     assert result["ok"] == "false"
     assert result["status"] == "config_error"
 
 
-def test_classifier_health_check_model_missing():
+def test_classifier_health_check_missing_grounding_files():
     policy = {
         "assistant_scope": {
-            "intent_classifier": {"enabled": True, "model": "mistral:7b", "base_url": "http://localhost:11434"}
+            "domain_anchors": ["runtime"],
+            "grounding_files": [],
+            "sensitive_domains": ["medical advice"],
         }
     }
-    result = _classifier_health_check(policy, adapter_factory=_ModelMissingAdapter)
+    result = _classifier_health_check(policy)
     assert result["ok"] == "false"
-    assert result["status"] == "model_missing"
+    assert result["status"] == "config_error"
 
 
-def test_classifier_health_check_connection_error():
+def test_classifier_health_check_missing_sensitive_domains():
     policy = {
         "assistant_scope": {
-            "intent_classifier": {"enabled": True, "model": "mistral:7b", "base_url": "http://localhost:11434"}
+            "domain_anchors": ["runtime"],
+            "grounding_files": ["Docs/components.md"],
+            "sensitive_domains": [],
         }
     }
-    result = _classifier_health_check(policy, adapter_factory=_ConnectionErrorAdapter)
+    result = _classifier_health_check(policy)
     assert result["ok"] == "false"
-    assert result["status"] == "service_unreachable"
-
-
-def test_classifier_health_check_malformed_output():
-    policy = {
-        "assistant_scope": {
-            "intent_classifier": {"enabled": True, "model": "mistral:7b", "base_url": "http://localhost:11434"}
-        }
-    }
-    result = _classifier_health_check(policy, adapter_factory=_MalformedAdapter)
-    assert result["ok"] == "false"
-    assert result["status"] == "malformed_output"
-
-
-def test_classifier_health_check_extracts_wrapped_json_when_available():
-    policy = {
-        "assistant_scope": {
-            "intent_classifier": {"enabled": True, "model": "mistral:7b", "base_url": "http://localhost:11434"}
-        }
-    }
-    result = _classifier_health_check(policy, adapter_factory=_WrappedJsonAdapter)
-    assert result["ok"] == "true"
-    assert result["status"] == "healthy"
+    assert result["status"] == "config_error"
 
 
 def test_activity_indicator_runtime_cycles_dots():
