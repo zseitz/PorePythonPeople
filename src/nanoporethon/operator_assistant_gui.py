@@ -579,9 +579,11 @@ class OperatorAssistantGUI:
 
     def _log_chat(self, role: str, message: str) -> None:
         self.chat_output.config(state=tk.NORMAL)
+        clean_role = (role or "assistant").strip().title()
+        body = (message or "").rstrip()
         _render_markdown_to_text_widget(
             self.chat_output,
-            f"[{self._timestamp()}] {role}: {message}\n\n",
+            f"## [{self._timestamp()}] {clean_role}\n{body}\n\n",
             append=True,
         )
         self.chat_output.see(tk.END)
@@ -594,9 +596,10 @@ class OperatorAssistantGUI:
 
     def _log_timeline(self, message: str) -> None:
         self.timeline_output.config(state=tk.NORMAL)
+        body = (message or "").rstrip()
         _render_markdown_to_text_widget(
             self.timeline_output,
-            f"[{self._timestamp()}] {message}\n",
+            f"### [{self._timestamp()}]\n{body}\n",
             append=True,
         )
         self.timeline_output.see(tk.END)

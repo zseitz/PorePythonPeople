@@ -344,7 +344,8 @@ def test_runtime_preflight_check_blocks_dirty_worktree_when_required():
 def test_gui_logging_and_preview_helpers_update_widgets():
     gui = _build_gui_stub()
     gui._log_chat("assistant", "hello")
-    assert "assistant: hello" in gui.chat_output.content
+    assert "Assistant" in gui.chat_output.content
+    assert "hello" in gui.chat_output.content
 
     gui._set_preview_text("request preview")
     assert gui.preview_output.content.strip() == "request preview"
@@ -370,6 +371,18 @@ def test_markdown_renderer_formats_basic_markdown_in_text_widgets():
     assert "1. first" in text.content
     assert "`code`" not in text.content
     assert "**bold**" not in text.content
+
+
+def test_markdown_renderer_formats_chat_and_timeline_headers_as_headings():
+    gui = _build_gui_stub()
+    gui._log_chat("assistant", "Body text")
+    gui._log_timeline("Runtime line")
+
+    assert "##" not in gui.chat_output.content
+    assert "###" not in gui.timeline_output.content
+    assert "Assistant" in gui.chat_output.content
+    assert "Body text" in gui.chat_output.content
+    assert "Runtime line" in gui.timeline_output.content
 
 
 def test_gui_new_session_resets_runtime_request_state():

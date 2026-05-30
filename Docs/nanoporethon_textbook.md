@@ -1297,6 +1297,7 @@ Chat-first request guidance:
 - The deterministic scope gate also treats common guidance-style phrasing (for example confusion after clicking around, safeguards/checklist/reproducibility requests, and "what can you help with" redirects) as in-scope support.
 - Local model calls for this flow use the Ollama HTTP adapter (`runtime/adapters/ollama.py`) against `/api/chat`; this assistant path is not MCP-server based.
 - Assistant text panes (chat, follow-ups, request preview, timeline) render lightweight markdown formatting with richer local styling (headings/lists/inline code/fenced code blocks + pane-specific typography/color theme) and adaptive light/dark contrast for easier reading.
+- Chat/timeline messages now include explicit heading lines (timestamp + role/event) so each entry has clear larger/bold visual structure even when body text is plain prose.
 - Message routing does not require classifier startup availability.
 - Session context is still used so runtime follow-up questions after a run are interpreted in conversation context (not as isolated messages), but feature continuation is conditional: follow-ups must stay repository-relevant and pass scope checks.
 - Scope decisions are evidence-based: prompts are considered in-scope when they align with repository goal terms/anchors and retrievable local repo context.

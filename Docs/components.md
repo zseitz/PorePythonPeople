@@ -262,6 +262,7 @@ Primary package location: `src/nanoporethon/`.
   - Streams runtime progress to users by reading `.nanopore-runtime/runs/<run_id>/events.jsonl` and surfacing stage/gate/promotion events.
   - Shows a live animated activity indicator (dot-cycling heartbeat) during assistant-processing and runtime execution, including a last-UI-tick timestamp, so users can distinguish active work from a frozen UI even between major timeline events.
   - Renders chat, follow-up questions, request preview, and runtime timeline text with lightweight markdown formatting (for example headings, lists, inline code, and fenced code blocks) plus pane-specific typography/color theming that now adapts to light/dark UI backgrounds for improved readability without requiring network/cloud renderers.
+  - Chat and timeline entries render each message with an explicit heading line (timestamp/role or timestamp/event) so users get larger bold visual anchors similar to Copilot-style section headers even when assistant body text does not include markdown heading markers.
   - Surfaces explicit routing errors in the GUI when message processing fails.
   - Includes a manual **Health Check** button that validates scope-gate policy readiness (anchors, grounding files, sensitive-domain config) with actionable remediation messages.
   - Provides deterministic explanations for common runtime timeline terms (for example `promotion_disabled`, `promotion_skipped`, `promotion_blocked`) to keep post-run Q&A low-friction.
