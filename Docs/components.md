@@ -261,7 +261,7 @@ Primary package location: `src/nanoporethon/`.
   - Includes an explicit anti-hallucination quality rubric in generated runtime request packets (contract-safe, evidence-first, surface-consistent, traceable, scoped, operator-supervised).
   - Streams runtime progress to users by reading `.nanopore-runtime/runs/<run_id>/events.jsonl` and surfacing stage/gate/promotion events.
   - Shows a live animated activity indicator (dot-cycling heartbeat) during assistant-processing and runtime execution, including a last-UI-tick timestamp, so users can distinguish active work from a frozen UI even between major timeline events.
-  - Renders chat, follow-up questions, request preview, and runtime timeline text with lightweight markdown formatting (for example headings, lists, inline code, and fenced code blocks) to improve readability without requiring network/cloud renderers.
+  - Renders chat, follow-up questions, request preview, and runtime timeline text with lightweight markdown formatting (for example headings, lists, inline code, and fenced code blocks) plus pane-specific typography/color theming to improve readability without requiring network/cloud renderers.
   - Surfaces explicit routing errors in the GUI when message processing fails.
   - Includes a manual **Health Check** button that validates scope-gate policy readiness (anchors, grounding files, sensitive-domain config) with actionable remediation messages.
   - Provides deterministic explanations for common runtime timeline terms (for example `promotion_disabled`, `promotion_skipped`, `promotion_blocked`) to keep post-run Q&A low-friction.

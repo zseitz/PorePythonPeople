@@ -206,15 +206,49 @@ def _init_markdown_tags(widget: Any) -> None:
     if not hasattr(widget, "tag_configure"):
         return
 
-    widget.tag_configure("md_h1", font=("TkDefaultFont", 12, "bold"), spacing1=8, spacing3=4)
-    widget.tag_configure("md_h2", font=("TkDefaultFont", 11, "bold"), spacing1=6, spacing3=3)
-    widget.tag_configure("md_h3", font=("TkDefaultFont", 10, "bold"), spacing1=4, spacing3=2)
-    widget.tag_configure("md_bold", font=("TkDefaultFont", 10, "bold"))
-    widget.tag_configure("md_italic", font=("TkDefaultFont", 10, "italic"))
-    widget.tag_configure("md_code", font=("Courier", 10), background="#f2f4f7")
-    widget.tag_configure("md_code_block", font=("Courier", 10), background="#f2f4f7", lmargin1=14, lmargin2=14)
-    widget.tag_configure("md_quote", foreground="#475467", lmargin1=14, lmargin2=14)
+    widget.tag_configure("md_body", foreground="#1f2937", spacing1=1, spacing3=2)
+    widget.tag_configure("md_h1", font=("TkDefaultFont", 14, "bold"), foreground="#1d4ed8", spacing1=10, spacing3=5)
+    widget.tag_configure("md_h2", font=("TkDefaultFont", 12, "bold"), foreground="#1e40af", spacing1=8, spacing3=4)
+    widget.tag_configure("md_h3", font=("TkDefaultFont", 11, "bold"), foreground="#1e3a8a", spacing1=6, spacing3=3)
+    widget.tag_configure("md_bold", font=("TkDefaultFont", 11, "bold"), foreground="#111827")
+    widget.tag_configure("md_italic", font=("TkDefaultFont", 11, "italic"), foreground="#334155")
+    widget.tag_configure("md_code", font=("Courier", 10), foreground="#7c2d12", background="#fff7ed")
+    widget.tag_configure(
+        "md_code_block",
+        font=("Courier", 10),
+        foreground="#7c2d12",
+        background="#fff7ed",
+        lmargin1=14,
+        lmargin2=14,
+        spacing1=4,
+        spacing3=4,
+    )
+    widget.tag_configure("md_quote", foreground="#475467", lmargin1=14, lmargin2=14, spacing1=2, spacing3=2)
     widget._markdown_tags_ready = True
+
+
+def _style_text_pane(widget: Any, pane_kind: str) -> None:
+    base = {
+        "font": ("TkDefaultFont", 11),
+        "insertbackground": "#111827",
+        "selectbackground": "#bfdbfe",
+        "selectforeground": "#111827",
+        "relief": tk.FLAT,
+        "borderwidth": 0,
+        "padx": 8,
+        "pady": 8,
+    }
+    palette = {
+        "chat": {"bg": "#f8fafc", "fg": "#0f172a"},
+        "followup": {"bg": "#f0f9ff", "fg": "#0f172a"},
+        "preview": {"bg": "#f8fafc", "fg": "#0f172a"},
+        "timeline": {"bg": "#f5f3ff", "fg": "#1f2937"},
+    }
+    colors = palette.get(pane_kind, {"bg": "#ffffff", "fg": "#111827"})
+    kwargs = dict(base)
+    kwargs.update(colors)
+    if hasattr(widget, "config"):
+        widget.config(**kwargs)
 
 
 def _inline_markdown_segments(text: str) -> list[tuple[str, Optional[str]]]:
@@ -251,12 +285,13 @@ def _insert_markdown_line(widget: Any, line: str, line_tag: Optional[str] = None
         widget.insert(tk.END, text)
 
     segments = _inline_markdown_segments(line)
+    effective_line_tag = line_tag or "md_body"
     for segment_text, inline_tag in segments:
         if not segment_text:
             continue
-        tags = tuple(tag for tag in [line_tag, inline_tag] if tag)
+        tags = tuple(tag for tag in [effective_line_tag, inline_tag] if tag)
         _safe_insert(segment_text, tags)
-    _safe_insert("\n", (line_tag,) if line_tag else ())
+    _safe_insert("\n", (effective_line_tag,))
 
 
 def _render_markdown_to_text_widget(widget: Any, markdown_text: str, append: bool = False) -> None:
@@ -374,6 +409,7 @@ class OperatorAssistantGUI:
         self.intent_badge.pack(side=tk.TOP, fill=tk.X, pady=(0, 6))
 
         self.chat_output = scrolledtext.ScrolledText(left, height=26, state=tk.DISABLED, wrap=tk.WORD)
+        _style_text_pane(self.chat_output, "chat")
         self.chat_output.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         chat_input_frame = tk.Frame(left)
@@ -406,11 +442,13 @@ class OperatorAssistantGUI:
         followup_frame = tk.LabelFrame(right, text="Follow-up questions (if needed)")
         followup_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=False, pady=(8, 6))
         self.followup_output = scrolledtext.ScrolledText(followup_frame, height=6, state=tk.DISABLED, wrap=tk.WORD)
+        _style_text_pane(self.followup_output, "followup")
         self.followup_output.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         preview_frame = tk.LabelFrame(right, text="Runtime request preview")
         preview_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=(0, 6))
         self.preview_output = scrolledtext.ScrolledText(preview_frame, height=18, state=tk.DISABLED, wrap=tk.WORD)
+        _style_text_pane(self.preview_output, "preview")
         self.preview_output.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         self.readiness_var = tk.StringVar(value="Status: waiting for feature request message")
@@ -430,6 +468,7 @@ class OperatorAssistantGUI:
         timeline = tk.LabelFrame(self.root, text="Runtime Timeline (events)", padx=8, pady=8)
         timeline.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=False, padx=10, pady=(0, 10))
         self.timeline_output = scrolledtext.ScrolledText(timeline, height=10, state=tk.DISABLED, wrap=tk.WORD)
+        _style_text_pane(self.timeline_output, "timeline")
         self.timeline_output.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         if self.assistant_startup_error:
