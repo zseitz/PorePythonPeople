@@ -5,6 +5,23 @@ from runtime.operator_assistant import LocalOperatorAssistant
 
 def _assistant_policy() -> dict:
     return {
+        "model_provider": {
+            "adapter": "ollama",
+            "model": "qwen2.5:3b",
+            "base_url": "http://localhost:11434",
+            "temperature": 0.1,
+            "request_timeout_seconds": 300,
+            "stage_call_timeout_seconds": 45,
+            "max_retries": 2,
+        },
+        "specialists": {
+            "orchestrator": {},
+            "verifier": {},
+            "feature_builder": {"model_provider": {"adapter": "ollama", "model": "qwen3:4b"}},
+            "refactor": {"model_provider": {"adapter": "ollama", "model": "qwen3:4b"}},
+            "doc_sync": {"model_provider": {"adapter": "ollama", "model": "qwen2.5:3b"}},
+            "memory_sync": {"model_provider": {"adapter": "ollama", "model": "qwen2.5:3b"}},
+        },
         "assistant_scope": {
             "domain_anchors": [
                 "nanoporethon",
@@ -157,6 +174,21 @@ def test_plain_how_to_question_returns_actionable_run_guidance():
     assert response.intent != "out_of_scope"
     assert "python -m nanoporethon.event_classifier_gui" in response.message or "python src/nanoporethon/event_classifier_gui.py" in response.message
     assert "Grounding sources:" in response.message
+
+
+def test_model_routing_question_about_running_agents_does_not_turn_into_event_classifier_howto():
+    assistant = _assistant()
+    response = assistant.handle_message(
+        "What models are each of the Porsche agents running, and are any of them quantized?",
+        session=assistant.init_session(),
+    )
+
+    assert response.intent in {"repo_question", "runtime_help", "code_explanation"}
+    assert "python -m nanoporethon.event_classifier_gui" not in response.message
+    assert "event_classifier_gui" not in response.message.lower()
+    assert "qwen2.5:3b" in response.message
+    assert "qwen3:4b" in response.message
+    assert "Q4_K_M" in response.message
 
 
 def test_offtopic_make_question_is_not_treated_as_feature_request():

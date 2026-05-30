@@ -236,6 +236,7 @@ Primary package location: `src/nanoporethon/`.
   - Uses a wrapped multiline chat composer with Enter-to-send, Shift+Enter for a newline, and a small inline hint so long prompts remain readable while typing.
   - Uses a semantic-first hybrid scope gate with two lanes: **feature requests** and **general questions**.
   - Applies an evidence-based repository relevance check before any answer/run action: prompts must align with configured anchors/goal terms and retrievable local repo context.
+  - Answers model-routing and quantization questions directly from local runtime policy plus grounded docs references, so questions like “what models are the agents running?” do not fall into generic runtime how-to output.
   - Off-topic/sensitive prompts are refused before runtime request drafting; ambiguous prompts get one targeted re-anchoring follow-up.
   - Uses model-based semantic intent/safety classification as the primary route when available, with deterministic fallback when classifier output is unavailable/invalid.
   - Treats common guided-workflow phrasing (for example confusion, reproducibility/checklist, safeguards, and capability-redirect prompts) as in-scope support requests rather than off-topic by default.

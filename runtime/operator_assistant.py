@@ -499,6 +499,10 @@ class LocalOperatorAssistant:
         if runtime_event_explanation:
             return runtime_event_explanation
 
+        model_routing_explanation = self._model_routing_explanation(user_text)
+        if model_routing_explanation:
+            return model_routing_explanation
+
         scope_class = decision.scope_class if decision is not None else "repo_knowledge"
         snippet_limit = 5 if deep_mode else 3
         snippets = self._retrieve_relevant_snippets(user_text, max_items=snippet_limit, scope_class=scope_class)
@@ -595,6 +599,57 @@ class LocalOperatorAssistant:
                 "`promotion_blocked` means runtime refused promotion due to a guardrail (for example dirty/changed target paths or policy constraints)."
             )
         return None
+
+    def _model_routing_explanation(self, user_text: str) -> Optional[str]:
+        text = (user_text or "").strip().lower()
+        if not any(token in text for token in ["model", "models", "quant", "quantized", "quantization"]):
+            return None
+
+        model_provider = self.policy.get("model_provider", {}) if isinstance(self.policy, dict) else {}
+        specialists = self.policy.get("specialists", {}) if isinstance(self.policy, dict) else {}
+        if not isinstance(model_provider, dict) or not isinstance(specialists, dict):
+            return None
+
+        global_model = str(model_provider.get("model", "")).strip()
+        lines: List[str] = ["Here’s the current model map from local runtime policy:", ""]
+
+        if global_model:
+            lines.append(f"- Global default / inherited model: `{global_model}`")
+
+        explicit_overrides: List[str] = []
+        inherited: List[str] = []
+        for name, cfg in sorted(specialists.items()):
+            if not isinstance(cfg, dict):
+                continue
+            provider_cfg = cfg.get("model_provider", {})
+            if isinstance(provider_cfg, dict) and str(provider_cfg.get("model", "")).strip():
+                explicit_overrides.append(f"- `{name}` → `{provider_cfg.get('model')}`")
+            else:
+                inherited.append(f"- `{name}` (inherits the global default)")
+
+        if explicit_overrides:
+            lines.extend(["", "- Explicit specialist overrides:"])
+            lines.extend(explicit_overrides)
+
+        if inherited:
+            lines.extend(["", "- Specialists inheriting the global default:"])
+            lines.extend(inherited)
+
+        quant_notes: List[str] = []
+        textbook = self._doc_cache.get("Docs/nanoporethon_textbook.md", "")
+        if textbook and any(token in textbook for token in ["Q4_K_M", "qwen2.5:3b", "qwen3:4b"]):
+            quant_notes.append(
+                "Docs/nanoporethon_textbook.md records `qwen2.5:3b` and `qwen3:4b` as `Q4_K_M` on the machine used for that documentation update."
+            )
+
+        if quant_notes:
+            lines.extend(["", "Quantization notes from local docs:"])
+            lines.extend(f"- {note}" for note in quant_notes)
+
+        if global_model:
+            lines.extend(["", "If you want the exact live artifact build on this machine, check the local Ollama metadata for the model names above."])
+
+        return "\n".join(lines).strip()
 
     def _answer_with_grounded_model(self, user_text: str, snippets: List[str], scope_class: str) -> Optional[str]:
         context_text = "\n\n".join(snippets)
@@ -1075,7 +1130,6 @@ class LocalOperatorAssistant:
             "stage",
             "gate",
             "promotion",
-            "run",
             "orchestrator",
             "policy",
             "safeguard",
@@ -1680,7 +1734,7 @@ class LocalOperatorAssistant:
     def _retrieve_relevant_snippets(self, query: str, max_items: int = 3, scope_class: str = "unknown") -> List[str]:
         terms = self._query_terms(query)
         query_lower = (query or "").lower()
-        is_howto_query = any(token in query_lower for token in ["how", "run", "launch", "start", "open"])
+        is_howto_query = bool(re.search(r"\b(how|run|launch|start|open)\b", query_lower))
         scored: List[Tuple[int, str, str]] = []
         for rel, text in self._doc_cache.items():
             lower = text.lower()
@@ -1713,7 +1767,37 @@ class LocalOperatorAssistant:
     def _query_terms(self, query: str) -> List[str]:
         words = [w for w in re.split(r"[^a-zA-Z0-9_]+", query.lower()) if len(w) >= 3]
         stop = {"the", "and", "for", "with", "that", "this", "how", "what", "when", "where", "why"}
-        return [w for w in words if w not in stop][:10]
+        aliases = {
+            "models": "model",
+            "modeling": "model",
+            "agents": "agent",
+            "agenting": "agent",
+            "quantized": "quant",
+            "quantization": "quant",
+            "runs": "run",
+        }
+
+        terms: List[str] = []
+        for word in words:
+            if word in stop:
+                continue
+            terms.append(word)
+            alias = aliases.get(word)
+            if alias and alias not in stop:
+                terms.append(alias)
+            elif word.endswith("s") and len(word) > 4:
+                singular = word[:-1]
+                if singular not in stop:
+                    terms.append(singular)
+
+        deduped: List[str] = []
+        seen = set()
+        for term in terms:
+            if term in seen:
+                continue
+            seen.add(term)
+            deduped.append(term)
+        return deduped[:10]
 
     def _extract_snippet_window(self, text: str, terms: List[str], max_chars: int = 700, query: str = "") -> str:
         if not text:
@@ -1739,7 +1823,7 @@ class LocalOperatorAssistant:
                     score += 6
                 if any(tok in window_lower for tok in ["run", "launch", "start", "open", "gui", "usage"]):
                     score += 3
-                if any(tok in query_lower for tok in ["how", "run", "launch", "start", "use"]) and "event classifier" in window_lower:
+                if bool(re.search(r"\b(how|run|launch|start|use)\b", query_lower)) and "event classifier" in window_lower:
                     score += 5
                 if window_lower.count("(#") >= 3:
                     score -= 4
@@ -1761,7 +1845,7 @@ class LocalOperatorAssistant:
 
     def _synthesize_grounded_answer(self, user_text: str, snippets: List[str], scope_class: str) -> Optional[str]:
         query = (user_text or "").lower()
-        howto_query = any(tok in query for tok in ["how", "run", "launch", "start", "open", "use", "where"])
+        howto_query = bool(re.search(r"\b(how|run|launch|start|open|use|where)\b", query))
         if not snippets:
             return None
 
