@@ -233,10 +233,10 @@ Primary package location: `src/nanoporethon/`.
 - **Key behavior**:
   - Provides a chat-first local assistant for in-scope repository/runtime interaction.
   - Displays a live intent badge above chat output (for example Feature Request / Runtime Help / Out-of-Scope) so routing decisions are immediately visible.
-  - Uses a deterministic hybrid scope gate with two lanes: **feature requests** and **general questions**.
+  - Uses a semantic-first hybrid scope gate with two lanes: **feature requests** and **general questions**.
   - Applies an evidence-based repository relevance check before any answer/run action: prompts must align with configured anchors/goal terms and retrievable local repo context.
   - Off-topic/sensitive prompts are refused before runtime request drafting; ambiguous prompts get one targeted re-anchoring follow-up.
-  - Does not require model-based intent classification for on-topic enforcement.
+  - Uses model-based semantic intent/safety classification as the primary route when available, with deterministic fallback when classifier output is unavailable/invalid.
   - Treats common guided-workflow phrasing (for example confusion, reproducibility/checklist, safeguards, and capability-redirect prompts) as in-scope support requests rather than off-topic by default.
   - Uses a positive capability model in policy (`feature_request`, `runtime_help`, `code_explanation`, `repo_question`, `nanopore_science_explanation`) instead of denylist-style topic filtering.
   - Supports a dedicated `nanopore_science_explanation` route for scientific/algorithmic nanoporethon questions when they can be grounded in local repository materials.
@@ -255,23 +255,26 @@ Primary package location: `src/nanoporethon/`.
   - Classifies intents into in-scope runtime/repo workflows vs out-of-scope domains.
   - Separates off-topic refusal from sensitive-domain blocking: unrelated prompts are redirected, while sensitive advisory domains (for example medical/legal/financial/political guidance) are explicitly blocked before any runtime action can occur.
   - Grounds answer-mode responses in configured local docs/code files (`assistant_scope.grounding_files`) and refuses to freewheel beyond retrieved local evidence.
+  - Keeps response depth balanced by default and auto-switches to deeper guidance only when follow-up question density is high across recent turns.
   - Builds a runtime request packet from chat context and launches attended runtime execution locally.
   - Enforces runtime launch preflight before assistant-triggered runs: clean working tree (policy-controlled) plus feature-branch requirement (policy-controlled), with explicit blocked-state diagnostics.
   - Protects policy-configured core files by default (repository default policy includes `data_navi_gui.py` and `event_classifier_gui.py`) unless user explicitly authorizes modifying them.
   - Includes an explicit anti-hallucination quality rubric in generated runtime request packets (contract-safe, evidence-first, surface-consistent, traceable, scoped, operator-supervised).
   - Streams runtime progress to users by reading `.nanopore-runtime/runs/<run_id>/events.jsonl` and surfacing stage/gate/promotion events.
   - Shows a live animated activity indicator (dot-cycling heartbeat) during assistant-processing and runtime execution, including a last-UI-tick timestamp, so users can distinguish active work from a frozen UI even between major timeline events.
-  - Renders chat, follow-up questions, request preview, and runtime timeline text with lightweight markdown formatting (for example headings, lists, inline code, and fenced code blocks) plus pane-specific typography/color theming that now adapts to light/dark UI backgrounds for improved readability without requiring network/cloud renderers.
+  - Uses a cleaner single-chat-centric interaction surface: follow-up questions and runtime-plan review are rendered inline in the main chat stream (instead of separate follow-up/preview panes), while runtime controls remain available in a compact side control area.
+  - Renders chat and runtime timeline text with lightweight markdown formatting (for example headings, lists, inline code, and fenced code blocks) plus pane-specific typography/color theming that adapts to light/dark UI backgrounds for improved readability without requiring network/cloud renderers.
   - Chat and timeline entries render each message with an explicit heading line (timestamp/role or timestamp/event) so users get larger bold visual anchors similar to Copilot-style section headers even when assistant body text does not include markdown heading markers.
   - Chat and timeline entries also render a subtle separator rule under each message block to improve scanability during longer sessions.
   - Surfaces explicit routing errors in the GUI when message processing fails.
-  - Includes a manual **Health Check** button that validates scope-gate policy readiness (anchors, grounding files, sensitive-domain config) with actionable remediation messages.
+  - Includes a manual **Health Check** button that validates scope-gate policy readiness (anchors, grounding files, and semantic classifier configuration/availability) with actionable remediation messages.
   - Provides deterministic explanations for common runtime timeline terms (for example `promotion_disabled`, `promotion_skipped`, `promotion_blocked`) to keep post-run Q&A low-friction.
   - Answers repository questions using the local Ollama model (from `model_provider` policy) when available, but constrains responses to retrievable local documentation/code evidence.
   - Enforces evidence-validated answer synthesis for model-backed Q&A: model answers must include verifiable context quotes, and responses with unverifiable repository import/module claims are rejected.
   - Falls back to relevant doc/code snippet excerpts when the model is not reachable.
   - Also falls back to deterministic snippet-grounded answers when model output is malformed or fails evidence validation, reducing hallucinated run/API instructions.
   - Deterministic fallback now synthesizes practical guidance for how/use/find/work questions (for example runnable commands + usage considerations + source references) rather than dumping raw snippet fragments.
+  - In deeper follow-up mode, Porsche prioritizes presenting existing repository information with explicit references and adds a "Further reading in repository" section that includes available paper resources from `Docs/papers/`.
   - Treats common guided-workflow phrasing (for example confusion, reproducibility/checklist, safeguards, and capability-redirect prompts) as in-scope support requests.
   - Keeps the operational model branch-local and human-supervised by design.
 
@@ -293,6 +296,7 @@ Primary package location: `src/nanoporethon/`.
     - Export payload now carries MATLAB-aligned parity metadata (levels, error, x-axis indices, details text, phase, and numstep) for golden acceptance checks.
     - Provides a dedicated parity scorecard generator at `runtime/sequence_designer_parity_scorecard.py` that emits JSON/Markdown graduation artifacts under `.nanopore-runtime/parity/sequence_designer/latest/`.
     - When the runtime falls back without model-authored implement actions, it now emits a contract-aware `sequence_designer_gui.py` template instead of a blank GUI placeholder.
+    - Deterministic fallback template plotting now mirrors MATLAB visual parity more closely by emitting a step-style levels trace centered on attributed points, plus per-base sequence-letter overlays aligned to level positions.
     - Is self-contained: sequence sanitization and signal helpers are implemented in the same module (no GUI-to-GUI dependency).
 
 #### Golden output acceptance workflow (sequence designer)

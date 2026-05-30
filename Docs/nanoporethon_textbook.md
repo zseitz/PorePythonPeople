@@ -351,6 +351,7 @@ What it does:
 - adds MATLAB-style edit-at-position controls (position slider/index plus A/C/G/T/delete/random actions),
 - includes Hel308 toggle plus save-figure and export-levels actions,
 - displays the result as a step trace in normalized $I/I_0$-style units.
+- overlays per-base sequence letters at aligned x positions on the plotted levels for closer MATLAB visual parity.
 - If the runtime has to fall back without model-authored implement actions, it now generates this contract-aware Sequence Designer GUI instead of a blank placeholder scaffold.
 
 ---
@@ -1274,7 +1275,7 @@ When in doubt, the authoritative local check is Ollama model metadata (for examp
 - launch with `python -m nanoporethon.operator_assistant_gui`
 - use chat for in-scope repo/runtime questions and request drafting
 - answer follow-up questions only when the assistant needs more precision
-- review the generated runtime request preview
+- review the assistant’s inline chat plan summary before running
 - run attended runtime directly from the GUI
 - monitor stage/gate/promotion progress from streamed event updates
 
@@ -1293,19 +1294,24 @@ Operationally, this keeps Option B interactive while preserving the project’s 
 Chat-first request guidance:
 
 - Start by describing the feature/task naturally in one or two sentences.
-- Routing uses a deterministic hybrid scope gate with two user-facing lanes: **feature requests** and **general questions**. Internally, allowed intents are `feature_request`, `runtime_help`, `code_explanation`, `repo_question`, and `nanopore_science_explanation`; unrelated prompts are redirected or blocked.
-- The deterministic scope gate also treats common guidance-style phrasing (for example confusion after clicking around, safeguards/checklist/reproducibility requests, and "what can you help with" redirects) as in-scope support.
+- Routing uses a semantic-first hybrid scope gate with two user-facing lanes: **feature requests** and **general questions**. Internally, allowed intents are `feature_request`, `runtime_help`, `code_explanation`, `repo_question`, and `nanopore_science_explanation`; unrelated prompts are redirected or blocked.
+- The semantic scope gate uses local model classification first (when available), then falls back to deterministic routing when model output is unavailable or invalid.
+- The scope gate also treats common guidance-style phrasing (for example confusion after clicking around, safeguards/checklist/reproducibility requests, and "what can you help with" redirects) as in-scope support.
 - Local model calls for this flow use the Ollama HTTP adapter (`runtime/adapters/ollama.py`) against `/api/chat`; this assistant path is not MCP-server based.
-- Assistant text panes (chat, follow-ups, request preview, timeline) render lightweight markdown formatting with richer local styling (headings/lists/inline code/fenced code blocks + pane-specific typography/color theme) and adaptive light/dark contrast for easier reading.
+- The GUI now uses a single-chat-centric interaction style: follow-up questions and runtime plan review prompts are shown inline in chat (for example “I need to know these things first” and “review my plan before hitting Run Latest Request”), while runtime controls remain separate.
+- Assistant chat/timeline panes render lightweight markdown formatting with richer local styling (headings/lists/inline code/fenced code blocks + pane-specific typography/color theme) and adaptive light/dark contrast for easier reading.
 - Chat/timeline messages now include explicit heading lines (timestamp + role/event) so each entry has clear larger/bold visual structure even when body text is plain prose.
 - Chat/timeline messages also include a subtle divider line under each entry to improve visual chunking during long assistant sessions.
 - Repository Q&A now uses evidence-validated local model output: answers must be supported by verifiable context excerpts, and malformed/ungrounded model outputs automatically fall back to deterministic doc/code snippet guidance.
 - Deterministic fallback guidance is now formatted as practical instructions (runnable commands, usage considerations, and grounding-source references) so users get actionable answers for “how/use/find/work” questions instead of raw snippet dumps.
+- Porsche keeps explanation depth balanced by default for all users and only auto-deepens when recent follow-up question density is high (for example multiple question-style follow-ups in a short span).
+- When auto-deepness is triggered, Porsche prioritizes existing repository evidence and appends a "Further reading in repository" section with explicit docs/code references and any available resources under `Docs/papers/`.
+- Store local academic papers or paper notes under `Docs/papers/` (for example PDFs with optional companion markdown summaries) so Porsche can surface them during deeper follow-up guidance.
 - Message routing does not require classifier startup availability.
 - Session context is still used so runtime follow-up questions after a run are interpreted in conversation context (not as isolated messages), but feature continuation is conditional: follow-ups must stay repository-relevant and pass scope checks.
 - Scope decisions are evidence-based: prompts are considered in-scope when they align with repository goal terms/anchors and retrievable local repo context.
 - Scientific or algorithmic nanopore questions are answered only with local repository grounding; otherwise the assistant asks for a repository anchor rather than improvising.
-- Use the **Health Check** button to validate scope-gate prerequisites (domain anchors, grounding files, and sensitive-domain policy values).
+- Use the **Health Check** button to validate scope-gate prerequisites (domain anchors, grounding files, and semantic classifier/model readiness).
 - Common runtime timeline terms (like `promotion_disabled`) are answered directly in-assistant so users can ask immediate post-run questions without switching workflows.
 - For code-edit requests, verification is expected by default (automated tests + behavior checks) and is included in the runtime request guardrails without requiring testing keywords.
 - Generated runtime request packets now include an explicit anti-hallucination quality rubric for each assistant-produced change:

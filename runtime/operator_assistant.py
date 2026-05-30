@@ -24,8 +24,10 @@ _DEFAULT_GROUNDING_FILES = [
     "Docs/components.md",
     "Docs/nanoporethon_textbook.md",
     "Docs/UseCases.md",
+    "Docs/UserPersonas.md",
     "Docs/technology_context.md",
     "Docs/feature_request_template.md",
+    "Docs/papers/README.md",
     "runtime/policies.yaml",
     "runtime/operator_assistant.py",
     "src/nanoporethon/sequence_designer_gui.py",
@@ -218,6 +220,7 @@ class LocalOperatorAssistant:
         self._intent_cache: Dict[str, Tuple[str, float, str]] = {}
         self._intent_classifier: Optional[Any] = None
         self._intent_classifier_fallback: Optional[OllamaAdapter] = None
+        self._configure_intent_classifiers()
 
         self._core_gui_file_hints = self._load_protected_file_hints_from_policy()
         self._core_protected_files = sorted(self._core_gui_file_hints.keys())
@@ -233,6 +236,7 @@ class LocalOperatorAssistant:
             "last_intent": None,
             "file_reference_questions_asked": [],
             "scope_relevance_misses": 0,
+            "auto_deepness_enabled": True,
         }
 
     def handle_message(self, text: str, session: Optional[Dict[str, Any]] = None) -> AssistantResponse:
@@ -246,6 +250,7 @@ class LocalOperatorAssistant:
         state.setdefault("pending_questions", [])
         state.setdefault("file_reference_questions_asked", [])
         state.setdefault("scope_relevance_misses", 0)
+        state.setdefault("auto_deepness_enabled", True)
 
         history = state["history"]
         if isinstance(history, list):
@@ -359,7 +364,8 @@ class LocalOperatorAssistant:
                 session_updates=state,
             )
 
-        answer = self._answer_domain_question(message, decision=decision)
+        deep_mode = self._should_enable_deep_mode(state, message, decision)
+        answer = self._answer_domain_question(message, decision=decision, deep_mode=deep_mode)
         return AssistantResponse(
             intent=decision.intent,
             confidence=decision.confidence,
@@ -392,7 +398,51 @@ class LocalOperatorAssistant:
                 allowed_response_mode="feature_request",
             )
 
+        if self._intent_classifier is not None:
+            try:
+                model_decision = self._classify_intent_with_model(text, session_state=session_state)
+            except RuntimeError:
+                model_decision = None
+            if model_decision is not None:
+                return self._apply_model_decision_guardrails(model_decision, text, session_state=session_state)
+
         return self._classify_intent_simple(msg, session_state=session_state)
+
+    def _apply_model_decision_guardrails(
+        self,
+        decision: AssistantDecision,
+        text: str,
+        session_state: Optional[Dict[str, Any]] = None,
+    ) -> AssistantDecision:
+        if decision.intent == "out_of_scope":
+            return decision
+
+        relevance = self._assess_repo_relevance(text, session_state=session_state)
+        if relevance["is_relevant"]:
+            return decision
+
+        if decision.intent == "feature_request":
+            return AssistantDecision(
+                intent="out_of_scope",
+                confidence=max(0.85, decision.confidence),
+                reason="model_feature_request_without_repo_relevance",
+                scope_class="out_of_scope",
+                sensitivity_class="normal",
+                domain_anchor_present=False,
+                grounding_required=False,
+                allowed_response_mode="refuse",
+            )
+
+        return AssistantDecision(
+            intent="out_of_scope",
+            confidence=max(0.85, decision.confidence),
+            reason="model_question_without_repo_relevance",
+            scope_class="out_of_scope",
+            sensitivity_class="normal",
+            domain_anchor_present=False,
+            grounding_required=False,
+            allowed_response_mode="refuse",
+        )
 
     def _build_runtime_request_from_session(self, session: Dict[str, Any], analysis: Dict[str, Any]) -> str:
         feature_messages = session.get("feature_messages", [])
@@ -439,16 +489,31 @@ class LocalOperatorAssistant:
             "- Update tests/docs/request log as required by repository policy when behavior/contracts change.\n"
         )
 
-    def _answer_domain_question(self, user_text: str, decision: Optional[AssistantDecision] = None) -> str:
+    def _answer_domain_question(
+        self,
+        user_text: str,
+        decision: Optional[AssistantDecision] = None,
+        deep_mode: bool = False,
+    ) -> str:
         runtime_event_explanation = self._runtime_event_explanation(user_text)
         if runtime_event_explanation:
             return runtime_event_explanation
 
         scope_class = decision.scope_class if decision is not None else "repo_knowledge"
-        snippets = self._retrieve_relevant_snippets(user_text, max_items=3, scope_class=scope_class)
+        snippet_limit = 5 if deep_mode else 3
+        snippets = self._retrieve_relevant_snippets(user_text, max_items=snippet_limit, scope_class=scope_class)
 
         if decision is not None and decision.grounding_required and not snippets:
             return self._ungrounded_answer_message(decision)
+
+        if deep_mode and snippets:
+            deep_response = self._synthesize_deep_grounded_answer(
+                user_text=user_text,
+                snippets=snippets,
+                scope_class=scope_class,
+            )
+            if deep_response:
+                return deep_response
 
         if self.model_adapter is not None and snippets:
             response = self._answer_with_grounded_model(
@@ -474,6 +539,43 @@ class LocalOperatorAssistant:
             )
 
         return self._ungrounded_answer_message(decision)
+
+    def _should_enable_deep_mode(
+        self,
+        session_state: Dict[str, Any],
+        current_message: str,
+        decision: Optional[AssistantDecision],
+    ) -> bool:
+        if not bool(session_state.get("auto_deepness_enabled", True)):
+            return False
+
+        if decision is None or decision.intent not in _GROUNDED_ANSWER_INTENTS:
+            return False
+
+        history = session_state.get("history", [])
+        if not isinstance(history, list):
+            return False
+
+        user_messages = [
+            str(item.get("text", ""))
+            for item in history
+            if isinstance(item, dict) and str(item.get("role", "")).lower() == "user"
+        ]
+        if not user_messages:
+            return False
+
+        recent = user_messages[-5:]
+        question_like_count = sum(1 for msg in recent if self._is_question_like_message(msg))
+        return len(recent) >= 3 and question_like_count >= 3 and self._is_question_like_message(current_message)
+
+    def _is_question_like_message(self, text: str) -> bool:
+        msg = (text or "").strip().lower()
+        if not msg:
+            return False
+        if "?" in msg:
+            return True
+        starters = ("how ", "what ", "why ", "when ", "where ", "can ", "could ", "would ", "should ", "is ", "are ")
+        return msg.startswith(starters)
 
     def _runtime_event_explanation(self, user_text: str) -> Optional[str]:
         text = (user_text or "").strip().lower()
@@ -925,7 +1027,7 @@ class LocalOperatorAssistant:
 
         relevance = self._assess_repo_relevance(lower, session_state=session_state)
 
-        if self._contains_sensitive_or_offtopic_content(lower):
+        if self._intent_classifier is None and self._contains_sensitive_or_offtopic_content(lower):
             return AssistantDecision(
                 intent="out_of_scope",
                 confidence=0.99,
@@ -1075,16 +1177,24 @@ class LocalOperatorAssistant:
         )
 
     def _contains_sensitive_or_offtopic_content(self, lower: str) -> bool:
-        # Policy-driven sensitive-domain cues (avoid hard-coded one-off phrase lists).
-        sensitive_cues: List[str] = []
-        for phrase in self._sensitive_domains:
-            words = [w.strip() for w in re.split(r"[^a-zA-Z0-9]+", phrase.lower()) if len(w.strip()) >= 4]
-            sensitive_cues.extend(words)
-
-        # Advisory intents that frequently indicate blocked guidance requests.
-        advisory_cues = ["advice", "diagnose", "diagnosis", "prescribe", "investment", "lawsuit", "legal"]
-        all_cues = set(sensitive_cues + advisory_cues)
-        return any(cue and cue in lower for cue in all_cues)
+        # Deterministic fallback-only high-risk lexical blockers when semantic classifier is unavailable.
+        high_risk_patterns = [
+            r"\bmake\s+(a\s+)?bomb\b",
+            r"\bbuild\s+(a\s+)?bomb\b",
+            r"\bexplosive\b",
+            r"\bweapon\b",
+            r"\bhow\s+to\s+kill\b",
+            r"\bpoison\b",
+            r"\battack\b",
+            r"\bmedical\s+advice\b",
+            r"\blegal\s+advice\b",
+            r"\bfinancial\s+advice\b",
+            r"\binvestment\s+advice\b",
+            r"\bpolitical\s+advice\b",
+            r"\bdiagnos(e|is|ing)\b",
+            r"\bprescrib(e|ing)\b",
+        ]
+        return any(re.search(pattern, lower) for pattern in high_risk_patterns)
 
     def _assess_repo_relevance(
         self,
@@ -1240,7 +1350,7 @@ class LocalOperatorAssistant:
             "repo_question",
             "nanopore_science_explanation",
         ]
-        sensitive_domains = "; ".join(self._sensitive_domains[:5])
+        repo_context = self._classifier_reference_context(text)
         system_prompt = (
             "You are a semantic scope and intent classifier for a local nanoporethon operator assistant. "
             "Use positive scope matching: only classify as in-scope when the message clearly belongs to one of the allowed capability modes "
@@ -1250,10 +1360,11 @@ class LocalOperatorAssistant:
             "Classify code/module/file/function explanations as code_explanation. "
             "Classify repository/docs/workflow questions as repo_question. "
             "Classify nanoporethon scientific or algorithmic explanations grounded in local project materials as nanopore_science_explanation. "
-            "Use out_of_scope for unrelated requests or sensitive advisory requests. "
-            f"Sensitive blocked domains include: {sensitive_domains}. "
+            "Use out_of_scope for unrelated requests and for harmful/unsafe requests such as weapons, violent wrongdoing, or dangerous illegal guidance. "
             "If a question seems vaguely scientific or technical but lacks a clear nanoporethon/repository anchor, set domain_anchor_present=false "
             "and allowed_response_mode=clarify. "
+            "Prioritize repository-relevance based on these local project references:\n"
+            f"{repo_context}\n"
             "Respond with ONLY valid JSON (no markdown, no explanation). Required keys: intent, confidence, reason. "
             "Optional keys: scope_class, sensitivity_class, domain_anchor_present, grounding_required, allowed_response_mode, "
             "should_ask_clarifying_question, clarifying_question."
@@ -1344,6 +1455,66 @@ class LocalOperatorAssistant:
             f"{pending_text}\n"
         )
         return [{"role": "user", "content": content}]
+
+    def _classifier_reference_context(self, text: str) -> str:
+        snippets = self._retrieve_relevant_snippets(text, max_items=3, scope_class="repo_knowledge")
+        persona = self._doc_cache.get("Docs/UserPersonas.md", "")
+        use_cases = self._doc_cache.get("Docs/UseCases.md", "")
+
+        context_lines: List[str] = []
+        if snippets:
+            context_lines.append("- Relevant repo snippets:")
+            context_lines.extend(f"  - {snippet}" for snippet in snippets[:3])
+        if persona:
+            context_lines.append("- User personas document exists and defines expected question styles from students, postdocs, collaborators, and lab staff.")
+        if use_cases:
+            context_lines.append("- Use cases document exists and defines core repo tasks: data search/selection, event curation, workflow guidance, and reproducible analysis support.")
+        if not context_lines:
+            context_lines.append("- No cached docs available; default to strict repository relevance requirement.")
+        return "\n".join(context_lines)
+
+    def _configure_intent_classifiers(self) -> None:
+        if not isinstance(self.policy, dict):
+            self._intent_classifier = self.model_adapter
+            return
+
+        scope_cfg = self.policy.get("assistant_scope", {})
+        classifier_cfg = scope_cfg.get("intent_classifier", {}) if isinstance(scope_cfg, dict) else {}
+        enabled = True
+        if isinstance(classifier_cfg, dict):
+            enabled = bool(classifier_cfg.get("enabled", True))
+
+        self._intent_classifier = self.model_adapter if enabled else None
+
+        if not enabled or not isinstance(classifier_cfg, dict):
+            return
+
+        fallback_model = str(classifier_cfg.get("fallback_model", "")).strip()
+        if not fallback_model:
+            return
+
+        model_provider = self.policy.get("model_provider", {}) if isinstance(self.policy, dict) else {}
+        if not isinstance(model_provider, dict):
+            return
+
+        adapter_name = str(model_provider.get("adapter", "")).strip().lower()
+        if adapter_name != "ollama":
+            return
+
+        base_url = str(model_provider.get("base_url", "http://localhost:11434"))
+        timeout_seconds = int(model_provider.get("request_timeout_seconds", 180))
+        max_retries = int(model_provider.get("max_retries", 1))
+
+        if self.model_adapter is not None and getattr(self.model_adapter, "model", "") == fallback_model:
+            self._intent_classifier_fallback = self.model_adapter
+            return
+
+        self._intent_classifier_fallback = OllamaAdapter(
+            model=fallback_model,
+            base_url=base_url,
+            timeout_seconds=timeout_seconds,
+            max_retries=max_retries,
+        )
 
     def _chat_json_with_classifier_fallback(
         self,
@@ -1670,6 +1841,92 @@ class LocalOperatorAssistant:
             return "\n".join(lines).strip()
 
         return None
+
+    def _synthesize_deep_grounded_answer(self, user_text: str, snippets: List[str], scope_class: str) -> Optional[str]:
+        base = self._synthesize_grounded_answer(user_text=user_text, snippets=snippets, scope_class=scope_class)
+        addendum = self._build_deep_followup_addendum(snippets)
+
+        if base and addendum:
+            return f"{base}\n\n{addendum}".strip()
+        if base:
+            return base
+
+        lines: List[str] = [
+            "Here’s a deeper repo-grounded summary from local sources:",
+            "",
+            "Key references:",
+        ]
+
+        for snippet in snippets[:4]:
+            rel = "unknown"
+            body = snippet
+            match = re.match(r"^\[([^\]]+)\]\s*(.*)$", snippet, flags=re.DOTALL)
+            if match:
+                rel = match.group(1).strip()
+                body = match.group(2).strip()
+            lines.append(f"- `{rel}`: {self._compress_snippet(body)}")
+
+        if addendum:
+            lines.extend(["", addendum])
+        return "\n".join(lines).strip()
+
+    def _build_deep_followup_addendum(self, snippets: List[str]) -> str:
+        source_refs: List[str] = []
+        for snippet in snippets:
+            match = re.match(r"^\[([^\]]+)\]", snippet)
+            if match:
+                source_refs.append(match.group(1).strip())
+
+        doc_sources = [
+            src
+            for src in source_refs
+            if src.startswith("Docs/") or src == "README.md" or src.startswith("runtime/")
+        ]
+        doc_sources = list(OrderedDict.fromkeys(doc_sources))
+
+        paper_sources = self._list_paper_resources(max_items=6)
+
+        if not doc_sources and not paper_sources:
+            return ""
+
+        lines: List[str] = [
+            "Further reading in repository:",
+        ]
+
+        if doc_sources:
+            lines.append("- Docs/code references:")
+            for src in doc_sources[:5]:
+                lines.append(f"  - `{src}`")
+
+        if paper_sources:
+            lines.append("- Available paper resources:")
+            for src in paper_sources:
+                lines.append(f"  - `{src}`")
+
+        return "\n".join(lines)
+
+    def _list_paper_resources(self, max_items: int = 6) -> List[str]:
+        papers_root = self.repo_root / "Docs" / "papers"
+        if not papers_root.exists() or not papers_root.is_dir():
+            return []
+
+        allowed_suffixes = {".md", ".txt", ".pdf", ".docx", ".pptx"}
+        resources: List[str] = []
+
+        for path in sorted(papers_root.rglob("*")):
+            if not path.is_file():
+                continue
+            if path.suffix.lower() not in allowed_suffixes:
+                continue
+            try:
+                rel = path.relative_to(self.repo_root).as_posix()
+            except ValueError:
+                rel = str(path)
+            resources.append(rel)
+            if len(resources) >= max_items:
+                break
+
+        return resources
 
     def _discover_commands_from_docs(self, query: str, max_items: int = 4) -> List[Tuple[str, str]]:
         query_lower = (query or "").lower()
