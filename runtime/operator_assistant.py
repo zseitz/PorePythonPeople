@@ -503,6 +503,10 @@ class LocalOperatorAssistant:
         if model_routing_explanation:
             return model_routing_explanation
 
+        file_location_explanation = self._file_location_explanation(user_text)
+        if file_location_explanation:
+            return file_location_explanation
+
         scope_class = decision.scope_class if decision is not None else "repo_knowledge"
         snippet_limit = 5 if deep_mode else 3
         snippets = self._retrieve_relevant_snippets(user_text, max_items=snippet_limit, scope_class=scope_class)
@@ -697,6 +701,9 @@ class LocalOperatorAssistant:
         if self._contains_unverifiable_module_claim(answer):
             return None
 
+        if self._contains_unverifiable_filepath_claim(answer):
+            return None
+
         quotes_raw = payload.get("evidence_quotes", [])
         quotes = [str(q).strip() for q in quotes_raw if str(q).strip()] if isinstance(quotes_raw, list) else []
         valid_quotes = [q for q in quotes if self._quote_in_context(q, context_text)]
@@ -704,6 +711,68 @@ class LocalOperatorAssistant:
             return None
 
         return answer
+
+    def _file_location_explanation(self, user_text: str) -> Optional[str]:
+        text = (user_text or "").strip()
+        lower = text.lower()
+        if not text:
+            return None
+
+        location_markers = ["where", "path", "located", "location", "which file", "what file"]
+        if not any(marker in lower for marker in location_markers):
+            return None
+
+        candidates = self._extract_file_candidates(text)
+        if not candidates and "readme" in lower:
+            candidates = ["README.md"]
+        if not candidates:
+            return None
+
+        # Keep only the most relevant filename-like candidates.
+        basenames = [Path(candidate).name for candidate in candidates if Path(candidate).name]
+        if not basenames:
+            return None
+
+        lines: List[str] = ["Here are the repository filepaths I can verify:", ""]
+        any_match = False
+
+        for basename in list(OrderedDict.fromkeys(basenames))[:3]:
+            matches = self._find_repo_file_matches_by_name(basename)
+            if matches:
+                any_match = True
+                if len(matches) == 1:
+                    lines.append(f"- `{basename}` → `{matches[0]}`")
+                else:
+                    lines.append(f"- `{basename}` has {len(matches)} matches:")
+                    for rel in matches[:8]:
+                        lines.append(f"  - `{rel}`")
+            else:
+                lines.append(f"- `{basename}` was not found under the repository root.")
+
+        if not any_match:
+            return "I could not verify that filepath from the local repository. Please share the exact filename and I’ll re-check."
+
+        lines.extend([
+            "",
+            "I only listed paths that currently exist in this local repository.",
+        ])
+        return "\n".join(lines).strip()
+
+    def _find_repo_file_matches_by_name(self, basename: str) -> List[str]:
+        name = (basename or "").strip()
+        if not name:
+            return []
+
+        matches: List[str] = []
+        for path in self.repo_root.rglob(name):
+            if not path.is_file():
+                continue
+            try:
+                rel = path.relative_to(self.repo_root).as_posix()
+            except ValueError:
+                continue
+            matches.append(rel)
+        return sorted(OrderedDict.fromkeys(matches))
 
     def _clarifying_questions(self, session: Dict[str, Any], analysis: Dict[str, Any]) -> List[str]:
         questions = analysis.get("clarifying_questions", [])
@@ -1650,6 +1719,45 @@ class LocalOperatorAssistant:
                 continue
             if normalized.startswith("nanoporethon.") and normalized not in self._known_python_modules:
                 return True
+        return False
+
+    def _contains_unverifiable_filepath_claim(self, answer: str) -> bool:
+        text = (answer or "").strip()
+        if not text:
+            return False
+
+        candidates: Set[str] = set()
+        candidates.update(re.findall(r"`([^`]+)`", text))
+        candidates.update(re.findall(r"\b(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+\b", text))
+        candidates.update(re.findall(r"\b[A-Za-z0-9_.-]+\.(?:py|md|yaml|yml|json|txt|m|mlapp|mlx)\b", text))
+
+        for raw in candidates:
+            candidate = str(raw).strip().strip("'\".,:;()[]{}")
+            if not candidate:
+                continue
+            if candidate.startswith("http://") or candidate.startswith("https://"):
+                continue
+            if " " in candidate:
+                continue
+            if candidate.startswith("python") or candidate.startswith("pytest"):
+                continue
+
+            candidate_path = Path(candidate)
+            if candidate_path.is_absolute():
+                if not candidate_path.exists():
+                    return True
+                continue
+
+            resolved = (self.repo_root / candidate_path).resolve()
+            if resolved.exists() and resolved.is_file():
+                continue
+
+            # Allow bare basenames when at least one local file with that name exists.
+            if "/" not in candidate and self._find_repo_file_matches_by_name(candidate):
+                continue
+
+            return True
+
         return False
 
     def _quote_in_context(self, quote: str, context_text: str) -> bool:

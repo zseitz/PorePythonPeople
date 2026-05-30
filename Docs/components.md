@@ -279,6 +279,7 @@ Primary package location: `src/nanoporethon/`.
   - Also falls back to deterministic snippet-grounded answers when model output is malformed or fails evidence validation, reducing hallucinated run/API instructions.
   - Deterministic fallback now synthesizes practical guidance for how/use/find/work questions (for example runnable commands + usage considerations + source references) rather than dumping raw snippet fragments.
   - Deterministic fallback now distinguishes procedural launch/how-to prompts from architecture/process questions, so prompts like “How is runtime organized?” explain stage flow (intent/scope → request packet → staged execution) instead of defaulting to run-command output.
+  - File-location questions now route through deterministic local path verification, and model-authored answers with unverifiable filepath claims are rejected in favor of verified local paths.
   - In deeper follow-up mode, Porsche prioritizes presenting existing repository information with explicit references and adds a "Further reading in repository" section that includes available paper resources from `Docs/papers/`.
   - Treats common guided-workflow phrasing (for example confusion, reproducibility/checklist, safeguards, and capability-redirect prompts) as in-scope support requests.
   - Keeps the operational model branch-local and human-supervised by design.

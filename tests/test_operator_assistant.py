@@ -525,3 +525,43 @@ def test_prompt_lifecycle_question_explains_pre_codegen_stages():
     assert "runtime request packet" in response.message.lower()
     assert "implement" in response.message
     assert "Run it from the repository root:" not in response.message
+
+
+def test_file_location_question_returns_only_verified_paths_for_readme():
+    assistant = _assistant()
+    response = assistant.handle_message(
+        "Where is the README file located in this repo?",
+        session=assistant.init_session(),
+    )
+
+    assert response.intent in {"repo_question", "runtime_help", "code_explanation"}
+    assert "repository filepaths I can verify" in response.message
+    assert "`README.md`" in response.message
+    assert "`Docs/papers/README.md`" in response.message
+
+
+def test_model_answer_with_invalid_filepath_claim_falls_back_to_verified_response():
+    class _BadPathAdapter:
+        def chat(self, _system_prompt, _messages):
+            return (
+                '{'
+                '"answer": "The file is located at runtime/not_a_real_file.py", '
+                '"evidence_quotes": ["runtime/operator_assistant.py"], '
+                '"uncertainties": []'
+                '}'
+            )
+
+    assistant = LocalOperatorAssistant(
+        repo_root=Path(__file__).resolve().parents[1],
+        policy=_assistant_policy(),
+        model_adapter=_BadPathAdapter(),
+    )
+
+    response = assistant.handle_message(
+        "Where is operator_assistant.py located?",
+        session=assistant.init_session(),
+    )
+
+    assert response.intent in {"repo_question", "runtime_help", "code_explanation"}
+    assert "runtime/not_a_real_file.py" not in response.message
+    assert "runtime/operator_assistant.py" in response.message

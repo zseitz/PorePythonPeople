@@ -1309,6 +1309,7 @@ Chat-first request guidance:
 - Repository Q&A now uses evidence-validated local model output: answers must be supported by verifiable context excerpts, and malformed/ungrounded model outputs automatically fall back to deterministic doc/code snippet guidance.
 - Deterministic fallback guidance is now formatted as practical instructions (runnable commands, usage considerations, and grounding-source references) so users get actionable answers for “how/use/find/work” questions instead of raw snippet dumps.
 - Deterministic fallback now separates procedural launch questions (for example “How do I run …?”) from architecture/process questions (for example “How is runtime organized?”), returning stage-flow explanations for the latter instead of launch-command blocks.
+- File-location prompts now use deterministic repository path verification, and answers containing unverifiable filepath claims are discarded in favor of paths proven to exist locally.
 - Porsche keeps explanation depth balanced by default for all users and only auto-deepens when recent follow-up question density is high (for example multiple question-style follow-ups in a short span).
 - When auto-deepness is triggered, Porsche prioritizes existing repository evidence and appends a "Further reading in repository" section with explicit docs/code references and any available resources under `Docs/papers/`.
 - Store local academic papers or paper notes under `Docs/papers/` (for example PDFs with optional companion markdown summaries) so Porsche can surface them during deeper follow-up guidance.
