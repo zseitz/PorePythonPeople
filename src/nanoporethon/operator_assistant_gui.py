@@ -510,7 +510,8 @@ class OperatorAssistantGUI:
         chat_input_frame = tk.Frame(left)
         chat_input_frame.pack(side=tk.TOP, fill=tk.X, pady=(8, 0))
 
-        self.chat_input = tk.Entry(chat_input_frame)
+        self.chat_input = scrolledtext.ScrolledText(chat_input_frame, height=4, wrap=tk.WORD, undo=True)
+        _style_text_pane(self.chat_input, "followup")
         self.chat_input.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.chat_input.bind("<Return>", self._on_send_chat)
         self.send_button = tk.Button(chat_input_frame, text="Send", command=self._on_send_chat)
@@ -561,6 +562,18 @@ class OperatorAssistantGUI:
 
     def _timestamp(self) -> str:
         return datetime.now().strftime("%H:%M:%S")
+
+    def _chat_input_value(self) -> str:
+        try:
+            return str(self.chat_input.get("1.0", tk.END)).strip()
+        except TypeError:
+            return str(self.chat_input.get()).strip()
+
+    def _chat_input_clear(self) -> None:
+        try:
+            self.chat_input.delete("1.0", tk.END)
+        except TypeError:
+            self.chat_input.delete(0, tk.END)
 
     def _log_chat(self, role: str, message: str) -> None:
         self.chat_output.config(state=tk.NORMAL)
@@ -649,13 +662,13 @@ class OperatorAssistantGUI:
                 "Message not processed: assistant is unavailable due to startup error. "
                 "Fix the local classifier configuration/model and restart the GUI.",
             )
-            return
+            return "break"
 
-        user_text = self.chat_input.get().strip()
+        user_text = self._chat_input_value()
         if not user_text:
-            return
+            return "break"
 
-        self.chat_input.delete(0, tk.END)
+        self._chat_input_clear()
         self._log_chat("user", user_text)
 
         self.assistant_processing = True
@@ -705,6 +718,8 @@ class OperatorAssistantGUI:
             "assistant",
             f"[{response.intent} | conf={response.confidence:.2f}] {response.message}",
         )
+
+        return "break"
 
     def _run_health_check(self) -> None:
         result = _classifier_health_check(self.policy)

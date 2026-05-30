@@ -183,14 +183,27 @@ class _FakeText:
 
 
 class _FakeEntry:
-    def __init__(self, value=""):
+    def __init__(self, value="", **kwargs):
         self.value = value
+        self.kwargs = dict(kwargs)
+        self.bind_calls = []
+        self.config_calls = []
 
-    def get(self):
+    def get(self, *args):
         return self.value
 
-    def delete(self, _start, _end):
+    def delete(self, *args):
         self.value = ""
+
+    def insert(self, _index, text):
+        self.value += text
+
+    def bind(self, *args, **kwargs):
+        self.bind_calls.append((args, kwargs))
+
+    def config(self, **kwargs):
+        self.config_calls.append(kwargs)
+        self.kwargs.update(kwargs)
 
     def set(self, value):
         self.value = value
@@ -228,9 +241,10 @@ def _build_gui_stub():
     gui.readiness_var = _FakeVar("Status: waiting")
     gui.activity_var = _FakeVar("Activity: idle")
     gui.activity_label = _FakeText()
-    gui.chat_input = _FakeEntry("")
+    gui.chat_input = _FakeEntry("", height=4, wrap="word")
     gui.send_button = _FakeButton()
     gui.run_button = _FakeButton()
+    gui.assistant = None
     gui.runtime_running = False
     gui.assistant_processing = False
     gui.activity_dot_phase = 0
@@ -358,6 +372,30 @@ def test_gui_logging_and_preview_helpers_update_widgets():
 
     gui._set_followups([])
     assert "No follow-up questions pending." not in gui.chat_output.content
+
+
+def test_gui_chat_input_wraps_and_keeps_long_text_visible():
+    gui = _build_gui_stub()
+    assert gui.chat_input.kwargs["wrap"] == "word"
+    assert gui.chat_input.kwargs.get("height") == 4
+
+    long_text = "This is a long request that should wrap instead of disappearing off the edge of the chat box."
+    gui.assistant = SimpleNamespace(
+        handle_message=lambda _text, session=None: SimpleNamespace(
+            intent="repo_question",
+            confidence=0.5,
+            message="ok",
+            followup_questions=[],
+            ready_to_run=False,
+            runtime_request=None,
+            session_updates={"history": []},
+        )
+    )
+    gui.chat_input.set(long_text)
+    gui._on_send_chat()
+
+    assert long_text in gui.chat_output.content
+    assert gui.chat_input.value == ""
 
 
 def test_gui_places_runtime_timeline_below_runtime_controls(monkeypatch):
