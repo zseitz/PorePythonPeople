@@ -332,3 +332,31 @@ def test_exact_matlab_file_reference_does_not_trigger_typo_followup(tmp_path: Pa
     assert response.intent == "feature_request"
     assert response.followup_questions == []
     assert response.ready_to_run is True
+
+
+def test_repo_question_with_model_hallucinated_module_falls_back_to_grounded_answer():
+    class _HallucinatingAdapter:
+        def chat(self, _system_prompt, _messages):
+            return (
+                '{'
+                '"answer": "from nanoporethon_event_classifier import EventClassifierGUI\\n'
+                'event_classifier_gui = EventClassifierGUI()", '
+                '"evidence_quotes": ["python -m nanoporethon.event_classifier_gui"], '
+                '"uncertainties": []'
+                '}'
+            )
+
+    assistant = LocalOperatorAssistant(
+        repo_root=Path(__file__).resolve().parents[1],
+        policy=_assistant_policy(),
+        model_adapter=_HallucinatingAdapter(),
+    )
+
+    response = assistant.handle_message(
+        "How do I run event classifier gui?",
+        session=assistant.init_session(),
+    )
+
+    assert response.intent in {"repo_question", "runtime_help", "code_explanation"}
+    assert "nanoporethon_event_classifier" not in response.message
+    assert "local repository docs and code" in response.message.lower()

@@ -14,7 +14,7 @@ import re
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Set
 
 from .adapters.ollama import OllamaAdapter
 
@@ -214,6 +214,7 @@ class LocalOperatorAssistant:
         self._sensitive_domains = self._load_sensitive_domains_from_policy()
         self._repo_goal_terms = self._load_repo_goal_terms_from_policy()
         self._doc_cache = self._load_docs()
+        self._known_python_modules = self._load_known_python_modules()
         self._intent_cache: Dict[str, Tuple[str, float, str]] = {}
         self._intent_classifier: Optional[Any] = None
         self._intent_classifier_fallback: Optional[OllamaAdapter] = None
@@ -450,33 +451,13 @@ class LocalOperatorAssistant:
             return self._ungrounded_answer_message(decision)
 
         if self.model_adapter is not None and snippets:
-            context_text = "\n\n".join(snippets)
-            system_prompt = (
-                "You are a helpful local assistant for the PorePythonPeople repository. "
-                "Answer questions about the repository's code, documentation, architecture, tests, runtime/agent design, "
-                "AI/agent concepts used in the project, and nanoporethon science. "
-                "Use the supplied context as your primary source; if the context is insufficient, say so honestly. "
-                "Be direct, practical, and concise. Do not refuse repository-relevant questions."
+            response = self._answer_with_grounded_model(
+                user_text=user_text,
+                snippets=snippets,
+                scope_class=scope_class,
             )
-            try:
-                response = self.model_adapter.chat(
-                    system_prompt,
-                    [
-                        {
-                            "role": "user",
-                            "content": (
-                                f"Question:\n{user_text}\n\n"
-                                f"Requested scope class: {scope_class}\n"
-                                f"Context:\n{context_text}"
-                            ),
-                        }
-                    ],
-                )
-                if response.strip():
-                    return response.strip()
-            except Exception:
-                # Fall back to deterministic response if local model is unavailable.
-                pass
+            if response:
+                return response
 
         if snippets:
             intro = "Here’s what I can tell from local repository docs and code:"
@@ -509,6 +490,48 @@ class LocalOperatorAssistant:
                 "`promotion_blocked` means runtime refused promotion due to a guardrail (for example dirty/changed target paths or policy constraints)."
             )
         return None
+
+    def _answer_with_grounded_model(self, user_text: str, snippets: List[str], scope_class: str) -> Optional[str]:
+        context_text = "\n\n".join(snippets)
+        system_prompt = (
+            "You are a repository-grounded assistant for PorePythonPeople. "
+            "Answer using ONLY the provided context excerpts. "
+            "If context is insufficient, say that directly. "
+            "Return ONLY JSON with keys: answer (string), evidence_quotes (array of exact quotes copied from context), "
+            "and uncertainties (array of strings)."
+        )
+        try:
+            payload = _chat_json_response(
+                self.model_adapter,
+                system_prompt,
+                [
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Question:\n{user_text}\n\n"
+                            f"Requested scope class: {scope_class}\n"
+                            f"Context excerpts:\n{context_text}"
+                        ),
+                    }
+                ],
+            )
+        except Exception:
+            return None
+
+        answer = str(payload.get("answer", "")).strip()
+        if not answer:
+            return None
+
+        if self._contains_unverifiable_module_claim(answer):
+            return None
+
+        quotes_raw = payload.get("evidence_quotes", [])
+        quotes = [str(q).strip() for q in quotes_raw if str(q).strip()] if isinstance(quotes_raw, list) else []
+        valid_quotes = [q for q in quotes if self._quote_in_context(q, context_text)]
+        if not valid_quotes:
+            return None
+
+        return answer
 
     def _clarifying_questions(self, session: Dict[str, Any], analysis: Dict[str, Any]) -> List[str]:
         questions = analysis.get("clarifying_questions", [])
@@ -1357,6 +1380,45 @@ class LocalOperatorAssistant:
             "Diagnostics: " + " | ".join(errors)
         )
 
+    def _load_known_python_modules(self) -> Set[str]:
+        modules: Set[str] = {"nanoporethon"}
+        package_root = self.repo_root / "src" / "nanoporethon"
+        if not package_root.exists() or not package_root.is_dir():
+            return modules
+
+        for py_file in package_root.glob("*.py"):
+            stem = py_file.stem
+            if stem == "__init__":
+                continue
+            modules.add(f"nanoporethon.{stem}")
+        return modules
+
+    def _contains_unverifiable_module_claim(self, answer: str) -> bool:
+        text = (answer or "").strip()
+        if not text:
+            return False
+
+        imported_modules: List[str] = []
+        imported_modules.extend(re.findall(r"\bfrom\s+([A-Za-z_][A-Za-z0-9_\.]*)\s+import\b", text))
+        imported_modules.extend(re.findall(r"\bimport\s+([A-Za-z_][A-Za-z0-9_\.]*)", text))
+
+        for module in imported_modules:
+            normalized = module.strip()
+            if normalized.startswith("nanoporethon_"):
+                return True
+            if normalized == "nanoporethon":
+                continue
+            if normalized.startswith("nanoporethon.") and normalized not in self._known_python_modules:
+                return True
+        return False
+
+    def _quote_in_context(self, quote: str, context_text: str) -> bool:
+        q = " ".join((quote or "").split()).strip().lower()
+        c = " ".join((context_text or "").split()).strip().lower()
+        if len(q) < 12:
+            return False
+        return q in c
+
     def _load_docs(self) -> Dict[str, str]:
         cache: Dict[str, str] = {}
         for rel in self._grounding_files:
@@ -1443,6 +1505,8 @@ class LocalOperatorAssistant:
 
     def _retrieve_relevant_snippets(self, query: str, max_items: int = 3, scope_class: str = "unknown") -> List[str]:
         terms = self._query_terms(query)
+        query_lower = (query or "").lower()
+        is_howto_query = any(token in query_lower for token in ["how", "run", "launch", "start", "open"])
         scored: List[Tuple[int, str, str]] = []
         for rel, text in self._doc_cache.items():
             lower = text.lower()
@@ -1457,6 +1521,12 @@ class LocalOperatorAssistant:
                 or "components" in path_lower
             ):
                 score += 2
+            if is_howto_query and (
+                path_lower == "readme.md"
+                or path_lower.endswith("event_classifier_gui.py")
+                or "nanoporethon_textbook" in path_lower
+            ):
+                score += 4
             if score <= 0:
                 continue
             snippet = self._extract_snippet_window(text, terms)

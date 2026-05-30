@@ -1299,6 +1299,7 @@ Chat-first request guidance:
 - Assistant text panes (chat, follow-ups, request preview, timeline) render lightweight markdown formatting with richer local styling (headings/lists/inline code/fenced code blocks + pane-specific typography/color theme) and adaptive light/dark contrast for easier reading.
 - Chat/timeline messages now include explicit heading lines (timestamp + role/event) so each entry has clear larger/bold visual structure even when body text is plain prose.
 - Chat/timeline messages also include a subtle divider line under each entry to improve visual chunking during long assistant sessions.
+- Repository Q&A now uses evidence-validated local model output: answers must be supported by verifiable context excerpts, and malformed/ungrounded model outputs automatically fall back to deterministic doc/code snippet guidance.
 - Message routing does not require classifier startup availability.
 - Session context is still used so runtime follow-up questions after a run are interpreted in conversation context (not as isolated messages), but feature continuation is conditional: follow-ups must stay repository-relevant and pass scope checks.
 - Scope decisions are evidence-based: prompts are considered in-scope when they align with repository goal terms/anchors and retrievable local repo context.
