@@ -22,6 +22,7 @@ def _assistant_policy() -> dict:
                 "Docs/nanoporethon_textbook.md",
                 "Docs/UseCases.md",
                 "Docs/UserPersonas.md",
+                "Docs/papers/README.md",
                 "runtime/operator_assistant.py",
                 "runtime/policies.yaml",
                 "src/nanoporethon/sequence_designer_gui.py",
@@ -420,3 +421,47 @@ def test_classifier_failure_falls_back_to_deterministic_rules():
         session_state=assistant.init_session(),
     )
     assert decision.intent == "runtime_help"
+
+
+def test_followup_density_triggers_deeper_repo_grounded_guidance():
+    assistant = _assistant()
+    session = assistant.init_session()
+
+    response1 = assistant.handle_message(
+        "How do I run event classifier gui?",
+        session=session,
+    )
+    assert response1.intent != "out_of_scope"
+
+    response2 = assistant.handle_message(
+        "What should I configure before opening a search log?",
+        session=response1.session_updates,
+    )
+    assert response2.intent != "out_of_scope"
+
+    response3 = assistant.handle_message(
+        "Can you explain that workflow in more detail and where I should read next?",
+        session=response2.session_updates,
+    )
+
+    assert response3.intent != "out_of_scope"
+    assert "Further reading in repository:" in response3.message
+    assert "Docs/code references" in response3.message
+
+
+def test_deep_mode_includes_available_paper_resources_listing():
+    assistant = _assistant()
+    session = assistant.init_session()
+
+    response1 = assistant.handle_message("How do I run event classifier gui?", session=session)
+    response2 = assistant.handle_message(
+        "How do I choose the right search log folder?",
+        session=response1.session_updates,
+    )
+    response3 = assistant.handle_message(
+        "Where can I do further reading from this repository?",
+        session=response2.session_updates,
+    )
+
+    assert "Available paper resources:" in response3.message
+    assert "Docs/papers/README.md" in response3.message

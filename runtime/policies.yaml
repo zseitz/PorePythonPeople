@@ -46,6 +46,7 @@ assistant_scope:
     - Docs/UserPersonas.md
     - Docs/technology_context.md
     - Docs/feature_request_template.md
+    - Docs/papers/README.md
     - runtime/policies.yaml
     - runtime/operator_assistant.py
     - src/nanoporethon/sequence_designer_gui.py

@@ -255,6 +255,7 @@ Primary package location: `src/nanoporethon/`.
   - Classifies intents into in-scope runtime/repo workflows vs out-of-scope domains.
   - Separates off-topic refusal from sensitive-domain blocking: unrelated prompts are redirected, while sensitive advisory domains (for example medical/legal/financial/political guidance) are explicitly blocked before any runtime action can occur.
   - Grounds answer-mode responses in configured local docs/code files (`assistant_scope.grounding_files`) and refuses to freewheel beyond retrieved local evidence.
+  - Keeps response depth balanced by default and auto-switches to deeper guidance only when follow-up question density is high across recent turns.
   - Builds a runtime request packet from chat context and launches attended runtime execution locally.
   - Enforces runtime launch preflight before assistant-triggered runs: clean working tree (policy-controlled) plus feature-branch requirement (policy-controlled), with explicit blocked-state diagnostics.
   - Protects policy-configured core files by default (repository default policy includes `data_navi_gui.py` and `event_classifier_gui.py`) unless user explicitly authorizes modifying them.
@@ -273,6 +274,7 @@ Primary package location: `src/nanoporethon/`.
   - Falls back to relevant doc/code snippet excerpts when the model is not reachable.
   - Also falls back to deterministic snippet-grounded answers when model output is malformed or fails evidence validation, reducing hallucinated run/API instructions.
   - Deterministic fallback now synthesizes practical guidance for how/use/find/work questions (for example runnable commands + usage considerations + source references) rather than dumping raw snippet fragments.
+  - In deeper follow-up mode, Porsche prioritizes presenting existing repository information with explicit references and adds a "Further reading in repository" section that includes available paper resources from `Docs/papers/`.
   - Treats common guided-workflow phrasing (for example confusion, reproducibility/checklist, safeguards, and capability-redirect prompts) as in-scope support requests.
   - Keeps the operational model branch-local and human-supervised by design.
 

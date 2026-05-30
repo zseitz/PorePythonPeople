@@ -27,6 +27,7 @@ _DEFAULT_GROUNDING_FILES = [
     "Docs/UserPersonas.md",
     "Docs/technology_context.md",
     "Docs/feature_request_template.md",
+    "Docs/papers/README.md",
     "runtime/policies.yaml",
     "runtime/operator_assistant.py",
     "src/nanoporethon/sequence_designer_gui.py",
@@ -235,6 +236,7 @@ class LocalOperatorAssistant:
             "last_intent": None,
             "file_reference_questions_asked": [],
             "scope_relevance_misses": 0,
+            "auto_deepness_enabled": True,
         }
 
     def handle_message(self, text: str, session: Optional[Dict[str, Any]] = None) -> AssistantResponse:
@@ -248,6 +250,7 @@ class LocalOperatorAssistant:
         state.setdefault("pending_questions", [])
         state.setdefault("file_reference_questions_asked", [])
         state.setdefault("scope_relevance_misses", 0)
+        state.setdefault("auto_deepness_enabled", True)
 
         history = state["history"]
         if isinstance(history, list):
@@ -361,7 +364,8 @@ class LocalOperatorAssistant:
                 session_updates=state,
             )
 
-        answer = self._answer_domain_question(message, decision=decision)
+        deep_mode = self._should_enable_deep_mode(state, message, decision)
+        answer = self._answer_domain_question(message, decision=decision, deep_mode=deep_mode)
         return AssistantResponse(
             intent=decision.intent,
             confidence=decision.confidence,
@@ -485,16 +489,31 @@ class LocalOperatorAssistant:
             "- Update tests/docs/request log as required by repository policy when behavior/contracts change.\n"
         )
 
-    def _answer_domain_question(self, user_text: str, decision: Optional[AssistantDecision] = None) -> str:
+    def _answer_domain_question(
+        self,
+        user_text: str,
+        decision: Optional[AssistantDecision] = None,
+        deep_mode: bool = False,
+    ) -> str:
         runtime_event_explanation = self._runtime_event_explanation(user_text)
         if runtime_event_explanation:
             return runtime_event_explanation
 
         scope_class = decision.scope_class if decision is not None else "repo_knowledge"
-        snippets = self._retrieve_relevant_snippets(user_text, max_items=3, scope_class=scope_class)
+        snippet_limit = 5 if deep_mode else 3
+        snippets = self._retrieve_relevant_snippets(user_text, max_items=snippet_limit, scope_class=scope_class)
 
         if decision is not None and decision.grounding_required and not snippets:
             return self._ungrounded_answer_message(decision)
+
+        if deep_mode and snippets:
+            deep_response = self._synthesize_deep_grounded_answer(
+                user_text=user_text,
+                snippets=snippets,
+                scope_class=scope_class,
+            )
+            if deep_response:
+                return deep_response
 
         if self.model_adapter is not None and snippets:
             response = self._answer_with_grounded_model(
@@ -520,6 +539,43 @@ class LocalOperatorAssistant:
             )
 
         return self._ungrounded_answer_message(decision)
+
+    def _should_enable_deep_mode(
+        self,
+        session_state: Dict[str, Any],
+        current_message: str,
+        decision: Optional[AssistantDecision],
+    ) -> bool:
+        if not bool(session_state.get("auto_deepness_enabled", True)):
+            return False
+
+        if decision is None or decision.intent not in _GROUNDED_ANSWER_INTENTS:
+            return False
+
+        history = session_state.get("history", [])
+        if not isinstance(history, list):
+            return False
+
+        user_messages = [
+            str(item.get("text", ""))
+            for item in history
+            if isinstance(item, dict) and str(item.get("role", "")).lower() == "user"
+        ]
+        if not user_messages:
+            return False
+
+        recent = user_messages[-5:]
+        question_like_count = sum(1 for msg in recent if self._is_question_like_message(msg))
+        return len(recent) >= 3 and question_like_count >= 3 and self._is_question_like_message(current_message)
+
+    def _is_question_like_message(self, text: str) -> bool:
+        msg = (text or "").strip().lower()
+        if not msg:
+            return False
+        if "?" in msg:
+            return True
+        starters = ("how ", "what ", "why ", "when ", "where ", "can ", "could ", "would ", "should ", "is ", "are ")
+        return msg.startswith(starters)
 
     def _runtime_event_explanation(self, user_text: str) -> Optional[str]:
         text = (user_text or "").strip().lower()
@@ -1785,6 +1841,92 @@ class LocalOperatorAssistant:
             return "\n".join(lines).strip()
 
         return None
+
+    def _synthesize_deep_grounded_answer(self, user_text: str, snippets: List[str], scope_class: str) -> Optional[str]:
+        base = self._synthesize_grounded_answer(user_text=user_text, snippets=snippets, scope_class=scope_class)
+        addendum = self._build_deep_followup_addendum(snippets)
+
+        if base and addendum:
+            return f"{base}\n\n{addendum}".strip()
+        if base:
+            return base
+
+        lines: List[str] = [
+            "Here’s a deeper repo-grounded summary from local sources:",
+            "",
+            "Key references:",
+        ]
+
+        for snippet in snippets[:4]:
+            rel = "unknown"
+            body = snippet
+            match = re.match(r"^\[([^\]]+)\]\s*(.*)$", snippet, flags=re.DOTALL)
+            if match:
+                rel = match.group(1).strip()
+                body = match.group(2).strip()
+            lines.append(f"- `{rel}`: {self._compress_snippet(body)}")
+
+        if addendum:
+            lines.extend(["", addendum])
+        return "\n".join(lines).strip()
+
+    def _build_deep_followup_addendum(self, snippets: List[str]) -> str:
+        source_refs: List[str] = []
+        for snippet in snippets:
+            match = re.match(r"^\[([^\]]+)\]", snippet)
+            if match:
+                source_refs.append(match.group(1).strip())
+
+        doc_sources = [
+            src
+            for src in source_refs
+            if src.startswith("Docs/") or src == "README.md" or src.startswith("runtime/")
+        ]
+        doc_sources = list(OrderedDict.fromkeys(doc_sources))
+
+        paper_sources = self._list_paper_resources(max_items=6)
+
+        if not doc_sources and not paper_sources:
+            return ""
+
+        lines: List[str] = [
+            "Further reading in repository:",
+        ]
+
+        if doc_sources:
+            lines.append("- Docs/code references:")
+            for src in doc_sources[:5]:
+                lines.append(f"  - `{src}`")
+
+        if paper_sources:
+            lines.append("- Available paper resources:")
+            for src in paper_sources:
+                lines.append(f"  - `{src}`")
+
+        return "\n".join(lines)
+
+    def _list_paper_resources(self, max_items: int = 6) -> List[str]:
+        papers_root = self.repo_root / "Docs" / "papers"
+        if not papers_root.exists() or not papers_root.is_dir():
+            return []
+
+        allowed_suffixes = {".md", ".txt", ".pdf", ".docx", ".pptx"}
+        resources: List[str] = []
+
+        for path in sorted(papers_root.rglob("*")):
+            if not path.is_file():
+                continue
+            if path.suffix.lower() not in allowed_suffixes:
+                continue
+            try:
+                rel = path.relative_to(self.repo_root).as_posix()
+            except ValueError:
+                rel = str(path)
+            resources.append(rel)
+            if len(resources) >= max_items:
+                break
+
+        return resources
 
     def _discover_commands_from_docs(self, query: str, max_items: int = 4) -> List[Tuple[str, str]]:
         query_lower = (query or "").lower()
