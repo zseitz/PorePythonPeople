@@ -823,6 +823,7 @@ def test_deterministic_implement_fallback_scaffolds_requested_gui_file(tmp_path)
     assert "PhaseShiftSliderValueChanged" in generated_text
     assert "DisplayorderSwitchValueChanged" in generated_text
     assert "self.axes.step(" in generated_text
+    assert 'where="mid"' in generated_text
     assert "def _plot_sequence_letters" in generated_text
     assert "display_seq[idx]" in generated_text
     assert "tkinter" in generated_text
@@ -879,6 +880,7 @@ def test_deterministic_fallback_prefers_explicit_requested_target_over_guardrail
     assert "Save Figure" in generated_text
     assert "Export Levels" in generated_text
     assert "self.axes.step(" in generated_text
+    assert 'where="mid"' in generated_text
     assert "def _plot_sequence_letters" in generated_text
     assert "display_seq[idx]" in generated_text
     assert "from __future__ import annotations" in generated_text

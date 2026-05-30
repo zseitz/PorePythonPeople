@@ -659,19 +659,17 @@ class SequenceDesignerGui:
             self.axes.set_ylim(0, 1)
         else:
             x = np.arange(1, levels.size + 1)
-            step_x = np.append(x, x[-1] + 1)
-            step_y = np.append(levels, levels[-1])
             self.axes.step(
-                step_x,
-                step_y,
-                where="post",
+                x,
+                levels,
+                where="mid",
                 color="#111111",
                 linewidth=2.4,
             )
             self.axes.plot(x, levels, color="#1f4aa8", linewidth=0.9, marker="o", markersize=3.2)
             self.axes.axhline(float(np.min(levels)), color="#888", linestyle="--", linewidth=1.0)
             self.axes.axhline(float(np.max(levels)), color="#888", linestyle="--", linewidth=1.0)
-            self.axes.set_xlim(0, max(1, levels.size + 1))
+            self.axes.set_xlim(0.5, max(1, levels.size + 0.5))
             self.axes.set_ylim(0.0, 1.0)
             self._plot_sequence_letters(x, levels)
         self.axes.grid(True, alpha=0.18)
