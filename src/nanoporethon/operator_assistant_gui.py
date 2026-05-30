@@ -523,7 +523,7 @@ class OperatorAssistantGUI:
         )
 
         right = tk.LabelFrame(top, text="Runtime Controls", padx=8, pady=8)
-        right.pack(side=tk.RIGHT, fill=tk.Y, expand=False)
+        right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=False)
 
         self.readiness_var = tk.StringVar(value="Status: waiting for feature request message")
         tk.Label(right, textvariable=self.readiness_var, anchor="w", fg="#333333").pack(side=tk.TOP, fill=tk.X)
@@ -539,8 +539,8 @@ class OperatorAssistantGUI:
         tk.Button(controls, text="Health Check", command=self._run_health_check).pack(side=tk.LEFT, padx=(8, 0))
         tk.Button(controls, text="New Chat Session", command=self._new_session).pack(side=tk.LEFT, padx=(8, 0))
 
-        timeline = tk.LabelFrame(self.root, text="Runtime Timeline (events)", padx=8, pady=8)
-        timeline.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=False, padx=10, pady=(0, 10))
+        timeline = tk.LabelFrame(right, text="Runtime Timeline (events)", padx=8, pady=8)
+        timeline.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=(10, 0))
         self.timeline_output = scrolledtext.ScrolledText(timeline, height=10, state=tk.DISABLED, wrap=tk.WORD)
         _style_text_pane(self.timeline_output, "timeline")
         self.timeline_output.pack(side=tk.TOP, fill=tk.BOTH, expand=True)

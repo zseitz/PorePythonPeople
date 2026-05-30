@@ -360,6 +360,104 @@ def test_gui_logging_and_preview_helpers_update_widgets():
     assert "No follow-up questions pending." not in gui.chat_output.content
 
 
+def test_gui_places_runtime_timeline_below_runtime_controls(monkeypatch):
+    created = []
+
+    class FakeWidget:
+        def __init__(self, master=None, **kwargs):
+            self.master = master
+            self.kwargs = kwargs
+            self.children = []
+            self.pack_calls = []
+            self.config_calls = []
+            self.bind_calls = []
+            self.content = ""
+            if master is not None and hasattr(master, "children"):
+                master.children.append(self)
+            created.append(self)
+
+        def pack(self, **kwargs):
+            self.pack_calls.append(kwargs)
+
+        def config(self, **kwargs):
+            self.config_calls.append(kwargs)
+
+        def bind(self, *args, **kwargs):
+            self.bind_calls.append((args, kwargs))
+
+        def cget(self, key):
+            return self.kwargs.get(key, "#f8fafc")
+
+        def see(self, _where):
+            return None
+
+        def delete(self, *_args, **_kwargs):
+            self.content = ""
+
+        def insert(self, _where, text):
+            self.content += text
+
+    class FakeRoot(FakeWidget):
+        def __init__(self):
+            super().__init__(None)
+            self.after_calls = []
+
+        def title(self, *_args, **_kwargs):
+            return None
+
+        def geometry(self, *_args, **_kwargs):
+            return None
+
+        def update_idletasks(self):
+            return None
+
+        def after(self, interval, callback):
+            self.after_calls.append((interval, callback))
+
+    class FakeVar:
+        def __init__(self, value=None):
+            self.value = value
+
+        def set(self, value):
+            self.value = value
+
+        def get(self):
+            return self.value
+
+    monkeypatch.setattr("nanoporethon.operator_assistant_gui.tk.Frame", lambda master=None, **kwargs: FakeWidget(master, **kwargs))
+    monkeypatch.setattr("nanoporethon.operator_assistant_gui.tk.LabelFrame", lambda master=None, **kwargs: FakeWidget(master, **kwargs))
+    monkeypatch.setattr("nanoporethon.operator_assistant_gui.tk.Label", lambda master=None, **kwargs: FakeWidget(master, **kwargs))
+    monkeypatch.setattr("nanoporethon.operator_assistant_gui.tk.Button", lambda master=None, **kwargs: FakeWidget(master, **kwargs))
+    monkeypatch.setattr("nanoporethon.operator_assistant_gui.tk.Entry", lambda master=None, **kwargs: FakeWidget(master, **kwargs))
+    monkeypatch.setattr("nanoporethon.operator_assistant_gui.tk.StringVar", lambda value=None: FakeVar(value))
+    monkeypatch.setattr("nanoporethon.operator_assistant_gui.scrolledtext.ScrolledText", lambda master=None, **kwargs: FakeWidget(master, **kwargs))
+    monkeypatch.setattr(OperatorAssistantGUI, "_log_chat", lambda self, *args, **kwargs: None)
+    monkeypatch.setattr(OperatorAssistantGUI, "_refresh_activity_indicator", lambda self, *args, **kwargs: None)
+
+    gui = OperatorAssistantGUI.__new__(OperatorAssistantGUI)
+    gui.root = FakeRoot()
+    gui.assistant_startup_error = None
+    gui._build_gui()
+
+    top_frames = [child for child in gui.root.children if not child.kwargs.get("text")]
+    assert top_frames, "Top container frame was not created"
+    top = top_frames[0]
+
+    right_frames = [child for child in top.children if child.kwargs.get("text") == "Runtime Controls"]
+    assert right_frames, "Runtime Controls frame was not created"
+    right = right_frames[0]
+
+    timeline_frames = [child for child in right.children if child.kwargs.get("text") == "Runtime Timeline (events)"]
+    assert timeline_frames, "Runtime Timeline frame should be nested under Runtime Controls"
+    timeline = timeline_frames[0]
+
+    assert timeline.master is right
+    assert timeline.pack_calls and timeline.pack_calls[0]["side"] == "top"
+    assert timeline.pack_calls[0]["fill"] == "both"
+    assert timeline.pack_calls[0]["expand"] is True
+    assert right.children[-1] is timeline
+
+
 def test_markdown_renderer_formats_basic_markdown_in_text_widgets():
     text = _FakeText()
     _render_markdown_to_text_widget(
