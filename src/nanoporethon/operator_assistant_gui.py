@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import queue
+import re
 import sys
 import threading
 import time
@@ -199,6 +200,114 @@ def _runtime_preflight_check(
     }
 
 
+def _init_markdown_tags(widget: Any) -> None:
+    if getattr(widget, "_markdown_tags_ready", False):
+        return
+    if not hasattr(widget, "tag_configure"):
+        return
+
+    widget.tag_configure("md_h1", font=("TkDefaultFont", 12, "bold"), spacing1=8, spacing3=4)
+    widget.tag_configure("md_h2", font=("TkDefaultFont", 11, "bold"), spacing1=6, spacing3=3)
+    widget.tag_configure("md_h3", font=("TkDefaultFont", 10, "bold"), spacing1=4, spacing3=2)
+    widget.tag_configure("md_bold", font=("TkDefaultFont", 10, "bold"))
+    widget.tag_configure("md_italic", font=("TkDefaultFont", 10, "italic"))
+    widget.tag_configure("md_code", font=("Courier", 10), background="#f2f4f7")
+    widget.tag_configure("md_code_block", font=("Courier", 10), background="#f2f4f7", lmargin1=14, lmargin2=14)
+    widget.tag_configure("md_quote", foreground="#475467", lmargin1=14, lmargin2=14)
+    widget._markdown_tags_ready = True
+
+
+def _inline_markdown_segments(text: str) -> list[tuple[str, Optional[str]]]:
+    pattern = re.compile(r"(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)")
+    segments: list[tuple[str, Optional[str]]] = []
+    idx = 0
+    for match in pattern.finditer(text):
+        start, end = match.span()
+        if start > idx:
+            segments.append((text[idx:start], None))
+        token = match.group(0)
+        if token.startswith("`") and token.endswith("`"):
+            segments.append((token[1:-1], "md_code"))
+        elif token.startswith("**") and token.endswith("**"):
+            segments.append((token[2:-2], "md_bold"))
+        elif token.startswith("*") and token.endswith("*"):
+            segments.append((token[1:-1], "md_italic"))
+        else:
+            segments.append((token, None))
+        idx = end
+    if idx < len(text):
+        segments.append((text[idx:], None))
+    return segments
+
+
+def _insert_markdown_line(widget: Any, line: str, line_tag: Optional[str] = None) -> None:
+    def _safe_insert(text: str, tags: tuple[str, ...] = ()) -> None:
+        if tags:
+            try:
+                widget.insert(tk.END, text, tags)
+                return
+            except TypeError:
+                pass
+        widget.insert(tk.END, text)
+
+    segments = _inline_markdown_segments(line)
+    for segment_text, inline_tag in segments:
+        if not segment_text:
+            continue
+        tags = tuple(tag for tag in [line_tag, inline_tag] if tag)
+        _safe_insert(segment_text, tags)
+    _safe_insert("\n", (line_tag,) if line_tag else ())
+
+
+def _render_markdown_to_text_widget(widget: Any, markdown_text: str, append: bool = False) -> None:
+    text = markdown_text or ""
+    if not append and hasattr(widget, "delete"):
+        widget.delete("1.0", tk.END)
+
+    _init_markdown_tags(widget)
+
+    in_code_block = False
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip("\n")
+        stripped = line.strip()
+
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+            continue
+
+        if in_code_block:
+            _insert_markdown_line(widget, line, line_tag="md_code_block")
+            continue
+
+        if stripped.startswith("### "):
+            _insert_markdown_line(widget, stripped[4:], line_tag="md_h3")
+            continue
+        if stripped.startswith("## "):
+            _insert_markdown_line(widget, stripped[3:], line_tag="md_h2")
+            continue
+        if stripped.startswith("# "):
+            _insert_markdown_line(widget, stripped[2:], line_tag="md_h1")
+            continue
+        if stripped.startswith("> "):
+            _insert_markdown_line(widget, stripped[2:], line_tag="md_quote")
+            continue
+
+        bullet = re.match(r"^\s*[-*+]\s+(.*)$", line)
+        if bullet:
+            _insert_markdown_line(widget, f"• {bullet.group(1)}")
+            continue
+
+        numbered = re.match(r"^\s*(\d+)\.\s+(.*)$", line)
+        if numbered:
+            _insert_markdown_line(widget, f"{numbered.group(1)}. {numbered.group(2)}")
+            continue
+
+        _insert_markdown_line(widget, line)
+
+    if text.endswith("\n"):
+        widget.insert(tk.END, "\n")
+
+
 class OperatorAssistantGUI:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
@@ -342,7 +451,11 @@ class OperatorAssistantGUI:
 
     def _log_chat(self, role: str, message: str) -> None:
         self.chat_output.config(state=tk.NORMAL)
-        self.chat_output.insert(tk.END, f"[{self._timestamp()}] {role}: {message}\n\n")
+        _render_markdown_to_text_widget(
+            self.chat_output,
+            f"[{self._timestamp()}] {role}: {message}\n\n",
+            append=True,
+        )
         self.chat_output.see(tk.END)
         self.chat_output.config(state=tk.DISABLED)
 
@@ -353,24 +466,26 @@ class OperatorAssistantGUI:
 
     def _log_timeline(self, message: str) -> None:
         self.timeline_output.config(state=tk.NORMAL)
-        self.timeline_output.insert(tk.END, f"[{self._timestamp()}] {message}\n")
+        _render_markdown_to_text_widget(
+            self.timeline_output,
+            f"[{self._timestamp()}] {message}\n",
+            append=True,
+        )
         self.timeline_output.see(tk.END)
         self.timeline_output.config(state=tk.DISABLED)
 
     def _set_preview_text(self, text: str) -> None:
         self.preview_output.config(state=tk.NORMAL)
-        self.preview_output.delete("1.0", tk.END)
-        self.preview_output.insert(tk.END, text)
+        _render_markdown_to_text_widget(self.preview_output, text, append=False)
         self.preview_output.config(state=tk.DISABLED)
 
     def _set_followups(self, questions: list[str]) -> None:
         self.followup_output.config(state=tk.NORMAL)
-        self.followup_output.delete("1.0", tk.END)
         if questions:
-            for idx, question in enumerate(questions, start=1):
-                self.followup_output.insert(tk.END, f"{idx}. {question}\n")
+            markdown = "\n".join(f"{idx}. {question}" for idx, question in enumerate(questions, start=1))
+            _render_markdown_to_text_widget(self.followup_output, markdown, append=False)
         else:
-            self.followup_output.insert(tk.END, "No follow-up questions pending.")
+            _render_markdown_to_text_widget(self.followup_output, "No follow-up questions pending.", append=False)
         self.followup_output.config(state=tk.DISABLED)
 
     def _new_session(self) -> None:

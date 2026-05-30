@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from nanoporethon.operator_assistant_gui import (
     OperatorAssistantGUI,
+    _render_markdown_to_text_widget,
     _activity_indicator_text,
     _activity_status_label,
     _classifier_health_check,
@@ -346,7 +347,7 @@ def test_gui_logging_and_preview_helpers_update_widgets():
     assert "assistant: hello" in gui.chat_output.content
 
     gui._set_preview_text("request preview")
-    assert gui.preview_output.content == "request preview"
+    assert gui.preview_output.content.strip() == "request preview"
 
     gui._set_followups(["Q1", "Q2"])
     assert "1. Q1" in gui.followup_output.content
@@ -354,6 +355,21 @@ def test_gui_logging_and_preview_helpers_update_widgets():
 
     gui._set_followups([])
     assert "No follow-up questions pending." in gui.followup_output.content
+
+
+def test_markdown_renderer_formats_basic_markdown_in_text_widgets():
+    text = _FakeText()
+    _render_markdown_to_text_widget(
+        text,
+        "# Title\n- bullet item\n1. first\nUse `code` and **bold** text.",
+        append=False,
+    )
+    assert "Title" in text.content
+    assert "# Title" not in text.content
+    assert "• bullet item" in text.content
+    assert "1. first" in text.content
+    assert "`code`" not in text.content
+    assert "**bold**" not in text.content
 
 
 def test_gui_new_session_resets_runtime_request_state():
