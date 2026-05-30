@@ -81,6 +81,35 @@ assistant_scope:
     - signal
     - trace
     - current
+  repo_goal_terms:
+    - nanopore
+    - nanoporethon
+    - event classifier
+    - data navigator
+    - runtime
+    - orchestrator
+    - policy
+    - stage
+    - gate
+    - promotion
+    - repository
+    - repo
+    - docs
+    - code
+    - python
+    - test
+    - gui
+    - sequence
+    - trace
+    - signal
+    - q-mer
+    - qmer
+    - matlab
+    - event.mat
+    - reduced.mat
+    - meta.mat
+    - csv
+    - export
   sensitive_domains:
     - medical or diagnostic advice
     - legal advice

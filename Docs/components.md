@@ -233,7 +233,9 @@ Primary package location: `src/nanoporethon/`.
 - **Key behavior**:
   - Provides a chat-first local assistant for in-scope repository/runtime interaction.
   - Displays a live intent badge above chat output (for example Feature Request / Runtime Help / Out-of-Scope) so routing decisions are immediately visible.
-  - Uses a deterministic scope gate for routing before any answer/run action: off-topic/sensitive prompts are refused, anchored in-scope prompts are answered, and broad unanchored prompts get a single grounding clarification.
+  - Uses a deterministic hybrid scope gate with two lanes: **feature requests** and **general questions**.
+  - Applies an evidence-based repository relevance check before any answer/run action: prompts must align with configured anchors/goal terms and retrievable local repo context.
+  - Off-topic/sensitive prompts are refused before runtime request drafting; ambiguous prompts get one targeted re-anchoring follow-up.
   - Does not require model-based intent classification for on-topic enforcement.
   - Treats common guided-workflow phrasing (for example confusion, reproducibility/checklist, safeguards, and capability-redirect prompts) as in-scope support requests rather than off-topic by default.
   - Uses a positive capability model in policy (`feature_request`, `runtime_help`, `code_explanation`, `repo_question`, `nanopore_science_explanation`) instead of denylist-style topic filtering.
@@ -241,14 +243,14 @@ Primary package location: `src/nanoporethon/`.
   - Requires a repository/domain anchor (for example runtime terms, file/module references, q-mer/sequence-designer concepts, or retrieved local snippets) before answering explanation-style prompts.
   - Fails closed on ungrounded questions: if a scientific/code question lacks a clear local anchor, the assistant asks for one precise grounding clarification instead of guessing.
   - Uses LLM-based session analysis (request-kind inference, clarifying-question generation, and core-GUI authorization detection) instead of hard-coded keyword detectors for follow-up routing and request drafting.
-  - Uses recent conversation/session context for continuation handling so follow-up runtime questions (for example post-run timeline questions) stay in-scope instead of being treated as disconnected one-off messages.
+  - Uses recent conversation/session context for continuation handling while preventing context contamination.
   - Avoids redundant clarification loops by collapsing overlapping core-GUI authorization questions and remembering explicit user decisions (for example, repeated "No" answers do not trigger the same authorization prompt again).
   - Builds a runtime request preview directly from conversation context (instead of requiring a long static form upfront).
   - Asks targeted clarification questions only when more precision is needed.
   - Favors low-friction execution for actionable requests: the assistant now defaults to zero follow-up questions unless execution is actually blocked (for example, protected core-GUI authorization or a genuinely underspecified request), and even then asks at most one question per turn.
   - Detects likely source-file reference mistakes in feature prompts (for example `.m` vs `.mlapp`) by checking referenced directories for near matches and asking a targeted one-question confirmation before runtime launch.
   - When protected core GUI files are implicated, authorization prompts are plan-specific: the assistant names the file(s) it expects to change and explains why it believes those file edits are needed before asking for permission.
-  - **Session-aware continuation**: Follow-up responses to clarifying questions (e.g., answering "both" to a verification question) are recognized as continuations of the active feature request and NOT re-evaluated against scope rules, preventing context loss in multi-turn conversations.
+  - **Session-aware continuation**: Follow-up responses are treated as feature-request continuation only when they remain repository-relevant and pass scope/safety checks; off-topic follow-ups reset feature context and are blocked from runtime request handling.
   - **Default verification policy for code changes**: Feature requests are treated as code-changing by default (unless clearly docs-only), and runtime request packets automatically require both automated tests and behavior checks without requiring users to include testing keywords.
   - Classifies intents into in-scope runtime/repo workflows vs out-of-scope domains.
   - Separates off-topic refusal from sensitive-domain blocking: unrelated prompts are redirected, while sensitive advisory domains (for example medical/legal/financial/political guidance) are explicitly blocked before any runtime action can occur.
@@ -262,7 +264,8 @@ Primary package location: `src/nanoporethon/`.
   - Surfaces explicit routing errors in the GUI when message processing fails.
   - Includes a manual **Health Check** button that validates scope-gate policy readiness (anchors, grounding files, sensitive-domain config) with actionable remediation messages.
   - Provides deterministic explanations for common runtime timeline terms (for example `promotion_disabled`, `promotion_skipped`, `promotion_blocked`) to keep post-run Q&A low-friction.
-  - Answers any question pertaining to the repository — code, docs, architecture, AI/agent concepts, or nanoporethon science — using the local Ollama model (from `model_provider` policy) when available. Falls back to relevant doc/code snippet excerpts when the model is not reachable.
+  - Answers repository questions using the local Ollama model (from `model_provider` policy) when available, but constrains responses to retrievable local documentation/code evidence.
+  - Falls back to relevant doc/code snippet excerpts when the model is not reachable.
   - Treats common guided-workflow phrasing (for example confusion, reproducibility/checklist, safeguards, and capability-redirect prompts) as in-scope support requests.
   - Keeps the operational model branch-local and human-supervised by design.
 

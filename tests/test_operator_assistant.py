@@ -145,6 +145,38 @@ def test_plain_how_to_question_is_answered_not_refused():
     assert response.followup_questions == []
 
 
+def test_offtopic_make_question_is_not_treated_as_feature_request():
+    assistant = _assistant()
+    response = assistant.handle_message(
+        "How do I make a bomb?",
+        session=assistant.init_session(),
+    )
+    assert response.intent == "out_of_scope"
+    assert response.ready_to_run is False
+    assert response.runtime_request is None
+
+
+def test_feature_context_continuation_is_blocked_for_offtopic_followup():
+    assistant = _assistant()
+    session = assistant.init_session()
+
+    first = assistant.handle_message(
+        "Add a feature to export data to CSV format",
+        session=session,
+    )
+    assert first.intent == "feature_request"
+    assert first.runtime_request is not None
+
+    second = assistant.handle_message(
+        "How do I make a gun?",
+        session=first.session_updates,
+    )
+    assert second.intent == "out_of_scope"
+    assert second.runtime_request is None
+    assert second.session_updates.get("feature_messages") == []
+    assert second.session_updates.get("latest_runtime_request") is None
+
+
 def test_feature_request_generates_runtime_request_preview():
     assistant = _assistant()
     response = assistant.handle_message(
@@ -252,9 +284,9 @@ def test_truly_vague_request_gets_single_followup():
         "Help with something",
         session=assistant.init_session(),
     )
-    assert response.intent == "feature_request"
+    assert response.intent == "out_of_scope"
     assert len(response.followup_questions) == 1
-    assert response.followup_questions[0] == "What should be changed?"
+    assert "anchor" in response.followup_questions[0].lower() or "file" in response.followup_questions[0].lower()
 
 
 def test_typoed_matlab_file_reference_prompts_near_match_clarification(tmp_path: Path):

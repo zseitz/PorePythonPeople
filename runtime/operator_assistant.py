@@ -80,6 +80,38 @@ _DEFAULT_SENSITIVE_DOMAINS = [
     "general lifestyle or relationship counseling",
 ]
 
+_DEFAULT_REPO_GOAL_TERMS = [
+    "nanopore",
+    "nanoporethon",
+    "event classifier",
+    "data navigator",
+    "runtime",
+    "orchestrator",
+    "policy",
+    "stage",
+    "gate",
+    "promotion",
+    "repository",
+    "repo",
+    "documentation",
+    "docs",
+    "code",
+    "python",
+    "test",
+    "gui",
+    "sequence",
+    "trace",
+    "signal",
+    "q-mer",
+    "qmer",
+    "matlab",
+    "event.mat",
+    "reduced.mat",
+    "meta.mat",
+    "csv",
+    "export",
+]
+
 _ALLOWED_INTENTS = {
     "feature_request",
     "runtime_help",
@@ -180,6 +212,7 @@ class LocalOperatorAssistant:
         self._grounding_files = self._load_grounding_files_from_policy()
         self._domain_anchors = self._load_domain_anchors_from_policy()
         self._sensitive_domains = self._load_sensitive_domains_from_policy()
+        self._repo_goal_terms = self._load_repo_goal_terms_from_policy()
         self._doc_cache = self._load_docs()
         self._intent_cache: Dict[str, Tuple[str, float, str]] = {}
         self._intent_classifier: Optional[Any] = None
@@ -198,6 +231,7 @@ class LocalOperatorAssistant:
             "pending_questions": [],
             "last_intent": None,
             "file_reference_questions_asked": [],
+            "scope_relevance_misses": 0,
         }
 
     def handle_message(self, text: str, session: Optional[Dict[str, Any]] = None) -> AssistantResponse:
@@ -210,6 +244,7 @@ class LocalOperatorAssistant:
         state.setdefault("latest_runtime_request", None)
         state.setdefault("pending_questions", [])
         state.setdefault("file_reference_questions_asked", [])
+        state.setdefault("scope_relevance_misses", 0)
 
         history = state["history"]
         if isinstance(history, list):
@@ -229,14 +264,34 @@ class LocalOperatorAssistant:
                 session_updates=state,
             )
 
-        # Check if we're currently in a feature_request conversation.
-        # If so, treat follow-up messages as part of that request (only reject if explicitly out-of-scope).
-        in_feature_context = bool(state.get("feature_messages"))
+        # Continue feature context only when follow-up stays topical and in-scope.
+        in_feature_context = self._should_continue_feature_context(message, state)
+        if bool(state.get("feature_messages")) and not in_feature_context:
+            self._reset_feature_context(state)
+
         decision = self.classify_intent(message, in_feature_context=in_feature_context, session_state=state)
         state["last_intent"] = decision.intent
         state["last_scope_class"] = decision.scope_class
 
         if decision.allowed_response_mode == "refuse" or decision.intent == "out_of_scope":
+            self._reset_feature_context(state)
+            interactive_redirect = (
+                " If you intended a PorePythonPeople question, mention a repository file, GUI workflow, runtime stage, or docs section and I’ll help from there."
+                if decision.reason
+                in {
+                    "question_without_repo_relevance",
+                    "feature_request_without_repo_relevance",
+                    "statement_without_repo_relevance",
+                }
+                else ""
+            )
+            followups = (
+                [
+                    "If this is about PorePythonPeople, what file/workflow should I anchor to (for example `event_classifier_gui.py`, DataNaviGUI, runtime policy, or docs)?"
+                ]
+                if interactive_redirect
+                else []
+            )
             refusal_tail = (
                 "I also can’t help with sensitive advisory requests such as medical, legal, financial, or political guidance."
                 if decision.sensitivity_class == "blocked"
@@ -248,9 +303,9 @@ class LocalOperatorAssistant:
                 reason=decision.reason,
                 message=(
                     "I’m scoped to nanoporethon workflows, runtime/agent architecture, and this repository’s code/docs. "
-                    f"{refusal_tail}"
+                    f"{refusal_tail}{interactive_redirect}"
                 ),
-                followup_questions=[],
+                followup_questions=followups,
                 ready_to_run=False,
                 runtime_request=None,
                 session_updates=state,
@@ -323,12 +378,12 @@ class LocalOperatorAssistant:
     ) -> AssistantDecision:
         msg = text.lower().strip()
 
-        # Continue feature requests across follow-up turns.
+        # Continue feature requests across follow-up turns only when pre-validated.
         if in_feature_context:
             return AssistantDecision(
                 "feature_request",
                 0.88,
-                "in_feature_context_continuation",
+                "conditional_feature_context_continuation",
                 scope_class="repo_workflow",
                 sensitivity_class="normal",
                 domain_anchor_present=True,
@@ -842,11 +897,13 @@ class LocalOperatorAssistant:
         if not lower:
             return AssistantDecision(intent="out_of_scope", confidence=1.0, reason="empty_message")
 
+        relevance = self._assess_repo_relevance(lower, session_state=session_state)
+
         if self._contains_sensitive_or_offtopic_content(lower):
             return AssistantDecision(
                 intent="out_of_scope",
                 confidence=0.99,
-                reason="sensitive_or_offtopic",
+                reason="sensitive_blocked",
                 scope_class="out_of_scope",
                 sensitivity_class="blocked",
                 domain_anchor_present=False,
@@ -855,21 +912,33 @@ class LocalOperatorAssistant:
             )
 
         explicit_feature_request = self._is_feature_request(lower)
+        has_anchor = relevance["has_anchor"]
+        is_relevant = relevance["is_relevant"]
+
         if explicit_feature_request:
+            if not is_relevant:
+                return AssistantDecision(
+                    intent="out_of_scope",
+                    confidence=0.98,
+                    reason="feature_request_without_repo_relevance",
+                    scope_class="out_of_scope",
+                    sensitivity_class="normal",
+                    domain_anchor_present=False,
+                    grounding_required=False,
+                    allowed_response_mode="refuse",
+                )
             return AssistantDecision(
                 intent="feature_request",
                 confidence=0.9,
                 reason="deterministic_feature_request",
                 scope_class="repo_workflow",
                 sensitivity_class="normal",
-                domain_anchor_present=self._has_domain_anchor(lower, session_state=session_state),
+                domain_anchor_present=has_anchor,
                 grounding_required=False,
                 allowed_response_mode="feature_request",
             )
 
-        has_anchor = self._has_domain_anchor(lower, session_state=session_state)
         is_question = self._looks_information_question(lower)
-        has_guided_cue = self._has_guided_workflow_cue(lower)
 
         science_terms = {"q-mer", "qmer", "hel308", "chemistry", "physics", "signal", "current"}
         code_terms = {".py", "module", "function", "class", "operator_assistant.py", "file"}
@@ -892,8 +961,8 @@ class LocalOperatorAssistant:
         has_code = any(term in lower for term in code_terms)
         has_runtime = any(term in lower for term in runtime_terms)
 
-        # Science terms → nanopore_science_explanation (always try to answer)
-        if has_science:
+        # Science terms → nanopore_science_explanation when repository-relevant.
+        if has_science and is_relevant:
             return AssistantDecision(
                 intent="nanopore_science_explanation",
                 confidence=0.82,
@@ -905,8 +974,8 @@ class LocalOperatorAssistant:
                 allowed_response_mode="grounded_answer",
             )
 
-        # Code file/module terms + question → code_explanation
-        if has_code and is_question:
+        # Code file/module terms + question → code_explanation when repository-relevant.
+        if has_code and is_question and is_relevant:
             return AssistantDecision(
                 intent="code_explanation",
                 confidence=0.85,
@@ -918,8 +987,8 @@ class LocalOperatorAssistant:
                 allowed_response_mode="grounded_answer",
             )
 
-        # Runtime/orchestration terms → runtime_help
-        if has_runtime and (is_question or has_anchor):
+        # Runtime/orchestration terms → runtime_help when repository-relevant.
+        if has_runtime and is_relevant and (is_question or has_anchor):
             return AssistantDecision(
                 intent="runtime_help",
                 confidence=0.86,
@@ -931,8 +1000,8 @@ class LocalOperatorAssistant:
                 allowed_response_mode="runtime_explanation",
             )
 
-        # Any question (anchored or not) → repo_question, always try to answer
-        if is_question:
+        # Any repository-relevant question routes to repo_question.
+        if is_question and is_relevant:
             return AssistantDecision(
                 intent="repo_question",
                 confidence=0.8,
@@ -944,35 +1013,142 @@ class LocalOperatorAssistant:
                 allowed_response_mode="grounded_answer",
             )
 
-        # Non-question without explicit action verb → feature_request
+        if is_question and not is_relevant:
+            return AssistantDecision(
+                intent="out_of_scope",
+                confidence=0.96,
+                reason="question_without_repo_relevance",
+                scope_class="out_of_scope",
+                sensitivity_class="normal",
+                domain_anchor_present=False,
+                grounding_required=False,
+                allowed_response_mode="refuse",
+            )
+
+        if not is_question and is_relevant:
+            return AssistantDecision(
+                intent="repo_question",
+                confidence=0.72,
+                reason="deterministic_repo_statement",
+                scope_class="repo_knowledge",
+                sensitivity_class="normal",
+                domain_anchor_present=has_anchor,
+                grounding_required=True,
+                allowed_response_mode="grounded_answer",
+            )
+
         return AssistantDecision(
-            intent="feature_request",
-            confidence=0.72,
-            reason="deterministic_non_question_feature",
-            scope_class="repo_workflow",
+            intent="out_of_scope",
+            confidence=0.95,
+            reason="statement_without_repo_relevance",
+            scope_class="out_of_scope",
             sensitivity_class="normal",
-            domain_anchor_present=has_anchor,
+            domain_anchor_present=False,
             grounding_required=False,
-            allowed_response_mode="feature_request",
+            allowed_response_mode="refuse",
         )
 
     def _contains_sensitive_or_offtopic_content(self, lower: str) -> bool:
-        sensitive_patterns = [
-            "medical advice",
-            "diagnosis",
-            "medication",
-            "chest pain",
-            "legal advice",
-            "invest",
-            "stocks",
-            "crypto",
-            "vote",
-            "election",
-            "brownie",
-            "recipe",
-            "meaning of life",
-        ]
-        return any(pattern in lower for pattern in sensitive_patterns)
+        # Policy-driven sensitive-domain cues (avoid hard-coded one-off phrase lists).
+        sensitive_cues: List[str] = []
+        for phrase in self._sensitive_domains:
+            words = [w.strip() for w in re.split(r"[^a-zA-Z0-9]+", phrase.lower()) if len(w.strip()) >= 4]
+            sensitive_cues.extend(words)
+
+        # Advisory intents that frequently indicate blocked guidance requests.
+        advisory_cues = ["advice", "diagnose", "diagnosis", "prescribe", "investment", "lawsuit", "legal"]
+        all_cues = set(sensitive_cues + advisory_cues)
+        return any(cue and cue in lower for cue in all_cues)
+
+    def _assess_repo_relevance(
+        self,
+        text: str,
+        session_state: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        lower = (text or "").strip().lower()
+        has_anchor = self._has_domain_anchor(lower, session_state=session_state)
+        has_goal_term = any(term.lower() in lower for term in self._repo_goal_terms)
+
+        specific_terms = self._specific_query_terms(lower)
+        snippets: List[str] = []
+        if specific_terms:
+            snippets = self._retrieve_relevant_snippets(" ".join(specific_terms), max_items=2, scope_class="repo_knowledge")
+        snippet_hits = len(snippets)
+
+        # Repository relevance is evidence-based: anchor hit or retrievable repo context.
+        is_relevant = has_anchor or has_goal_term or snippet_hits > 0
+        return {
+            "has_anchor": has_anchor,
+            "has_goal_term": has_goal_term,
+            "snippet_hits": snippet_hits,
+            "is_relevant": is_relevant,
+        }
+
+    def _specific_query_terms(self, text: str) -> List[str]:
+        words = [w for w in re.split(r"[^a-zA-Z0-9_]+", text.lower()) if len(w) >= 4]
+        generic = {
+            "help",
+            "with",
+            "this",
+            "that",
+            "what",
+            "when",
+            "where",
+            "why",
+            "how",
+            "make",
+            "build",
+            "create",
+            "give",
+            "need",
+            "want",
+            "please",
+            "just",
+            "something",
+            "anything",
+            "both",
+            "fine",
+            "okay",
+            "dont",
+            "want",
+            "changed",
+        }
+        return [w for w in words if w not in generic][:10]
+
+    def _is_short_followup_answer(self, message: str, session_state: Optional[Dict[str, Any]]) -> bool:
+        if not isinstance(session_state, dict):
+            return False
+        tokens = [t for t in re.split(r"\s+", (message or "").strip()) if t]
+        if not (0 < len(tokens) <= 3):
+            return False
+        lower = (message or "").strip().lower()
+        if "?" in lower:
+            return False
+        if self._is_feature_request(lower):
+            return False
+        return True
+
+    def _should_continue_feature_context(self, message: str, session_state: Optional[Dict[str, Any]]) -> bool:
+        if not isinstance(session_state, dict):
+            return False
+        feature_messages = session_state.get("feature_messages", [])
+        if not isinstance(feature_messages, list) or not feature_messages:
+            return False
+
+        if self._is_short_followup_answer(message, session_state):
+            return True
+
+        candidate = self._classify_intent_simple(message, session_state=session_state)
+        if candidate.intent == "out_of_scope" or candidate.allowed_response_mode == "refuse":
+            return False
+
+        relevance = self._assess_repo_relevance(message, session_state=session_state)
+        return bool(relevance["is_relevant"] and candidate.intent == "feature_request")
+
+    def _reset_feature_context(self, session_state: Dict[str, Any]) -> None:
+        session_state["feature_messages"] = []
+        session_state["latest_runtime_request"] = None
+        session_state["pending_questions"] = []
 
     def _is_feature_request(self, lower: str) -> bool:
         action_terms = {
@@ -1243,6 +1419,14 @@ class LocalOperatorAssistant:
         values = self._normalize_text_list(raw)
         return values or list(_DEFAULT_SENSITIVE_DOMAINS)
 
+    def _load_repo_goal_terms_from_policy(self) -> List[str]:
+        if not isinstance(self.policy, dict):
+            return list(_DEFAULT_REPO_GOAL_TERMS)
+
+        raw = self.policy.get("assistant_scope", {}).get("repo_goal_terms", _DEFAULT_REPO_GOAL_TERMS)
+        values = self._normalize_text_list(raw)
+        return values or list(_DEFAULT_REPO_GOAL_TERMS)
+
     def _normalize_text_list(self, raw: Any) -> List[str]:
         if not isinstance(raw, list):
             return []
@@ -1423,16 +1607,6 @@ class LocalOperatorAssistant:
 
         if re.search(r"[A-Za-z0-9_./\\-]+\.(py|md|yaml|json|m|mlapp)\b", lower):
             return True
-
-        if isinstance(session_state, dict):
-            if session_state.get("latest_runtime_request"):
-                return True
-            feature_messages = session_state.get("feature_messages", [])
-            if isinstance(feature_messages, list) and feature_messages:
-                return True
-            last_scope_class = str(session_state.get("last_scope_class", "")).strip().lower()
-            if last_scope_class and last_scope_class != "out_of_scope":
-                return True
 
         return False
 

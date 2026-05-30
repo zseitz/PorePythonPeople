@@ -1293,12 +1293,13 @@ Operationally, this keeps Option B interactive while preserving the project’s 
 Chat-first request guidance:
 
 - Start by describing the feature/task naturally in one or two sentences.
-- Routing uses a deterministic scope gate: `feature_request`, `runtime_help`, `code_explanation`, `repo_question`, and `nanopore_science_explanation` are allowed; everything else is redirected or blocked.
+- Routing uses a deterministic hybrid scope gate with two user-facing lanes: **feature requests** and **general questions**. Internally, allowed intents are `feature_request`, `runtime_help`, `code_explanation`, `repo_question`, and `nanopore_science_explanation`; unrelated prompts are redirected or blocked.
 - The deterministic scope gate also treats common guidance-style phrasing (for example confusion after clicking around, safeguards/checklist/reproducibility requests, and "what can you help with" redirects) as in-scope support.
 - Local model calls for this flow use the Ollama HTTP adapter (`runtime/adapters/ollama.py`) against `/api/chat`; this assistant path is not MCP-server based.
 - Message routing does not require classifier startup availability.
-- Session context is still used so runtime follow-up questions after a run are interpreted in conversation context (not as isolated messages).
-- Scientific or algorithmic nanopore questions are allowed when they can be grounded in local project materials; if the question is too broad (for example generic chemistry/physics with no repo anchor), the assistant asks for one grounding reference instead of improvising.
+- Session context is still used so runtime follow-up questions after a run are interpreted in conversation context (not as isolated messages), but feature continuation is conditional: follow-ups must stay repository-relevant and pass scope checks.
+- Scope decisions are evidence-based: prompts are considered in-scope when they align with repository goal terms/anchors and retrievable local repo context.
+- Scientific or algorithmic nanopore questions are answered only with local repository grounding; otherwise the assistant asks for a repository anchor rather than improvising.
 - Use the **Health Check** button to validate scope-gate prerequisites (domain anchors, grounding files, and sensitive-domain policy values).
 - Common runtime timeline terms (like `promotion_disabled`) are answered directly in-assistant so users can ask immediate post-run questions without switching workflows.
 - For code-edit requests, verification is expected by default (automated tests + behavior checks) and is included in the runtime request guardrails without requiring testing keywords.
@@ -1315,7 +1316,7 @@ Chat-first request guidance:
 - When implement-stage model output is unavailable or invalid, runtime deterministic fallback can now scaffold explicitly requested GUI Python targets instead of always completing as a no-op.
 - Runtime deterministic scaffolds are now runtime-generic (not tied to any specific generated app module), preserving architecture independence from application-specific code.
 - Runtime request-file context discovery avoids hardcoded local folder assumptions and relies on explicit referenced paths plus discovered absolute roots.
-- Porsche answers any question about the repository — code, documentation, runtime/agent design, AI concepts used in the project, and nanoporethon science — using the configured local model (`model_provider.model` in `runtime/policies.yaml`).
+- Porsche answers repository questions about code, documentation, runtime/agent design, AI concepts used in the project, and nanoporethon science using the configured local model (`model_provider.model` in `runtime/policies.yaml`) while staying bounded to local repo evidence.
 - When Ollama is not running, Porsche falls back to relevant doc/code excerpts for context.
 - You do not need to pre-fill a long static intake form before getting useful help.
 
