@@ -514,8 +514,18 @@ class OperatorAssistantGUI:
         _style_text_pane(self.chat_input, "followup")
         self.chat_input.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.chat_input.bind("<Return>", self._on_send_chat)
+        self.chat_input.bind("<Shift-Return>", self._insert_chat_newline)
         self.send_button = tk.Button(chat_input_frame, text="Send", command=self._on_send_chat)
         self.send_button.pack(side=tk.LEFT, padx=(6, 0))
+
+        self.chat_hint = tk.Label(
+            chat_input_frame,
+            text="Enter sends • Shift+Enter inserts a new line",
+            anchor="w",
+            fg="#6b7280",
+            font=("TkDefaultFont", 9),
+        )
+        self.chat_hint.pack(side=tk.BOTTOM, fill=tk.X, pady=(4, 0))
 
         self._log_chat(
             "assistant",
@@ -574,6 +584,13 @@ class OperatorAssistantGUI:
             self.chat_input.delete("1.0", tk.END)
         except TypeError:
             self.chat_input.delete(0, tk.END)
+
+    def _insert_chat_newline(self, _event=None) -> str:
+        try:
+            self.chat_input.insert(tk.INSERT, "\n")
+        except TypeError:
+            self.chat_input.insert("end", "\n")
+        return "break"
 
     def _log_chat(self, role: str, message: str) -> None:
         self.chat_output.config(state=tk.NORMAL)

@@ -398,6 +398,16 @@ def test_gui_chat_input_wraps_and_keeps_long_text_visible():
     assert gui.chat_input.value == ""
 
 
+def test_gui_chat_input_shift_enter_inserts_newline():
+    gui = _build_gui_stub()
+    gui.chat_input.set("hello")
+
+    result = gui._insert_chat_newline()
+
+    assert gui.chat_input.value == "hello\n"
+    assert result == "break"
+
+
 def test_gui_places_runtime_timeline_below_runtime_controls(monkeypatch):
     created = []
 

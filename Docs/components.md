@@ -233,6 +233,7 @@ Primary package location: `src/nanoporethon/`.
 - **Key behavior**:
   - Provides a chat-first local assistant for in-scope repository/runtime interaction.
   - Displays a live intent badge above chat output (for example Feature Request / Runtime Help / Out-of-Scope) so routing decisions are immediately visible.
+  - Uses a wrapped multiline chat composer with Enter-to-send, Shift+Enter for a newline, and a small inline hint so long prompts remain readable while typing.
   - Uses a semantic-first hybrid scope gate with two lanes: **feature requests** and **general questions**.
   - Applies an evidence-based repository relevance check before any answer/run action: prompts must align with configured anchors/goal terms and retrievable local repo context.
   - Off-topic/sensitive prompts are refused before runtime request drafting; ambiguous prompts get one targeted re-anchoring follow-up.
