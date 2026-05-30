@@ -178,12 +178,21 @@ class _FakeText:
         self.state = None
         self.content = ""
         self.fg = None
+        self.bg = None
+        self.relief = None
+        self.bd = None
 
     def config(self, **kwargs):
         if "state" in kwargs:
             self.state = kwargs["state"]
         if "fg" in kwargs:
             self.fg = kwargs["fg"]
+        if "bg" in kwargs:
+            self.bg = kwargs["bg"]
+        if "relief" in kwargs:
+            self.relief = kwargs["relief"]
+        if "bd" in kwargs:
+            self.bd = kwargs["bd"]
 
     def insert(self, _where, text):
         self.content += text
@@ -652,6 +661,8 @@ def test_gui_on_send_chat_shows_consulting_notice_before_assistant_runs():
     assert checker.checked is True
     assert "Message received, consulting agents" in gui.chat_output.content
     assert "Intent: Repo Question" in gui.intent_badge_var.get()
+    assert gui.intent_badge.bg is not None
+    assert gui.activity_label.fg is not None
 
 
 def test_gui_event_format_discovery_and_polling(tmp_path):

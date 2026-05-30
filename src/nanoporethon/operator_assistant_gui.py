@@ -598,6 +598,7 @@ class OperatorAssistantGUI:
 
     def _build_gui(self) -> None:
         palette = _assistant_ui_palette(_widget_prefers_dark_theme(self.root))
+        self.ui_palette = palette
         self.root.configure(bg=palette["app_bg"])
 
         top = tk.Frame(self.root)
@@ -745,9 +746,17 @@ class OperatorAssistantGUI:
         self.intent_badge.config(fg=color)
 
     def _set_processing_notice(self) -> None:
+        palette = getattr(self, "ui_palette", _assistant_ui_palette(False))
+        is_dark = palette.get("app_bg", "").startswith("#0")
+        badge_fg = "#fed7aa" if is_dark else "#92400e"
+        badge_bg = "#3f2b1d" if is_dark else "#fef3c7"
+        badge_border = "#7c2d12" if is_dark else "#f59e0b"
+
         self.intent_badge_var.set("Intent: Consulting agents (processing)")
-        self.intent_badge.config(fg="#6b7280")
+        self.intent_badge.config(fg=badge_fg, bg=badge_bg, relief=tk.SOLID, bd=1, highlightbackground=badge_border)
         self.readiness_var.set("Status: message received, consulting agents… this may take a moment")
+        self.activity_var.set("Activity: consulting agents… this may take a moment")
+        self.activity_label.config(fg=badge_border)
 
     def _log_timeline(self, message: str) -> None:
         self.timeline_output.config(state=tk.NORMAL)
