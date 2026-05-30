@@ -1293,8 +1293,9 @@ Operationally, this keeps Option B interactive while preserving the project’s 
 Chat-first request guidance:
 
 - Start by describing the feature/task naturally in one or two sentences.
-- Routing uses a deterministic hybrid scope gate with two user-facing lanes: **feature requests** and **general questions**. Internally, allowed intents are `feature_request`, `runtime_help`, `code_explanation`, `repo_question`, and `nanopore_science_explanation`; unrelated prompts are redirected or blocked.
-- The deterministic scope gate also treats common guidance-style phrasing (for example confusion after clicking around, safeguards/checklist/reproducibility requests, and "what can you help with" redirects) as in-scope support.
+- Routing uses a semantic-first hybrid scope gate with two user-facing lanes: **feature requests** and **general questions**. Internally, allowed intents are `feature_request`, `runtime_help`, `code_explanation`, `repo_question`, and `nanopore_science_explanation`; unrelated prompts are redirected or blocked.
+- The semantic scope gate uses local model classification first (when available), then falls back to deterministic routing when model output is unavailable or invalid.
+- The scope gate also treats common guidance-style phrasing (for example confusion after clicking around, safeguards/checklist/reproducibility requests, and "what can you help with" redirects) as in-scope support.
 - Local model calls for this flow use the Ollama HTTP adapter (`runtime/adapters/ollama.py`) against `/api/chat`; this assistant path is not MCP-server based.
 - The GUI now uses a single-chat-centric interaction style: follow-up questions and runtime plan review prompts are shown inline in chat (for example “I need to know these things first” and “review my plan before hitting Run Latest Request”), while runtime controls remain separate.
 - Assistant chat/timeline panes render lightweight markdown formatting with richer local styling (headings/lists/inline code/fenced code blocks + pane-specific typography/color theme) and adaptive light/dark contrast for easier reading.
@@ -1306,7 +1307,7 @@ Chat-first request guidance:
 - Session context is still used so runtime follow-up questions after a run are interpreted in conversation context (not as isolated messages), but feature continuation is conditional: follow-ups must stay repository-relevant and pass scope checks.
 - Scope decisions are evidence-based: prompts are considered in-scope when they align with repository goal terms/anchors and retrievable local repo context.
 - Scientific or algorithmic nanopore questions are answered only with local repository grounding; otherwise the assistant asks for a repository anchor rather than improvising.
-- Use the **Health Check** button to validate scope-gate prerequisites (domain anchors, grounding files, and sensitive-domain policy values).
+- Use the **Health Check** button to validate scope-gate prerequisites (domain anchors, grounding files, and semantic classifier/model readiness).
 - Common runtime timeline terms (like `promotion_disabled`) are answered directly in-assistant so users can ask immediate post-run questions without switching workflows.
 - For code-edit requests, verification is expected by default (automated tests + behavior checks) and is included in the runtime request guardrails without requiring testing keywords.
 - Generated runtime request packets now include an explicit anti-hallucination quality rubric for each assistant-produced change:

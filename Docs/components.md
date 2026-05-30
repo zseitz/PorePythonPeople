@@ -233,10 +233,10 @@ Primary package location: `src/nanoporethon/`.
 - **Key behavior**:
   - Provides a chat-first local assistant for in-scope repository/runtime interaction.
   - Displays a live intent badge above chat output (for example Feature Request / Runtime Help / Out-of-Scope) so routing decisions are immediately visible.
-  - Uses a deterministic hybrid scope gate with two lanes: **feature requests** and **general questions**.
+  - Uses a semantic-first hybrid scope gate with two lanes: **feature requests** and **general questions**.
   - Applies an evidence-based repository relevance check before any answer/run action: prompts must align with configured anchors/goal terms and retrievable local repo context.
   - Off-topic/sensitive prompts are refused before runtime request drafting; ambiguous prompts get one targeted re-anchoring follow-up.
-  - Does not require model-based intent classification for on-topic enforcement.
+  - Uses model-based semantic intent/safety classification as the primary route when available, with deterministic fallback when classifier output is unavailable/invalid.
   - Treats common guided-workflow phrasing (for example confusion, reproducibility/checklist, safeguards, and capability-redirect prompts) as in-scope support requests rather than off-topic by default.
   - Uses a positive capability model in policy (`feature_request`, `runtime_help`, `code_explanation`, `repo_question`, `nanopore_science_explanation`) instead of denylist-style topic filtering.
   - Supports a dedicated `nanopore_science_explanation` route for scientific/algorithmic nanoporethon questions when they can be grounded in local repository materials.
@@ -266,7 +266,7 @@ Primary package location: `src/nanoporethon/`.
   - Chat and timeline entries render each message with an explicit heading line (timestamp/role or timestamp/event) so users get larger bold visual anchors similar to Copilot-style section headers even when assistant body text does not include markdown heading markers.
   - Chat and timeline entries also render a subtle separator rule under each message block to improve scanability during longer sessions.
   - Surfaces explicit routing errors in the GUI when message processing fails.
-  - Includes a manual **Health Check** button that validates scope-gate policy readiness (anchors, grounding files, sensitive-domain config) with actionable remediation messages.
+  - Includes a manual **Health Check** button that validates scope-gate policy readiness (anchors, grounding files, and semantic classifier configuration/availability) with actionable remediation messages.
   - Provides deterministic explanations for common runtime timeline terms (for example `promotion_disabled`, `promotion_skipped`, `promotion_blocked`) to keep post-run Q&A low-friction.
   - Answers repository questions using the local Ollama model (from `model_provider` policy) when available, but constrains responses to retrievable local documentation/code evidence.
   - Enforces evidence-validated answer synthesis for model-backed Q&A: model answers must include verifiable context quotes, and responses with unverifiable repository import/module claims are rejected.

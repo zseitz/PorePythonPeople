@@ -20,6 +20,8 @@ def _assistant_policy() -> dict:
                 "README.md",
                 "Docs/components.md",
                 "Docs/nanoporethon_textbook.md",
+                "Docs/UseCases.md",
+                "Docs/UserPersonas.md",
                 "runtime/operator_assistant.py",
                 "runtime/policies.yaml",
                 "src/nanoporethon/sequence_designer_gui.py",
@@ -371,3 +373,50 @@ def test_repo_question_with_model_hallucinated_module_falls_back_to_grounded_ans
     assert response.intent in {"repo_question", "runtime_help", "code_explanation"}
     assert "nanoporethon_event_classifier" not in response.message
     assert "repo-grounded" in response.message.lower() or "grounding sources:" in response.message.lower()
+
+
+def test_semantic_classifier_is_primary_when_model_available():
+    class _ClassifierAdapter:
+        def chat(self, _system_prompt, _messages):
+            return (
+                '{'
+                '"intent": "repo_question", '
+                '"confidence": 0.92, '
+                '"reason": "semantic_persona_grounded", '
+                '"scope_class": "repo_knowledge", '
+                '"sensitivity_class": "normal", '
+                '"domain_anchor_present": true, '
+                '"grounding_required": true, '
+                '"allowed_response_mode": "grounded_answer"'
+                '}'
+            )
+
+    assistant = LocalOperatorAssistant(
+        repo_root=Path(__file__).resolve().parents[1],
+        policy=_assistant_policy(),
+        model_adapter=_ClassifierAdapter(),
+    )
+    decision = assistant.classify_intent(
+        "I am new to the lab and need a step by step workflow for analyzing nanopore data",
+        session_state=assistant.init_session(),
+    )
+    assert decision.intent == "repo_question"
+    assert decision.reason == "semantic_persona_grounded"
+
+
+def test_classifier_failure_falls_back_to_deterministic_rules():
+    class _BrokenClassifier:
+        def chat(self, _system_prompt, _messages):
+            raise RuntimeError("model unavailable")
+
+    assistant = LocalOperatorAssistant(
+        repo_root=Path(__file__).resolve().parents[1],
+        policy=_assistant_policy(),
+        model_adapter=_BrokenClassifier(),
+    )
+
+    decision = assistant.classify_intent(
+        "How does runtime promotion approval work in nanoporethon?",
+        session_state=assistant.init_session(),
+    )
+    assert decision.intent == "runtime_help"

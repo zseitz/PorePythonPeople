@@ -43,6 +43,7 @@ assistant_scope:
     - Docs/components.md
     - Docs/nanoporethon_textbook.md
     - Docs/UseCases.md
+    - Docs/UserPersonas.md
     - Docs/technology_context.md
     - Docs/feature_request_template.md
     - runtime/policies.yaml
@@ -116,6 +117,10 @@ assistant_scope:
     - financial or investment advice
     - political persuasion
     - general lifestyle or relationship counseling
+  intent_classifier:
+    enabled: true
+    # Optional semantic fallback model for intent routing if primary chat model fails.
+    # fallback_model: qwen2.5:3b
 
 model_provider:
   adapter: ollama
