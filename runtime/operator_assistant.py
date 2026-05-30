@@ -1857,7 +1857,8 @@ class LocalOperatorAssistant:
 
     def _synthesize_grounded_answer(self, user_text: str, snippets: List[str], scope_class: str) -> Optional[str]:
         query = (user_text or "").lower()
-        howto_query = bool(re.search(r"\b(how|run|launch|start|open|use|where)\b", query))
+        howto_query = self._is_procedural_howto_query(user_text)
+        architecture_query = self._is_architecture_explanation_query(user_text)
         if not snippets:
             return None
 
@@ -1912,6 +1913,27 @@ class LocalOperatorAssistant:
         if howto_query and not commands:
             commands = self._discover_commands_from_docs(query=user_text, max_items=4)
 
+        if architecture_query:
+            stage_terms = ["triage_plan", "implement", "verify", "refactor_or_docsync", "refactor", "verify_after_refactor", "doc_sync", "memory_sync", "closeout"]
+            evidence = " ".join(snippets).lower()
+            observed_stages = [term for term in stage_terms if term in evidence]
+            stage_sequence = " → ".join(observed_stages[:8]) if observed_stages else "triage_plan → implement → verify → doc_sync → memory_sync → closeout"
+
+            lines: List[str] = [
+                "Here’s the runtime architecture flow before new code is generated:",
+                "",
+                "1) Intent + scope routing classifies your message and confirms it is repository-grounded.",
+                "2) Session analysis summarizes request kind and whether guarded core-GUI authorization is needed.",
+                "3) The assistant drafts a structured runtime request packet with execution guardrails.",
+                f"4) Runtime executes staged handoffs ({stage_sequence}); code generation happens in `implement` after triage/planning.",
+                "5) Verify/document/memory stages run before closeout so changes remain supervised and auditable.",
+                "",
+            ]
+            unique_sources = sorted({s for s in source_refs if s and s != "unknown"})
+            if unique_sources:
+                lines.append("Grounding sources: " + ", ".join(f"`{s}`" for s in unique_sources[:4]))
+            return "\n".join(lines).strip()
+
         if howto_query and (commands or considerations):
             lines: List[str] = [
                 "Here’s a repo-grounded way to do that:",
@@ -1937,6 +1959,45 @@ class LocalOperatorAssistant:
             return "\n".join(lines).strip()
 
         return None
+
+    def _is_procedural_howto_query(self, user_text: str) -> bool:
+        text = (user_text or "").strip().lower()
+        if not text:
+            return False
+
+        procedural_patterns = [
+            r"\bhow\s+do\s+i\s+(run|launch|start|open|use)\b",
+            r"\bhow\s+can\s+i\s+(run|launch|start|open|use)\b",
+            r"\bhow\s+to\s+(run|launch|start|open|use)\b",
+            r"\b(where|what)\s+do\s+i\s+(run|launch|start|open)\b",
+            r"\b(run|launch|start|open)\s+(the\s+)?(gui|runtime|orchestrator|assistant|event|classifier)\b",
+        ]
+        return any(re.search(pattern, text) for pattern in procedural_patterns)
+
+    def _is_architecture_explanation_query(self, user_text: str) -> bool:
+        text = (user_text or "").strip().lower()
+        if not text:
+            return False
+
+        structural_markers = [
+            "architecture",
+            "organized",
+            "organization",
+            "what happens",
+            "flow",
+            "before",
+            "after",
+            "pipeline",
+            "stages",
+            "request packet",
+            "prompt",
+        ]
+
+        if not any(marker in text for marker in structural_markers):
+            return False
+
+        # Avoid stealing clearly procedural launch questions.
+        return not self._is_procedural_howto_query(user_text)
 
     def _synthesize_deep_grounded_answer(self, user_text: str, snippets: List[str], scope_class: str) -> Optional[str]:
         base = self._synthesize_grounded_answer(user_text=user_text, snippets=snippets, scope_class=scope_class)

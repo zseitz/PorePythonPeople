@@ -497,3 +497,31 @@ def test_deep_mode_includes_available_paper_resources_listing():
 
     assert "Available paper resources:" in response3.message
     assert "Docs/papers/README.md" in response3.message
+
+
+def test_architecture_question_prefers_flow_explanation_over_run_commands():
+    assistant = _assistant()
+    response = assistant.handle_message(
+        "How is the agentic architecture organized in runtime?",
+        session=assistant.init_session(),
+    )
+
+    assert response.intent in {"runtime_help", "repo_question", "code_explanation"}
+    assert "runtime architecture flow" in response.message.lower()
+    assert "triage_plan" in response.message
+    assert "implement" in response.message
+    assert "Run it from the repository root:" not in response.message
+
+
+def test_prompt_lifecycle_question_explains_pre_codegen_stages():
+    assistant = _assistant()
+    response = assistant.handle_message(
+        "What happens to my prompt after requesting a new feature before code is generated?",
+        session=assistant.init_session(),
+    )
+
+    assert response.intent in {"runtime_help", "repo_question", "code_explanation", "feature_request"}
+    assert "intent + scope routing" in response.message.lower()
+    assert "runtime request packet" in response.message.lower()
+    assert "implement" in response.message
+    assert "Run it from the repository root:" not in response.message
