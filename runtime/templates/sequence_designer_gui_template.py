@@ -617,6 +617,28 @@ class SequenceDesignerGui:
         self._sync_widgets_from_model()
         self.updateFig()
 
+    def _plot_sequence_letters(self, x: np.ndarray, levels: np.ndarray) -> None:
+        display_seq = self.model.display_sequence()
+        if not display_seq:
+            return
+
+        usable = min(len(display_seq), len(x), len(levels))
+        if usable <= 0:
+            return
+
+        y_floor = float(max(0.02, np.min(levels) - 0.10))
+        for idx in range(usable):
+            self.axes.text(
+                float(x[idx]),
+                y_floor,
+                display_seq[idx],
+                ha="center",
+                va="center",
+                fontsize=10,
+                family="monospace",
+                color="#111111",
+            )
+
     def updateFig(self) -> None:
         self._sync_from_widgets()
         levels = build_predicted_currents(
@@ -637,12 +659,21 @@ class SequenceDesignerGui:
             self.axes.set_ylim(0, 1)
         else:
             x = np.arange(1, levels.size + 1)
-            self.axes.plot(x, levels, color="#1f4aa8", linewidth=2.0, marker="o", markersize=3.5)
+            step_x = np.append(x, x[-1] + 1)
+            step_y = np.append(levels, levels[-1])
+            self.axes.step(
+                step_x,
+                step_y,
+                where="post",
+                color="#111111",
+                linewidth=2.4,
+            )
+            self.axes.plot(x, levels, color="#1f4aa8", linewidth=0.9, marker="o", markersize=3.2)
             self.axes.axhline(float(np.min(levels)), color="#888", linestyle="--", linewidth=1.0)
             self.axes.axhline(float(np.max(levels)), color="#888", linestyle="--", linewidth=1.0)
-            self.axes.set_xlim(1, max(1, levels.size))
+            self.axes.set_xlim(0, max(1, levels.size + 1))
             self.axes.set_ylim(0.0, 1.0)
-            self.axes.text(0.5, -0.16, self.model.display_sequence(), ha="center", va="top", transform=self.axes.transAxes, fontsize=10, family="monospace")
+            self._plot_sequence_letters(x, levels)
         self.axes.grid(True, alpha=0.18)
         self.canvas.draw_idle()
         self._refresh_status()

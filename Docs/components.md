@@ -296,6 +296,7 @@ Primary package location: `src/nanoporethon/`.
     - Export payload now carries MATLAB-aligned parity metadata (levels, error, x-axis indices, details text, phase, and numstep) for golden acceptance checks.
     - Provides a dedicated parity scorecard generator at `runtime/sequence_designer_parity_scorecard.py` that emits JSON/Markdown graduation artifacts under `.nanopore-runtime/parity/sequence_designer/latest/`.
     - When the runtime falls back without model-authored implement actions, it now emits a contract-aware `sequence_designer_gui.py` template instead of a blank GUI placeholder.
+    - Deterministic fallback template plotting now mirrors MATLAB visual parity more closely by emitting a step-style levels trace plus per-base sequence-letter overlays aligned to level positions.
     - Is self-contained: sequence sanitization and signal helpers are implemented in the same module (no GUI-to-GUI dependency).
 
 #### Golden output acceptance workflow (sequence designer)
