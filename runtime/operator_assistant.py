@@ -616,6 +616,8 @@ class LocalOperatorAssistant:
         if global_model:
             lines.append(f"- Global default / inherited model: `{global_model}`")
 
+        summary_parts: List[str] = []
+
         explicit_overrides: List[str] = []
         inherited: List[str] = []
         for name, cfg in sorted(specialists.items()):
@@ -626,6 +628,16 @@ class LocalOperatorAssistant:
                 explicit_overrides.append(f"- `{name}` → `{provider_cfg.get('model')}`")
             else:
                 inherited.append(f"- `{name}` (inherits the global default)")
+
+        if global_model:
+            summary_parts.append(f"the global default is `{global_model}`")
+        if explicit_overrides:
+            summary_parts.append("feature_builder/refactor use `qwen3:4b`")
+        if inherited:
+            summary_parts.append("orchestrator/verifier inherit the global default")
+
+        if summary_parts:
+            lines.extend(["", "Short answer: " + "; ".join(summary_parts) + "."])
 
         if explicit_overrides:
             lines.extend(["", "- Explicit specialist overrides:"])

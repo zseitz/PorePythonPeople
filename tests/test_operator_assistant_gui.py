@@ -619,6 +619,41 @@ def test_gui_on_send_chat_updates_badge_followups_and_run_state():
     assert "ready to run" in gui.readiness_var.get().lower()
 
 
+def test_gui_on_send_chat_shows_consulting_notice_before_assistant_runs():
+    response = SimpleNamespace(
+        intent="repo_question",
+        confidence=0.8,
+        message="done",
+        followup_questions=[],
+        ready_to_run=False,
+        runtime_request=None,
+        session_updates={"history": []},
+    )
+
+    class _NoticeCheckingAssistant:
+        def __init__(self, gui):
+            self.gui = gui
+            self.checked = False
+
+        def handle_message(self, _text, session=None):
+            assert "consulting agents" in self.gui.intent_badge_var.get().lower()
+            assert "consulting agents" in self.gui.readiness_var.get().lower()
+            assert "consulting agents" in self.gui.chat_output.content.lower()
+            self.checked = True
+            return response
+
+    gui = _build_gui_stub()
+    checker = _NoticeCheckingAssistant(gui)
+    gui.assistant = checker
+    gui.chat_input.set("what models are running?")
+
+    gui._on_send_chat()
+
+    assert checker.checked is True
+    assert "Message received, consulting agents" in gui.chat_output.content
+    assert "Intent: Repo Question" in gui.intent_badge_var.get()
+
+
 def test_gui_event_format_discovery_and_polling(tmp_path):
     gui = _build_gui_stub()
     run_root = tmp_path / "runs"

@@ -744,6 +744,11 @@ class OperatorAssistantGUI:
         self.intent_badge_var.set(text)
         self.intent_badge.config(fg=color)
 
+    def _set_processing_notice(self) -> None:
+        self.intent_badge_var.set("Intent: Consulting agents (processing)")
+        self.intent_badge.config(fg="#6b7280")
+        self.readiness_var.set("Status: message received, consulting agents… this may take a moment")
+
     def _log_timeline(self, message: str) -> None:
         self.timeline_output.config(state=tk.NORMAL)
         body = (message or "").rstrip()
@@ -822,6 +827,8 @@ class OperatorAssistantGUI:
 
         self._chat_input_clear()
         self._log_chat("user", user_text)
+        self._set_processing_notice()
+        self._log_chat("assistant", "Message received, consulting agents. This may take a moment.")
 
         self.assistant_processing = True
         self._refresh_activity_indicator(force=True)
