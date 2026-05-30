@@ -212,6 +212,7 @@ def _init_markdown_tags(widget: Any) -> None:
         "h1": "#1d4ed8",
         "h2": "#1e40af",
         "h3": "#1e3a8a",
+        "separator": "#cbd5e1",
         "bold": "#111827",
         "italic": "#334155",
         "code_fg": "#7c2d12",
@@ -223,6 +224,7 @@ def _init_markdown_tags(widget: Any) -> None:
         "h1": "#93c5fd",
         "h2": "#bfdbfe",
         "h3": "#dbeafe",
+        "separator": "#475569",
         "bold": "#f9fafb",
         "italic": "#cbd5e1",
         "code_fg": "#fed7aa",
@@ -235,6 +237,7 @@ def _init_markdown_tags(widget: Any) -> None:
     widget.tag_configure("md_h1", font=("TkDefaultFont", 16, "bold"), foreground=colors["h1"], spacing1=11, spacing3=6)
     widget.tag_configure("md_h2", font=("TkDefaultFont", 14, "bold"), foreground=colors["h2"], spacing1=9, spacing3=5)
     widget.tag_configure("md_h3", font=("TkDefaultFont", 12, "bold"), foreground=colors["h3"], spacing1=7, spacing3=4)
+    widget.tag_configure("md_separator", foreground=colors["separator"], spacing1=4, spacing3=6)
     widget.tag_configure("md_bold", font=("TkDefaultFont", 11, "bold"), foreground=colors["bold"])
     widget.tag_configure("md_italic", font=("TkDefaultFont", 11, "italic"), foreground=colors["italic"])
     widget.tag_configure("md_code", font=("Courier", 10), foreground=colors["code_fg"], background=colors["code_bg"])
@@ -415,6 +418,9 @@ def _render_markdown_to_text_widget(widget: Any, markdown_text: str, append: boo
         if stripped.startswith("> "):
             _insert_markdown_line(widget, stripped[2:], line_tag="md_quote")
             continue
+        if stripped in {"---", "***", "___"}:
+            _insert_markdown_line(widget, "─" * 36, line_tag="md_separator")
+            continue
 
         bullet = re.match(r"^\s*[-*+]\s+(.*)$", line)
         if bullet:
@@ -583,7 +589,7 @@ class OperatorAssistantGUI:
         body = (message or "").rstrip()
         _render_markdown_to_text_widget(
             self.chat_output,
-            f"## [{self._timestamp()}] {clean_role}\n{body}\n\n",
+            f"## [{self._timestamp()}] {clean_role}\n{body}\n---\n\n",
             append=True,
         )
         self.chat_output.see(tk.END)
@@ -599,7 +605,7 @@ class OperatorAssistantGUI:
         body = (message or "").rstrip()
         _render_markdown_to_text_widget(
             self.timeline_output,
-            f"### [{self._timestamp()}]\n{body}\n",
+            f"### [{self._timestamp()}]\n{body}\n---\n",
             append=True,
         )
         self.timeline_output.see(tk.END)

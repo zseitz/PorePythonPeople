@@ -383,6 +383,8 @@ def test_markdown_renderer_formats_chat_and_timeline_headers_as_headings():
     assert "Assistant" in gui.chat_output.content
     assert "Body text" in gui.chat_output.content
     assert "Runtime line" in gui.timeline_output.content
+    assert "─" * 10 in gui.chat_output.content
+    assert "─" * 10 in gui.timeline_output.content
 
 
 def test_gui_new_session_resets_runtime_request_state():
