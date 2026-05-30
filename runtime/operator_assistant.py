@@ -460,6 +460,9 @@ class LocalOperatorAssistant:
                 return response
 
         if snippets:
+            synthesized = self._synthesize_grounded_answer(user_text=user_text, snippets=snippets, scope_class=scope_class)
+            if synthesized:
+                return synthesized
             intro = "Here’s what I can tell from local repository docs and code:"
             if scope_class == "nanopore_science":
                 intro = "Here’s the nanoporethon-grounded explanation I can support from local docs/code:"
@@ -1529,7 +1532,7 @@ class LocalOperatorAssistant:
                 score += 4
             if score <= 0:
                 continue
-            snippet = self._extract_snippet_window(text, terms)
+            snippet = self._extract_snippet_window(text, terms, query=query)
             scored.append((score, rel, snippet))
 
         scored.sort(key=lambda t: t[0], reverse=True)
@@ -1541,17 +1544,40 @@ class LocalOperatorAssistant:
         stop = {"the", "and", "for", "with", "that", "this", "how", "what", "when", "where", "why"}
         return [w for w in words if w not in stop][:10]
 
-    def _extract_snippet_window(self, text: str, terms: List[str], max_chars: int = 700) -> str:
+    def _extract_snippet_window(self, text: str, terms: List[str], max_chars: int = 700, query: str = "") -> str:
         if not text:
             return ""
 
         lower = text.lower()
+        query_lower = (query or "").lower()
+        candidate_windows: List[Tuple[int, int, int]] = []
+
         for term in terms:
-            idx = lower.find(term)
-            if idx < 0:
-                continue
-            start = max(0, idx - 220)
-            end = min(len(text), start + max_chars)
+            start_idx = 0
+            while True:
+                idx = lower.find(term, start_idx)
+                if idx < 0:
+                    break
+                start = max(0, idx - 220)
+                end = min(len(text), start + max_chars)
+                window = text[start:end]
+                window_lower = window.lower()
+                score = 0
+                score += sum(window_lower.count(t) for t in terms)
+                if re.search(r"\bpython\s+-m\s+[a-zA-Z0-9_.]+", window_lower):
+                    score += 6
+                if any(tok in window_lower for tok in ["run", "launch", "start", "open", "gui", "usage"]):
+                    score += 3
+                if any(tok in query_lower for tok in ["how", "run", "launch", "start", "use"]) and "event classifier" in window_lower:
+                    score += 5
+                if window_lower.count("(#") >= 3:
+                    score -= 4
+                candidate_windows.append((score, start, end))
+                start_idx = idx + len(term)
+
+        if candidate_windows:
+            candidate_windows.sort(key=lambda item: item[0], reverse=True)
+            _, start, end = candidate_windows[0]
             snippet = text[start:end].strip()
             prefix = "..." if start > 0 else ""
             suffix = "..." if end < len(text) else ""
@@ -1561,6 +1587,131 @@ class LocalOperatorAssistant:
         if len(text) > max_chars:
             fallback += "..."
         return fallback
+
+    def _synthesize_grounded_answer(self, user_text: str, snippets: List[str], scope_class: str) -> Optional[str]:
+        query = (user_text or "").lower()
+        howto_query = any(tok in query for tok in ["how", "run", "launch", "start", "open", "use", "where"])
+        if not snippets:
+            return None
+
+        commands: List[Tuple[str, str]] = []
+        considerations: List[Tuple[str, str]] = []
+        source_refs: List[str] = []
+
+        for snippet in snippets:
+            rel = "unknown"
+            body = snippet
+            match = re.match(r"^\[([^\]]+)\]\s*(.*)$", snippet, flags=re.DOTALL)
+            if match:
+                rel = match.group(1).strip()
+                body = match.group(2).strip()
+            source_refs.append(rel)
+
+            for cmd in re.findall(r"\bpython\s+-m\s+[A-Za-z0-9_.]+", body):
+                commands.append((cmd.strip(), rel))
+            for cmd in re.findall(r"\bpython\s+src/[A-Za-z0-9_./-]+\.py", body):
+                commands.append((cmd.strip(), rel))
+
+            cues = [
+                "search logs directory",
+                "saved query",
+                "reduced.mat",
+                "event.mat",
+                "meta.mat",
+                "sampling frequency",
+                "troubleshooting",
+                "keyboard shortcuts",
+                "classify events",
+            ]
+            body_lower = body.lower()
+            for cue in cues:
+                if cue in body_lower:
+                    considerations.append((cue, rel))
+
+        def _dedupe_pairs(pairs: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
+            seen = set()
+            out: List[Tuple[str, str]] = []
+            for value, src in pairs:
+                key = (value.lower(), src)
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append((value, src))
+            return out
+
+        commands = _dedupe_pairs(commands)
+        considerations = _dedupe_pairs(considerations)
+
+        if howto_query and not commands:
+            commands = self._discover_commands_from_docs(query=user_text, max_items=4)
+
+        if howto_query and (commands or considerations):
+            lines: List[str] = [
+                "Here’s a repo-grounded way to do that:",
+                "",
+            ]
+            if commands:
+                lines.append("Run it from the repository root:")
+                for cmd, src in commands[:3]:
+                    lines.append(f"- `{cmd}` (from `{src}`)")
+                lines.append("")
+
+            if considerations:
+                lines.append("Things to consider after launch:")
+                for cue, src in considerations[:5]:
+                    pretty = cue.replace(".mat", " MAT file") if cue.endswith(".mat") else cue
+                    lines.append(f"- {pretty} (from `{src}`)")
+                lines.append("")
+
+            command_sources = [src for _, src in commands]
+            unique_sources = sorted({s for s in (source_refs + command_sources) if s and s != "unknown"})
+            if unique_sources:
+                lines.append("Grounding sources: " + ", ".join(f"`{s}`" for s in unique_sources[:4]))
+            return "\n".join(lines).strip()
+
+        return None
+
+    def _discover_commands_from_docs(self, query: str, max_items: int = 4) -> List[Tuple[str, str]]:
+        query_lower = (query or "").lower()
+        query_terms = set(self._query_terms(query_lower))
+        candidates: List[Tuple[int, str, str]] = []
+
+        for rel, text in self._doc_cache.items():
+            lines = text.splitlines()
+            for line in lines:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                found = re.findall(r"\bpython\s+-m\s+[A-Za-z0-9_.]+|\bpython\s+src/[A-Za-z0-9_./-]+\.py", stripped)
+                for cmd in found:
+                    cmd_lower = cmd.lower()
+                    score = 1
+                    score += sum(1 for term in query_terms if term and term in cmd_lower)
+                    if "event_classifier_gui" in cmd_lower and "event" in query_lower:
+                        score += 5
+                    if rel.lower() == "readme.md" and any(term in cmd_lower for term in query_terms):
+                        score += 2
+                    if ("event" in query_terms or "classifier" in query_terms) and not (
+                        "event" in cmd_lower or "classifier" in cmd_lower
+                    ):
+                        score -= 2
+                    candidates.append((score, cmd.strip(), rel))
+
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        strong_exists = any(score >= 2 for score, _, _ in candidates)
+        deduped: List[Tuple[str, str]] = []
+        seen = set()
+        for score, cmd, rel in candidates:
+            if strong_exists and score < 2:
+                continue
+            key = cmd.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append((cmd, rel))
+            if len(deduped) >= max_items:
+                break
+        return deduped
 
     def _normalize_classifier_payload(
         self,

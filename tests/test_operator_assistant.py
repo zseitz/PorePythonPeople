@@ -145,6 +145,17 @@ def test_plain_how_to_question_is_answered_not_refused():
     assert response.followup_questions == []
 
 
+def test_plain_how_to_question_returns_actionable_run_guidance():
+    assistant = _assistant()
+    response = assistant.handle_message(
+        "How do I run event classifier gui?",
+        session=assistant.init_session(),
+    )
+    assert response.intent != "out_of_scope"
+    assert "python -m nanoporethon.event_classifier_gui" in response.message or "python src/nanoporethon/event_classifier_gui.py" in response.message
+    assert "Grounding sources:" in response.message
+
+
 def test_offtopic_make_question_is_not_treated_as_feature_request():
     assistant = _assistant()
     response = assistant.handle_message(
@@ -359,4 +370,4 @@ def test_repo_question_with_model_hallucinated_module_falls_back_to_grounded_ans
 
     assert response.intent in {"repo_question", "runtime_help", "code_explanation"}
     assert "nanoporethon_event_classifier" not in response.message
-    assert "local repository docs and code" in response.message.lower()
+    assert "repo-grounded" in response.message.lower() or "grounding sources:" in response.message.lower()

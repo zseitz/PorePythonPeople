@@ -271,6 +271,7 @@ Primary package location: `src/nanoporethon/`.
   - Enforces evidence-validated answer synthesis for model-backed Q&A: model answers must include verifiable context quotes, and responses with unverifiable repository import/module claims are rejected.
   - Falls back to relevant doc/code snippet excerpts when the model is not reachable.
   - Also falls back to deterministic snippet-grounded answers when model output is malformed or fails evidence validation, reducing hallucinated run/API instructions.
+  - Deterministic fallback now synthesizes practical guidance for how/use/find/work questions (for example runnable commands + usage considerations + source references) rather than dumping raw snippet fragments.
   - Treats common guided-workflow phrasing (for example confusion, reproducibility/checklist, safeguards, and capability-redirect prompts) as in-scope support requests.
   - Keeps the operational model branch-local and human-supervised by design.
 
