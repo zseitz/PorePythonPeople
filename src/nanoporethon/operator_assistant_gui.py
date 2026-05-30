@@ -8,6 +8,7 @@ Local-only attended runtime interface with:
 
 from __future__ import annotations
 
+import copy
 import json
 import queue
 import re
@@ -578,6 +579,8 @@ class OperatorAssistantGUI:
 
         self.runtime_thread: Optional[threading.Thread] = None
         self.runtime_queue: "queue.Queue[Dict[str, object]]" = queue.Queue()
+        self.assistant_thread: Optional[threading.Thread] = None
+        self.assistant_queue: "queue.Queue[Dict[str, object]]" = queue.Queue()
         self.runtime_running = False
         self.assistant_processing = False
         self.run_watch_started_at: Optional[float] = None
@@ -758,6 +761,45 @@ class OperatorAssistantGUI:
         self.activity_var.set("Activity: consulting agents… this may take a moment")
         self.activity_label.config(fg=badge_border)
 
+    def _set_chat_controls_enabled(self, enabled: bool) -> None:
+        state = tk.NORMAL if enabled else tk.DISABLED
+        self.chat_input.config(state=state)
+        self.send_button.config(state=state)
+
+    def _apply_assistant_response(self, response: Any) -> None:
+        self.session_state = response.session_updates
+        self._set_intent_badge(response.intent, response.confidence)
+
+        self.latest_runtime_request = response.runtime_request or self.latest_runtime_request
+        self.latest_ready_to_run = bool(response.ready_to_run and self.latest_runtime_request)
+
+        if response.runtime_request:
+            self._set_preview_text(response.runtime_request)
+        if response.followup_questions:
+            self._set_followups(response.followup_questions)
+
+        if self.latest_ready_to_run:
+            self.run_button.config(state=tk.NORMAL)
+            self.readiness_var.set("Status: ready to run")
+        elif response.intent == "feature_request":
+            self.run_button.config(state=tk.DISABLED)
+            if response.followup_questions:
+                self.readiness_var.set("Status: waiting for follow-up answers")
+            else:
+                self.readiness_var.set("Status: feature request captured")
+
+        self._log_chat(
+            "assistant",
+            f"[{response.intent} | conf={response.confidence:.2f}] {response.message}",
+        )
+
+    def _assistant_worker(self, user_text: str, session_snapshot: Dict[str, object]) -> None:
+        try:
+            response = self.assistant.handle_message(user_text, session=session_snapshot)  # type: ignore[union-attr]
+            self.assistant_queue.put({"type": "complete", "response": response})
+        except Exception as exc:
+            self.assistant_queue.put({"type": "error", "error": str(exc)})
+
     def _log_timeline(self, message: str) -> None:
         self.timeline_output.config(state=tk.NORMAL)
         body = (message or "").rstrip()
@@ -838,54 +880,17 @@ class OperatorAssistantGUI:
         self._log_chat("user", user_text)
         self._set_processing_notice()
         self._log_chat("assistant", "Message received, consulting agents. This may take a moment.")
+        self._set_chat_controls_enabled(False)
 
         self.assistant_processing = True
         self._refresh_activity_indicator(force=True)
         self.root.update_idletasks()
-
-        try:
-            response = self.assistant.handle_message(user_text, session=self.session_state)
-        except RuntimeError as exc:
-            self._log_chat(
-                "assistant",
-                "Routing error while processing this message. "
-                f"Details: {exc}",
-            )
-            self._set_intent_badge("out_of_scope", 1.0)
-            self.readiness_var.set("Status: routing error (check local model output)")
-            self.run_button.config(state=tk.DISABLED)
-            self.assistant_processing = False
-            self._refresh_activity_indicator(force=True)
-            return
-        finally:
-            if self.assistant_processing:
-                self.assistant_processing = False
-                self._refresh_activity_indicator(force=True)
-        self.session_state = response.session_updates
-        self._set_intent_badge(response.intent, response.confidence)
-
-        self.latest_runtime_request = response.runtime_request or self.latest_runtime_request
-        self.latest_ready_to_run = bool(response.ready_to_run and self.latest_runtime_request)
-
-        if response.runtime_request:
-            self._set_preview_text(response.runtime_request)
-        if response.followup_questions:
-            self._set_followups(response.followup_questions)
-
-        if self.latest_ready_to_run:
-            self.run_button.config(state=tk.NORMAL)
-            self.readiness_var.set("Status: ready to run")
-        elif response.intent == "feature_request":
-            self.run_button.config(state=tk.DISABLED)
-            if response.followup_questions:
-                self.readiness_var.set("Status: waiting for follow-up answers")
-            else:
-                self.readiness_var.set("Status: feature request captured")
-
-        self._log_chat(
-            "assistant",
-            f"[{response.intent} | conf={response.confidence:.2f}] {response.message}",
+        self.assistant_thread = threading.Thread(
+            target=self._assistant_worker,
+            args=(user_text, copy.deepcopy(self.session_state)),
+            daemon=True,
         )
+        self.assistant_thread.start()
 
         return "break"
 
@@ -1040,6 +1045,33 @@ class OperatorAssistantGUI:
 
     def _poll_runtime_state(self) -> None:
         self._read_new_events()
+
+        while True:
+            try:
+                msg = self.assistant_queue.get_nowait()
+            except queue.Empty:
+                break
+
+            msg_type = msg.get("type")
+            if msg_type == "complete":
+                response = msg.get("response")
+                if response is not None:
+                    self._apply_assistant_response(response)
+                self.assistant_processing = False
+                self._set_chat_controls_enabled(True)
+                self._refresh_activity_indicator(force=True)
+            elif msg_type == "error":
+                self._log_chat(
+                    "assistant",
+                    "Routing error while processing this message. "
+                    f"Details: {msg.get('error', 'unknown')}",
+                )
+                self._set_intent_badge("out_of_scope", 1.0)
+                self.readiness_var.set("Status: routing error (check local model output)")
+                self.run_button.config(state=tk.DISABLED)
+                self.assistant_processing = False
+                self._set_chat_controls_enabled(True)
+                self._refresh_activity_indicator(force=True)
 
         while True:
             try:

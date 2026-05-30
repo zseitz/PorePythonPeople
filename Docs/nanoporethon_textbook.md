@@ -1302,6 +1302,7 @@ Chat-first request guidance:
 - The chat composer is multiline for long prompts; press Enter to send and Shift+Enter to insert a new line, with a small hint shown below the box.
 - Model-routing questions (for example which specialist uses which model or whether any are quantized) now get a direct policy-backed answer instead of being treated as a generic runtime how-to prompt.
 - Immediately after you press Enter, the GUI now shows a tinted “Message received, consulting agents” notice so model execution latency feels intentional rather than frozen.
+- Chat answers are now computed on a background worker and applied back onto the main thread, which gives the waiting notice time to appear before the assistant work finishes.
 - Assistant chat/timeline panes render lightweight markdown formatting with richer local styling (headings/lists/inline code/fenced code blocks + pane-specific typography/color theme) and adaptive light/dark contrast for easier reading.
 - Chat/timeline messages now include explicit heading lines (timestamp + role/event) so each entry has clear larger/bold visual structure even when body text is plain prose.
 - Chat/timeline messages also include a subtle divider line under each entry to improve visual chunking during long assistant sessions.

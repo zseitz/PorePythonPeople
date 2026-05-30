@@ -1,6 +1,7 @@
 import importlib.util
 import sys
 import queue
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -283,6 +284,8 @@ def _build_gui_stub():
     gui.activity_last_tick = 0.0
     gui.activity_last_ui_tick = "00:00:00"
     gui.runtime_queue = queue.Queue()
+    gui.assistant_queue = queue.Queue()
+    gui.assistant_thread = None
     gui.current_run_dir = None
     gui.current_run_id = None
     gui.run_watch_started_at = None
@@ -596,6 +599,9 @@ def test_gui_on_send_chat_handles_missing_assistant_and_runtime_error():
     gui.assistant = _BadAssistant()
     gui.chat_input.set("feature request")
     gui._on_send_chat()
+    if gui.assistant_thread is not None:
+        gui.assistant_thread.join(timeout=1)
+    gui._poll_runtime_state()
     assert "Routing error" in gui.chat_output.content
     assert gui.run_button.state == "disabled"
 
@@ -620,6 +626,9 @@ def test_gui_on_send_chat_updates_badge_followups_and_run_state():
     gui.chat_input.set("please implement")
 
     gui._on_send_chat()
+    if gui.assistant_thread is not None:
+        gui.assistant_thread.join(timeout=1)
+    gui._poll_runtime_state()
 
     assert gui.latest_runtime_request == "run this"
     assert gui.latest_ready_to_run is True
@@ -643,11 +652,15 @@ def test_gui_on_send_chat_shows_consulting_notice_before_assistant_runs():
         def __init__(self, gui):
             self.gui = gui
             self.checked = False
+            self.entered = threading.Event()
+            self.proceed = threading.Event()
 
         def handle_message(self, _text, session=None):
+            self.entered.set()
             assert "consulting agents" in self.gui.intent_badge_var.get().lower()
             assert "consulting agents" in self.gui.readiness_var.get().lower()
             assert "consulting agents" in self.gui.chat_output.content.lower()
+            self.proceed.wait(timeout=1)
             self.checked = True
             return response
 
@@ -657,12 +670,19 @@ def test_gui_on_send_chat_shows_consulting_notice_before_assistant_runs():
     gui.chat_input.set("what models are running?")
 
     gui._on_send_chat()
-
-    assert checker.checked is True
     assert "Message received, consulting agents" in gui.chat_output.content
-    assert "Intent: Repo Question" in gui.intent_badge_var.get()
+    assert "Intent: Consulting agents" in gui.intent_badge_var.get()
     assert gui.intent_badge.bg is not None
     assert gui.activity_label.fg is not None
+
+    assert checker.entered.wait(timeout=1)
+    checker.proceed.set()
+    if gui.assistant_thread is not None:
+        gui.assistant_thread.join(timeout=1)
+    gui._poll_runtime_state()
+
+    assert checker.checked is True
+    assert "Intent: Repo Question" in gui.intent_badge_var.get()
 
 
 def test_gui_event_format_discovery_and_polling(tmp_path):
