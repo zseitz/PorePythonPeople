@@ -522,29 +522,8 @@ class OperatorAssistantGUI:
             "I will ask follow-up questions only when needed, draft a runtime request preview, and keep core GUI components protected unless you explicitly authorize changes.",
         )
 
-        right = tk.LabelFrame(top, text="Request Preview + Runtime Control", padx=8, pady=8)
-        right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
-
-        help_text = (
-            "How this works:\n"
-            "1) Chat naturally about the feature/task.\n"
-            "2) Assistant asks follow-up questions only when needed.\n"
-            "3) Review the generated runtime request preview below.\n"
-            "4) Click 'Run Latest Request' when ready."
-        )
-        tk.Label(right, text=help_text, justify=tk.LEFT, anchor="w", fg="#444444").pack(side=tk.TOP, fill=tk.X)
-
-        followup_frame = tk.LabelFrame(right, text="Follow-up questions (if needed)")
-        followup_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=False, pady=(8, 6))
-        self.followup_output = scrolledtext.ScrolledText(followup_frame, height=6, state=tk.DISABLED, wrap=tk.WORD)
-        _style_text_pane(self.followup_output, "followup")
-        self.followup_output.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-
-        preview_frame = tk.LabelFrame(right, text="Runtime request preview")
-        preview_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=(0, 6))
-        self.preview_output = scrolledtext.ScrolledText(preview_frame, height=18, state=tk.DISABLED, wrap=tk.WORD)
-        _style_text_pane(self.preview_output, "preview")
-        self.preview_output.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        right = tk.LabelFrame(top, text="Runtime Controls", padx=8, pady=8)
+        right.pack(side=tk.RIGHT, fill=tk.Y, expand=False)
 
         self.readiness_var = tk.StringVar(value="Status: waiting for feature request message")
         tk.Label(right, textvariable=self.readiness_var, anchor="w", fg="#333333").pack(side=tk.TOP, fill=tk.X)
@@ -612,18 +591,17 @@ class OperatorAssistantGUI:
         self.timeline_output.config(state=tk.DISABLED)
 
     def _set_preview_text(self, text: str) -> None:
-        self.preview_output.config(state=tk.NORMAL)
-        _render_markdown_to_text_widget(self.preview_output, text, append=False)
-        self.preview_output.config(state=tk.DISABLED)
+        if text.strip():
+            self._log_chat(
+                "assistant",
+                "Just to make sure I have this right, review my plan before hitting Run Latest Request:\n\n"
+                + text.strip(),
+            )
 
     def _set_followups(self, questions: list[str]) -> None:
-        self.followup_output.config(state=tk.NORMAL)
         if questions:
             markdown = "\n".join(f"{idx}. {question}" for idx, question in enumerate(questions, start=1))
-            _render_markdown_to_text_widget(self.followup_output, markdown, append=False)
-        else:
-            _render_markdown_to_text_widget(self.followup_output, "No follow-up questions pending.", append=False)
-        self.followup_output.config(state=tk.DISABLED)
+            self._log_chat("assistant", f"I need to know these things first:\n\n{markdown}")
 
     def _new_session(self) -> None:
         if self.assistant is None:
@@ -637,8 +615,6 @@ class OperatorAssistantGUI:
         self.intent_badge_var.set("Intent: Waiting for message")
         self.intent_badge.config(fg="#555555")
         self.readiness_var.set("Status: waiting for feature request message")
-        self._set_preview_text("")
-        self._set_followups([])
         self.assistant_processing = False
         self._refresh_activity_indicator(force=True)
         self._log_chat("assistant", "Started a new chat session. Describe your next request.")
@@ -712,7 +688,8 @@ class OperatorAssistantGUI:
 
         if response.runtime_request:
             self._set_preview_text(response.runtime_request)
-        self._set_followups(response.followup_questions)
+        if response.followup_questions:
+            self._set_followups(response.followup_questions)
 
         if self.latest_ready_to_run:
             self.run_button.config(state=tk.NORMAL)

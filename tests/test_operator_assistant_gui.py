@@ -348,14 +348,16 @@ def test_gui_logging_and_preview_helpers_update_widgets():
     assert "hello" in gui.chat_output.content
 
     gui._set_preview_text("request preview")
-    assert gui.preview_output.content.strip() == "request preview"
+    assert "review my plan before hitting Run Latest Request" in gui.chat_output.content
+    assert "request preview" in gui.chat_output.content
 
     gui._set_followups(["Q1", "Q2"])
-    assert "1. Q1" in gui.followup_output.content
-    assert "2. Q2" in gui.followup_output.content
+    assert "I need to know these things first" in gui.chat_output.content
+    assert "1. Q1" in gui.chat_output.content
+    assert "2. Q2" in gui.chat_output.content
 
     gui._set_followups([])
-    assert "No follow-up questions pending." in gui.followup_output.content
+    assert "No follow-up questions pending." not in gui.chat_output.content
 
 
 def test_markdown_renderer_formats_basic_markdown_in_text_widgets():
