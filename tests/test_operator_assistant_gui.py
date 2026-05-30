@@ -6,11 +6,13 @@ from types import SimpleNamespace
 
 from nanoporethon.operator_assistant_gui import (
     OperatorAssistantGUI,
+    _assistant_ui_palette,
     _render_markdown_to_text_widget,
     _activity_indicator_text,
     _activity_status_label,
     _classifier_health_check,
     _intent_badge_style,
+    _style_assistant_button,
     _runtime_preflight_check,
     _resolve_repo_root,
 )
@@ -124,6 +126,17 @@ def test_activity_status_label_includes_last_ui_tick():
     assert label == "Activity: runtime execution in progress.. (last UI tick: 13:47:22)"
 
 
+def test_gui_chrome_palette_uses_clear_button_hierarchy():
+    palette = _assistant_ui_palette(False)
+    button = _FakeWidget()
+
+    _style_assistant_button(button, palette, primary=True)
+
+    assert button.kwargs["bg"] == palette["button_primary_bg"]
+    assert button.kwargs["fg"] == palette["button_primary_fg"]
+    assert button.kwargs["font"] == ("TkDefaultFont", 10, "bold")
+
+
 def test_operator_assistant_gui_direct_file_import_succeeds_without_repo_root_on_syspath():
     module_path = Path(__file__).resolve().parents[1] / "src" / "nanoporethon" / "operator_assistant_gui.py"
     module_name = "_tmp_operator_assistant_gui_direct_import"
@@ -212,10 +225,20 @@ class _FakeEntry:
 class _FakeButton:
     def __init__(self):
         self.state = None
+        self.kwargs = {}
 
     def config(self, **kwargs):
+        self.kwargs.update(kwargs)
         if "state" in kwargs:
             self.state = kwargs["state"]
+
+
+class _FakeWidget:
+    def __init__(self):
+        self.kwargs = {}
+
+    def config(self, **kwargs):
+        self.kwargs.update(kwargs)
 
 
 class _FakeRoot:

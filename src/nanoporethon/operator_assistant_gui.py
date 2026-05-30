@@ -308,32 +308,143 @@ def _widget_prefers_dark_theme(widget: Any) -> bool:
     return False
 
 
+def _assistant_ui_palette(is_dark: bool) -> Dict[str, str]:
+    if is_dark:
+        return {
+            "app_bg": "#0b1120",
+            "panel_bg": "#111827",
+            "panel_alt": "#172033",
+            "surface": "#0f172a",
+            "surface_alt": "#1e293b",
+            "border": "#334155",
+            "text": "#e5e7eb",
+            "text_soft": "#cbd5e1",
+            "heading": "#f8fafc",
+            "muted": "#94a3b8",
+            "accent": "#60a5fa",
+            "accent_soft": "#1d4ed8",
+            "success": "#4ade80",
+            "warning": "#fbbf24",
+            "danger": "#f87171",
+            "button_primary_bg": "#2563eb",
+            "button_primary_fg": "#f8fafc",
+            "button_primary_active": "#1d4ed8",
+            "button_secondary_bg": "#243244",
+            "button_secondary_fg": "#e5e7eb",
+            "button_secondary_active": "#334155",
+        }
+
+    return {
+        "app_bg": "#f3f4f6",
+        "panel_bg": "#ffffff",
+        "panel_alt": "#f8fafc",
+        "surface": "#ffffff",
+        "surface_alt": "#eef2ff",
+        "border": "#cbd5e1",
+        "text": "#111827",
+        "text_soft": "#334155",
+        "heading": "#0f172a",
+        "muted": "#64748b",
+        "accent": "#2563eb",
+        "accent_soft": "#dbeafe",
+        "success": "#15803d",
+        "warning": "#b45309",
+        "danger": "#b91c1c",
+        "button_primary_bg": "#1d4ed8",
+        "button_primary_fg": "#ffffff",
+        "button_primary_active": "#1e40af",
+        "button_secondary_bg": "#e2e8f0",
+        "button_secondary_fg": "#0f172a",
+        "button_secondary_active": "#cbd5e1",
+    }
+
+
+def _style_assistant_panel(widget: Any, palette: Dict[str, str], tone: str = "panel_bg") -> None:
+    if hasattr(widget, "config"):
+        widget.config(bg=palette.get(tone, palette["panel_bg"]))
+
+
+def _style_assistant_group(widget: Any, palette: Dict[str, str]) -> None:
+    if hasattr(widget, "config"):
+        widget.config(
+            bg=palette["panel_bg"],
+            fg=palette["accent"],
+            font=("TkDefaultFont", 11, "bold"),
+            labelanchor="n",
+            padx=10,
+            pady=8,
+        )
+
+
+def _style_assistant_label(
+    widget: Any,
+    palette: Dict[str, str],
+    *,
+    tone: str = "text",
+    size: int = 10,
+    bold: bool = False,
+    italic: bool = False,
+    background: str = "panel_bg",
+) -> None:
+    weight = "bold" if bold else "normal"
+    slant = "italic" if italic else "roman"
+    if hasattr(widget, "config"):
+        widget.config(
+            bg=palette.get(background, palette["panel_bg"]),
+            fg=palette.get(tone, palette["text"]),
+            font=("TkDefaultFont", size, weight, slant),
+        )
+
+
+def _style_assistant_button(widget: Any, palette: Dict[str, str], *, primary: bool = False) -> None:
+    bg = palette["button_primary_bg"] if primary else palette["button_secondary_bg"]
+    fg = palette["button_primary_fg"] if primary else palette["button_secondary_fg"]
+    active_bg = palette["button_primary_active"] if primary else palette["button_secondary_active"]
+    if hasattr(widget, "config"):
+        widget.config(
+            bg=bg,
+            fg=fg,
+            activebackground=active_bg,
+            activeforeground=fg,
+            relief=tk.RAISED,
+            borderwidth=1,
+            font=("TkDefaultFont", 10, "bold"),
+            padx=12,
+            pady=6,
+            cursor="hand2",
+        )
+
+
 def _style_text_pane(widget: Any, pane_kind: str) -> None:
     is_dark = _widget_prefers_dark_theme(widget)
+    palette = _assistant_ui_palette(is_dark)
     base = {
         "font": ("TkDefaultFont", 11),
-        "insertbackground": "#f9fafb" if is_dark else "#111827",
-        "selectbackground": "#1d4ed8" if is_dark else "#bfdbfe",
-        "selectforeground": "#f8fafc" if is_dark else "#111827",
+        "insertbackground": palette["heading"],
+        "selectbackground": palette["accent_soft"],
+        "selectforeground": palette["text"],
         "relief": tk.FLAT,
         "borderwidth": 0,
+        "highlightthickness": 1,
+        "highlightbackground": palette["border"],
+        "highlightcolor": palette["accent"],
         "padx": 8,
         "pady": 8,
     }
     if is_dark:
         palette = {
-            "chat": {"bg": "#0f172a", "fg": "#e2e8f0"},
-            "followup": {"bg": "#102a43", "fg": "#e2e8f0"},
-            "preview": {"bg": "#0b1220", "fg": "#e2e8f0"},
-            "timeline": {"bg": "#1e1b4b", "fg": "#e2e8f0"},
+            "chat": {"bg": palette["surface"], "fg": palette["text"]},
+            "followup": {"bg": palette["surface_alt"], "fg": palette["text"]},
+            "preview": {"bg": palette["surface"], "fg": palette["text"]},
+            "timeline": {"bg": palette["panel_alt"], "fg": palette["text"]},
         }
         widget._pane_theme = "dark"
     else:
         palette = {
-            "chat": {"bg": "#f8fafc", "fg": "#0f172a"},
-            "followup": {"bg": "#f0f9ff", "fg": "#0f172a"},
-            "preview": {"bg": "#f8fafc", "fg": "#0f172a"},
-            "timeline": {"bg": "#f5f3ff", "fg": "#1f2937"},
+            "chat": {"bg": palette["surface"], "fg": palette["text"]},
+            "followup": {"bg": palette["surface_alt"], "fg": palette["text"]},
+            "preview": {"bg": palette["surface"], "fg": palette["text"]},
+            "timeline": {"bg": "#f5f3ff", "fg": palette["text_soft"]},
         }
         widget._pane_theme = "light"
     colors = palette.get(pane_kind, {"bg": "#ffffff", "fg": "#111827"})
@@ -486,10 +597,15 @@ class OperatorAssistantGUI:
         self._poll_runtime_state()
 
     def _build_gui(self) -> None:
+        palette = _assistant_ui_palette(_widget_prefers_dark_theme(self.root))
+        self.root.configure(bg=palette["app_bg"])
+
         top = tk.Frame(self.root)
+        _style_assistant_panel(top, palette, "app_bg")
         top.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=10)
 
         left = tk.LabelFrame(top, text="Local Chat Assistant", padx=8, pady=8)
+        _style_assistant_group(left, palette)
         left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         self.intent_badge_var = tk.StringVar(value="Intent: Waiting for message")
@@ -498,8 +614,13 @@ class OperatorAssistantGUI:
             textvariable=self.intent_badge_var,
             anchor="w",
             justify=tk.LEFT,
-            fg="#555555",
+            fg=palette["muted"],
             font=("TkDefaultFont", 10, "bold"),
+            bg=palette["surface_alt"],
+            bd=1,
+            relief=tk.SOLID,
+            padx=8,
+            pady=4,
         )
         self.intent_badge.pack(side=tk.TOP, fill=tk.X, pady=(0, 6))
 
@@ -508,6 +629,7 @@ class OperatorAssistantGUI:
         self.chat_output.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         chat_input_frame = tk.Frame(left)
+        _style_assistant_panel(chat_input_frame, palette, "surface")
         chat_input_frame.pack(side=tk.TOP, fill=tk.X, pady=(8, 0))
 
         self.chat_input = scrolledtext.ScrolledText(chat_input_frame, height=4, wrap=tk.WORD, undo=True)
@@ -516,14 +638,16 @@ class OperatorAssistantGUI:
         self.chat_input.bind("<Return>", self._on_send_chat)
         self.chat_input.bind("<Shift-Return>", self._insert_chat_newline)
         self.send_button = tk.Button(chat_input_frame, text="Send", command=self._on_send_chat)
+        _style_assistant_button(self.send_button, palette, primary=True)
         self.send_button.pack(side=tk.LEFT, padx=(6, 0))
 
         self.chat_hint = tk.Label(
             chat_input_frame,
             text="Enter sends • Shift+Enter inserts a new line",
             anchor="w",
-            fg="#6b7280",
-            font=("TkDefaultFont", 9),
+            fg=palette["muted"],
+            font=("TkDefaultFont", 9, "italic"),
+            bg=palette["surface"],
         )
         self.chat_hint.pack(side=tk.BOTTOM, fill=tk.X, pady=(4, 0))
 
@@ -534,23 +658,34 @@ class OperatorAssistantGUI:
         )
 
         right = tk.LabelFrame(top, text="Runtime Controls", padx=8, pady=8)
+        _style_assistant_group(right, palette)
         right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=False)
 
         self.readiness_var = tk.StringVar(value="Status: waiting for feature request message")
-        tk.Label(right, textvariable=self.readiness_var, anchor="w", fg="#333333").pack(side=tk.TOP, fill=tk.X)
+        readiness_label = tk.Label(right, textvariable=self.readiness_var, anchor="w")
+        _style_assistant_label(readiness_label, palette, tone="heading", size=10, bold=True)
+        readiness_label.pack(side=tk.TOP, fill=tk.X)
 
         self.activity_var = tk.StringVar(value="Activity: idle")
-        self.activity_label = tk.Label(right, textvariable=self.activity_var, anchor="w", fg="#666666")
+        self.activity_label = tk.Label(right, textvariable=self.activity_var, anchor="w")
+        _style_assistant_label(self.activity_label, palette, tone="muted", size=10)
         self.activity_label.pack(side=tk.TOP, fill=tk.X, pady=(2, 0))
 
         controls = tk.Frame(right)
+        _style_assistant_panel(controls, palette, "panel_bg")
         controls.pack(side=tk.TOP, fill=tk.X, pady=(8, 0))
         self.run_button = tk.Button(controls, text="Run Latest Request", command=self._start_runtime, state=tk.DISABLED)
+        _style_assistant_button(self.run_button, palette, primary=True)
         self.run_button.pack(side=tk.LEFT)
-        tk.Button(controls, text="Health Check", command=self._run_health_check).pack(side=tk.LEFT, padx=(8, 0))
-        tk.Button(controls, text="New Chat Session", command=self._new_session).pack(side=tk.LEFT, padx=(8, 0))
+        health_button = tk.Button(controls, text="Health Check", command=self._run_health_check)
+        _style_assistant_button(health_button, palette, primary=False)
+        health_button.pack(side=tk.LEFT, padx=(8, 0))
+        new_session_button = tk.Button(controls, text="New Chat Session", command=self._new_session)
+        _style_assistant_button(new_session_button, palette, primary=False)
+        new_session_button.pack(side=tk.LEFT, padx=(8, 0))
 
         timeline = tk.LabelFrame(right, text="Runtime Timeline (events)", padx=8, pady=8)
+        _style_assistant_group(timeline, palette)
         timeline.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=(10, 0))
         self.timeline_output = scrolledtext.ScrolledText(timeline, height=10, state=tk.DISABLED, wrap=tk.WORD)
         _style_text_pane(self.timeline_output, "timeline")
