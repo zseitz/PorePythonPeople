@@ -1296,7 +1296,7 @@ Chat-first request guidance:
 - Routing uses a deterministic hybrid scope gate with two user-facing lanes: **feature requests** and **general questions**. Internally, allowed intents are `feature_request`, `runtime_help`, `code_explanation`, `repo_question`, and `nanopore_science_explanation`; unrelated prompts are redirected or blocked.
 - The deterministic scope gate also treats common guidance-style phrasing (for example confusion after clicking around, safeguards/checklist/reproducibility requests, and "what can you help with" redirects) as in-scope support.
 - Local model calls for this flow use the Ollama HTTP adapter (`runtime/adapters/ollama.py`) against `/api/chat`; this assistant path is not MCP-server based.
-- Assistant text panes (chat, follow-ups, request preview, timeline) render lightweight markdown formatting with richer local styling (headings/lists/inline code/fenced code blocks + pane-specific typography/color theme) for easier reading.
+- Assistant text panes (chat, follow-ups, request preview, timeline) render lightweight markdown formatting with richer local styling (headings/lists/inline code/fenced code blocks + pane-specific typography/color theme) and adaptive light/dark contrast for easier reading.
 - Message routing does not require classifier startup availability.
 - Session context is still used so runtime follow-up questions after a run are interpreted in conversation context (not as isolated messages), but feature continuation is conditional: follow-ups must stay repository-relevant and pass scope checks.
 - Scope decisions are evidence-based: prompts are considered in-scope when they align with repository goal terms/anchors and retrievable local repo context.

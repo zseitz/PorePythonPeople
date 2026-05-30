@@ -201,49 +201,138 @@ def _runtime_preflight_check(
 
 
 def _init_markdown_tags(widget: Any) -> None:
-    if getattr(widget, "_markdown_tags_ready", False):
+    theme = getattr(widget, "_pane_theme", "light")
+    if getattr(widget, "_markdown_tags_ready", False) and getattr(widget, "_markdown_theme", "light") == theme:
         return
     if not hasattr(widget, "tag_configure"):
         return
 
-    widget.tag_configure("md_body", foreground="#1f2937", spacing1=1, spacing3=2)
-    widget.tag_configure("md_h1", font=("TkDefaultFont", 14, "bold"), foreground="#1d4ed8", spacing1=10, spacing3=5)
-    widget.tag_configure("md_h2", font=("TkDefaultFont", 12, "bold"), foreground="#1e40af", spacing1=8, spacing3=4)
-    widget.tag_configure("md_h3", font=("TkDefaultFont", 11, "bold"), foreground="#1e3a8a", spacing1=6, spacing3=3)
-    widget.tag_configure("md_bold", font=("TkDefaultFont", 11, "bold"), foreground="#111827")
-    widget.tag_configure("md_italic", font=("TkDefaultFont", 11, "italic"), foreground="#334155")
-    widget.tag_configure("md_code", font=("Courier", 10), foreground="#7c2d12", background="#fff7ed")
+    light = {
+        "body": "#1f2937",
+        "h1": "#1d4ed8",
+        "h2": "#1e40af",
+        "h3": "#1e3a8a",
+        "bold": "#111827",
+        "italic": "#334155",
+        "code_fg": "#7c2d12",
+        "code_bg": "#fff7ed",
+        "quote": "#475467",
+    }
+    dark = {
+        "body": "#e5e7eb",
+        "h1": "#93c5fd",
+        "h2": "#bfdbfe",
+        "h3": "#dbeafe",
+        "bold": "#f9fafb",
+        "italic": "#cbd5e1",
+        "code_fg": "#fed7aa",
+        "code_bg": "#3f2b1d",
+        "quote": "#cbd5e1",
+    }
+    colors = dark if theme == "dark" else light
+
+    widget.tag_configure("md_body", foreground=colors["body"], spacing1=1, spacing3=2)
+    widget.tag_configure("md_h1", font=("TkDefaultFont", 16, "bold"), foreground=colors["h1"], spacing1=11, spacing3=6)
+    widget.tag_configure("md_h2", font=("TkDefaultFont", 14, "bold"), foreground=colors["h2"], spacing1=9, spacing3=5)
+    widget.tag_configure("md_h3", font=("TkDefaultFont", 12, "bold"), foreground=colors["h3"], spacing1=7, spacing3=4)
+    widget.tag_configure("md_bold", font=("TkDefaultFont", 11, "bold"), foreground=colors["bold"])
+    widget.tag_configure("md_italic", font=("TkDefaultFont", 11, "italic"), foreground=colors["italic"])
+    widget.tag_configure("md_code", font=("Courier", 10), foreground=colors["code_fg"], background=colors["code_bg"])
     widget.tag_configure(
         "md_code_block",
         font=("Courier", 10),
-        foreground="#7c2d12",
-        background="#fff7ed",
+        foreground=colors["code_fg"],
+        background=colors["code_bg"],
         lmargin1=14,
         lmargin2=14,
         spacing1=4,
         spacing3=4,
     )
-    widget.tag_configure("md_quote", foreground="#475467", lmargin1=14, lmargin2=14, spacing1=2, spacing3=2)
+    widget.tag_configure("md_quote", foreground=colors["quote"], lmargin1=14, lmargin2=14, spacing1=2, spacing3=2)
     widget._markdown_tags_ready = True
+    widget._markdown_theme = theme
+
+
+def _is_dark_hex_color(color: str) -> bool:
+    value = (color or "").strip()
+    if not value.startswith("#"):
+        return False
+    hex_value = value[1:]
+    if len(hex_value) == 3:
+        try:
+            r = int(hex_value[0] * 2, 16)
+            g = int(hex_value[1] * 2, 16)
+            b = int(hex_value[2] * 2, 16)
+        except ValueError:
+            return False
+    elif len(hex_value) == 6:
+        try:
+            r = int(hex_value[0:2], 16)
+            g = int(hex_value[2:4], 16)
+            b = int(hex_value[4:6], 16)
+        except ValueError:
+            return False
+    else:
+        return False
+    luma = 0.299 * r + 0.587 * g + 0.114 * b
+    return luma < 128
+
+
+def _widget_prefers_dark_theme(widget: Any) -> bool:
+    if hasattr(widget, "_pane_theme"):
+        return getattr(widget, "_pane_theme") == "dark"
+
+    bg_color = ""
+    if hasattr(widget, "cget"):
+        try:
+            bg_color = str(widget.cget("bg"))
+        except Exception:
+            bg_color = ""
+
+    if bg_color and _is_dark_hex_color(bg_color):
+        return True
+
+    if hasattr(widget, "winfo_toplevel"):
+        try:
+            toplevel = widget.winfo_toplevel()
+            if hasattr(toplevel, "cget"):
+                top_bg = str(toplevel.cget("bg"))
+                if _is_dark_hex_color(top_bg):
+                    return True
+        except Exception:
+            return False
+
+    return False
 
 
 def _style_text_pane(widget: Any, pane_kind: str) -> None:
+    is_dark = _widget_prefers_dark_theme(widget)
     base = {
         "font": ("TkDefaultFont", 11),
-        "insertbackground": "#111827",
-        "selectbackground": "#bfdbfe",
-        "selectforeground": "#111827",
+        "insertbackground": "#f9fafb" if is_dark else "#111827",
+        "selectbackground": "#1d4ed8" if is_dark else "#bfdbfe",
+        "selectforeground": "#f8fafc" if is_dark else "#111827",
         "relief": tk.FLAT,
         "borderwidth": 0,
         "padx": 8,
         "pady": 8,
     }
-    palette = {
-        "chat": {"bg": "#f8fafc", "fg": "#0f172a"},
-        "followup": {"bg": "#f0f9ff", "fg": "#0f172a"},
-        "preview": {"bg": "#f8fafc", "fg": "#0f172a"},
-        "timeline": {"bg": "#f5f3ff", "fg": "#1f2937"},
-    }
+    if is_dark:
+        palette = {
+            "chat": {"bg": "#0f172a", "fg": "#e2e8f0"},
+            "followup": {"bg": "#102a43", "fg": "#e2e8f0"},
+            "preview": {"bg": "#0b1220", "fg": "#e2e8f0"},
+            "timeline": {"bg": "#1e1b4b", "fg": "#e2e8f0"},
+        }
+        widget._pane_theme = "dark"
+    else:
+        palette = {
+            "chat": {"bg": "#f8fafc", "fg": "#0f172a"},
+            "followup": {"bg": "#f0f9ff", "fg": "#0f172a"},
+            "preview": {"bg": "#f8fafc", "fg": "#0f172a"},
+            "timeline": {"bg": "#f5f3ff", "fg": "#1f2937"},
+        }
+        widget._pane_theme = "light"
     colors = palette.get(pane_kind, {"bg": "#ffffff", "fg": "#111827"})
     kwargs = dict(base)
     kwargs.update(colors)
