@@ -77,7 +77,7 @@ Use these principles when redesigning runtime/assistant behavior:
 ## Runtime and verification policy
 
 - Keep runtime attended and operator-reviewed.
-- Keep changes branch-local until operator-approved promotion/merge.
+- Keep changes reviewable until operator-approved promotion/merge.
 - For code changes, default to both automated tests and behavior checks unless user narrows scope.
 - Treat deterministic verify command outputs as source-of-truth for gate evidence.
 
