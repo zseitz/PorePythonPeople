@@ -1,8 +1,11 @@
+import ast
 import json
 import os
 import shutil
 import subprocess
 import sys
+import time
+import zipfile
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -13,7 +16,8 @@ from runtime.gates import evaluate_stage_gates
 from runtime.orchestrator import _build_cli_summary, _build_executor, run_milestone1
 from runtime.planner import build_triage_plan, classify_complexity
 from runtime.context_manager import ContextBudgetManager
-from runtime.repo_ops import RepoSandboxManager
+from runtime.repo_ops import RepoSandboxManager, RepoWorkspaceManager
+from runtime.skill_loader import SkillLoader
 
 
 def _policy_with_run_root(run_root: Path):
@@ -599,11 +603,35 @@ def test_build_executor_supports_specialist_model_overrides(tmp_path):
 
     assert executor.model_adapter is not None
     assert getattr(executor.model_adapter, "model") == "global-model"
+    assert getattr(executor.model_adapter, "timeout_seconds") == 180
+    assert getattr(executor.model_adapter, "max_retries") == 1
     assert "feature_builder" in executor.model_adapters
     assert getattr(executor.model_adapters["feature_builder"], "model") == "feature-model"
     assert "doc_sync" in executor.model_adapters
     assert getattr(executor.model_adapters["doc_sync"], "model") == "docs-model"
     assert getattr(executor.model_adapters["doc_sync"], "base_url") == "http://localhost:11435"
+
+
+def test_build_executor_uses_timeout_and_retry_policy_settings(tmp_path):
+    policy = _policy_with_run_root(tmp_path)
+    policy["model_provider"] = {
+        "adapter": "ollama",
+        "model": "global-model",
+        "base_url": "http://localhost:11434",
+        "request_timeout_seconds": 240,
+        "max_retries": 3,
+    }
+
+    executor = _build_executor(
+        policy=policy,
+        repo_root=Path(__file__).resolve().parents[1],
+        repo_ops=None,
+        memory_writer=None,
+        context_manager=None,
+    )
+
+    assert getattr(executor.model_adapter, "timeout_seconds") == 240
+    assert getattr(executor.model_adapter, "max_retries") == 3
 
 
 def test_repository_policy_uses_balanced_model_profile():
@@ -616,6 +644,252 @@ def test_repository_policy_uses_balanced_model_profile():
     assert policy["specialists"]["refactor"]["model_provider"]["model"] == "qwen3:4b"
     assert policy["specialists"]["doc_sync"]["model_provider"]["model"] == "qwen2.5:3b"
     assert policy["specialists"]["memory_sync"]["model_provider"]["model"] == "qwen2.5:3b"
+    assert policy["skills"]["enabled"] is True
+    assert "implement" in policy["skills"]["stage_map"]
+
+
+def test_skill_loader_reads_stage_context_with_budget_cap():
+    repo_root = Path(__file__).resolve().parents[1]
+    loader = SkillLoader(
+        repo_root=repo_root,
+        stage_skill_map={"implement": ["implementation-strategy"]},
+        max_chars_per_stage=350,
+        enabled=True,
+    )
+    context = loader.load_stage_context("implement")
+    assert "skills" in context
+    skills = context["skills"]
+    assert isinstance(skills, list)
+    assert skills
+    first = skills[0]
+    assert first["name"] == "implementation-strategy"
+    assert len(first["content"]) <= 350
+
+
+def test_executor_includes_skill_context_in_model_payload(tmp_path):
+    captured = {}
+
+    class CapturingAdapter:
+        def chat(self, _system_prompt, messages):
+            captured["content"] = messages[0]["content"]
+            return json.dumps(
+                {
+                    "changed_files": [],
+                    "implementation_summary": "ok",
+                    "test_updates": [],
+                    "unresolved_risks": [],
+                    "noop_justified": True,
+                    "actions": [],
+                }
+            )
+
+    repo_root = Path(__file__).resolve().parents[1]
+    sandbox = RepoSandboxManager(repo_root=repo_root, sandbox_root=tmp_path / "sandbox")
+    sandbox.prepare()
+    policy = _policy_with_run_root(tmp_path)
+    policy["skills"] = {
+        "enabled": True,
+        "max_chars_per_stage": 350,
+        "stage_map": {
+            "implement": ["implementation-strategy"],
+        },
+    }
+    executor = SpecialistExecutor(
+        specialists={"feature_builder": {"prompt_inline": "feature"}},
+        model_adapter=CapturingAdapter(),
+        repo_root=repo_root,
+        repo_ops=sandbox,
+        policy=policy,
+    )
+
+    executor.run_stage(
+        run_id="run_test",
+        stage_id="implement",
+        owner="feature_builder",
+        request="Implement behavior",
+        context={"request": "Implement behavior"},
+        artifacts_dir=tmp_path / "artifacts",
+    )
+
+    payload = json.loads(captured["content"])
+    assert "skill_context" in payload
+    assert payload["skill_context"]["skills"]
+
+
+def test_executor_includes_request_file_context_when_request_references_repo_file(tmp_path):
+    captured = {}
+
+    class CapturingAdapter:
+        def chat(self, _system_prompt, messages):
+            captured["content"] = messages[0]["content"]
+            return json.dumps(
+                {
+                    "changed_files": [],
+                    "implementation_summary": "ok",
+                    "test_updates": [],
+                    "unresolved_risks": [],
+                    "noop_justified": True,
+                    "actions": [],
+                }
+            )
+
+    repo_root = Path(__file__).resolve().parents[1]
+    sandbox = RepoSandboxManager(repo_root=repo_root, sandbox_root=tmp_path / "sandbox")
+    sandbox.prepare()
+    policy = _policy_with_run_root(tmp_path)
+    executor = SpecialistExecutor(
+        specialists={"feature_builder": {"prompt_inline": "feature"}},
+        model_adapter=CapturingAdapter(),
+        repo_root=repo_root,
+        repo_ops=sandbox,
+        policy=policy,
+    )
+
+    executor.run_stage(
+        run_id="run_test",
+        stage_id="implement",
+        owner="feature_builder",
+        request='Create src/nanoporethon/consensus_maker_gui.py based on "consensusMaker.m"',
+        context={"request": "implement"},
+        artifacts_dir=tmp_path / "artifacts",
+    )
+
+    payload = json.loads(captured["content"])
+    assert "request_file_context" in payload
+    assert any(item["path"].endswith("MATLABcode/consensusMaker.m") for item in payload["request_file_context"])
+
+
+def test_request_file_context_supports_absolute_mlapp_reference(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    mlapp_path = tmp_path / "SequenceDesigner.mlapp"
+
+    with zipfile.ZipFile(mlapp_path, "w") as archive:
+        archive.writestr(
+            "matlab/document.xml",
+            "<document><code>classdef SequenceDesigner; properties; PhaseShiftSlider; end</code></document>",
+        )
+
+    executor = SpecialistExecutor(repo_root=repo_root, policy=_policy_with_run_root(tmp_path))
+    context = executor._collect_request_file_context(
+        f'Please mirror functionality from "{mlapp_path.as_posix()}" into sequence_designer_gui.py'
+    )
+
+    assert context
+    assert any(item["path"].endswith("SequenceDesigner.mlapp") for item in context)
+    assert any("PhaseShiftSlider" in item["content"] for item in context)
+
+
+def test_deterministic_implement_fallback_scaffolds_requested_gui_file(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    sandbox = RepoSandboxManager(repo_root=repo_root, sandbox_root=tmp_path / "sandbox")
+    sandbox.prepare()
+
+    executor = SpecialistExecutor(
+        specialists={"feature_builder": {"prompt_inline": "feature"}},
+        model_adapter=None,
+        repo_root=repo_root,
+        repo_ops=sandbox,
+        policy=_policy_with_run_root(tmp_path),
+    )
+
+    result = executor.run_stage(
+        run_id="run_test",
+        stage_id="implement",
+        owner="feature_builder",
+        request=(
+            "Create a new python file based off SequenceDesigner.m and save the new python file "
+            "in the src/nanoporethon directory as sequence_designer_gui.py"
+        ),
+        context={"request": "implement"},
+        artifacts_dir=tmp_path / "artifacts",
+    )
+
+    payload_path = tmp_path / "artifacts" / "stages" / "implement_payload.json"
+    payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    assert payload["noop_justified"] is False
+    assert payload["actions"]
+    assert "src/nanoporethon/sequence_designer_gui.py" in payload["changed_files"]
+
+    generated = sandbox.sandbox_repo / "src" / "nanoporethon" / "sequence_designer_gui.py"
+    assert generated.exists()
+    generated_text = generated.read_text(encoding="utf-8")
+    assert "class SequenceDesignerGui" in generated_text
+    assert "Sequence 5'-" in generated_text
+    assert "Select nucleotide 'N'" in generated_text
+    assert "Predicted currents" in generated_text
+    assert "Save Figure" in generated_text
+    assert "Export Levels" in generated_text
+    assert "build_predicted_currents" in generated_text
+    assert "PhaseShiftSliderValueChanged" in generated_text
+    assert "DisplayorderSwitchValueChanged" in generated_text
+    assert "tkinter" in generated_text
+    assert "\nfrom __future__ import annotations\n" in generated_text
+    ast.parse(generated_text)
+
+    assert result["status"] == "success"
+
+
+def test_deterministic_fallback_prefers_explicit_requested_target_over_guardrail_file_mentions(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    sandbox = RepoSandboxManager(repo_root=repo_root, sandbox_root=tmp_path / "sandbox")
+    sandbox.prepare()
+
+    executor = SpecialistExecutor(
+        specialists={"feature_builder": {"prompt_inline": "feature"}},
+        model_adapter=None,
+        repo_root=repo_root,
+        repo_ops=sandbox,
+        policy=_policy_with_run_root(tmp_path),
+    )
+
+    request = (
+        'Create a new python file based off of "SequenceDesigner.m" and save the new python file '
+        'in the src/nanoporethon directory as "sequence_designer_gui.py".\n\n'
+        "Execution guardrails:\n"
+        "- Do NOT modify core GUI components unless explicitly authorized: "
+        "src/nanoporethon/data_navi_gui.py, src/nanoporethon/event_classifier_gui.py\n"
+    )
+
+    result = executor.run_stage(
+        run_id="run_test",
+        stage_id="implement",
+        owner="feature_builder",
+        request=request,
+        context={"request": "implement"},
+        artifacts_dir=tmp_path / "artifacts",
+    )
+
+    payload_path = tmp_path / "artifacts" / "stages" / "implement_payload.json"
+    payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    assert payload["noop_justified"] is False
+    assert payload["actions"]
+    assert payload["changed_files"] == ["src/nanoporethon/sequence_designer_gui.py"]
+    assert payload.get("merge_markers_found") is False
+
+    generated = sandbox.sandbox_repo / "src" / "nanoporethon" / "sequence_designer_gui.py"
+    assert generated.exists()
+    generated_text = generated.read_text(encoding="utf-8")
+    assert "class SequenceDesignerGui" in generated_text
+    assert "Sequence 5'-" in generated_text
+    assert "Select nucleotide 'N'" in generated_text
+    assert "Predicted currents" in generated_text
+    assert "Save Figure" in generated_text
+    assert "Export Levels" in generated_text
+    assert "from __future__ import annotations" in generated_text
+    ast.parse(generated_text)
+
+    assert result["status"] == "success"
+
+
+def test_request_file_context_does_not_assume_downloads_folder(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    executor = SpecialistExecutor(repo_root=repo_root, policy=_policy_with_run_root(tmp_path))
+
+    context = executor._collect_request_file_context(
+        'Use SequenceDesigner.m from my downloads folder and write output as "target.py"'
+    )
+
+    assert context == []
 
 
 def test_executor_uses_owner_specific_adapter_when_present():
@@ -996,6 +1270,22 @@ def test_implement_gate_fails_when_merge_markers_found():
     )
     assert evidence["changeset_nonempty_or_noop_justified"] is True
     assert evidence["no_unresolved_merge_markers"] is False
+
+
+def test_merge_marker_detection_ignores_literal_marker_strings_in_code(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    sandbox = RepoSandboxManager(repo_root=repo_root, sandbox_root=tmp_path / "sandbox")
+    sandbox.prepare()
+
+    target = sandbox.sandbox_repo / "src" / "nanoporethon" / "merge_marker_literal_test.py"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        'markers = ("<<<<<<< ", "=======", ">>>>>>> ")\nprint(markers)\n',
+        encoding="utf-8",
+    )
+
+    executor = SpecialistExecutor(repo_root=repo_root, repo_ops=sandbox, policy=_policy_with_run_root(tmp_path))
+    assert executor._has_unresolved_merge_markers(["src/nanoporethon/merge_marker_literal_test.py"]) is False
 
 
 def test_verify_uses_sandbox_default_cwd(tmp_path):
@@ -1398,4 +1688,52 @@ def test_repo_ops_allowlist_token_matching_blocks_prefix_spoof(tmp_path):
         assert "Command not allowed by policy" in str(exc)
     else:
         raise AssertionError("Expected prefix-spoofed command to be blocked")
+
+
+def test_repo_workspace_manager_changed_files_uses_git_porcelain_fast_path(tmp_path):
+    repo_root = _init_git_repo(tmp_path / "workspace_repo")
+    (repo_root / "README.md").write_text("modified\n", encoding="utf-8")
+    (repo_root / "new_file.txt").write_text("new\n", encoding="utf-8")
+    (repo_root / ".coverage").write_text("ignore\n", encoding="utf-8")
+
+    manager = RepoWorkspaceManager(repo_root=repo_root, sandbox_root=tmp_path / "sandbox")
+    changed = manager.changed_files()
+
+    assert "README.md" in changed
+    assert "new_file.txt" in changed
+    assert ".coverage" not in changed
+
+
+def test_try_model_response_times_out_and_falls_back_without_hanging(tmp_path):
+    class SlowAdapter:
+        timeout_seconds = 300
+
+        def chat(self, _system_prompt, _messages):
+            time.sleep(5)
+            return "{}"
+
+    executor = SpecialistExecutor(
+        specialists={"orchestrator": {"prompt_inline": "orchestrator"}},
+        model_adapter=SlowAdapter(),
+        policy={
+            **_policy_with_run_root(tmp_path),
+            "model_provider": {
+                "request_timeout_seconds": 300,
+                "stage_call_timeout_seconds": 1,
+            },
+        },
+    )
+
+    started = time.monotonic()
+    response = executor._try_model_response(
+        owner="orchestrator",
+        stage_id="triage_plan",
+        request="Build triage plan",
+        context={"request": "Build triage plan"},
+    )
+    elapsed = time.monotonic() - started
+
+    assert response is None
+    assert elapsed < 2.5
+    assert "timed out" in str(executor._model_call_warning).lower()
 

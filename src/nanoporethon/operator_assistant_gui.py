@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import queue
+import re
 import sys
 import threading
 import time
@@ -22,6 +23,7 @@ from tkinter import scrolledtext
 
 try:
     from runtime.adapters.ollama import OllamaAdapter
+    from runtime.repo_ops import RepoWorkspaceManager
     from runtime.operator_assistant import AssistantStartupError, LocalOperatorAssistant, _chat_json_response
     from runtime.orchestrator import run_milestone1
 except ModuleNotFoundError:
@@ -31,6 +33,7 @@ except ModuleNotFoundError:
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
     from runtime.adapters.ollama import OllamaAdapter
+    from runtime.repo_ops import RepoWorkspaceManager
     from runtime.operator_assistant import AssistantStartupError, LocalOperatorAssistant, _chat_json_response
     from runtime.orchestrator import run_milestone1
 
@@ -44,6 +47,7 @@ def _intent_badge_style(intent: str, confidence: float) -> Tuple[str, str]:
         "feature_request": "#0a7d33",
         "runtime_help": "#1f4aa8",
         "code_explanation": "#6a3dad",
+        "nanopore_science_explanation": "#0b7285",
         "repo_question": "#444444",
         "out_of_scope": "#b42318",
         "unknown": "#555555",
@@ -100,93 +104,338 @@ def _classifier_health_check(
     policy: Dict[str, object],
     adapter_factory: Callable[..., Any] = OllamaAdapter,
 ) -> Dict[str, str]:
-    assistant_scope = policy.get("assistant_scope", {}) if isinstance(policy, dict) else {}
-    classifier_cfg = assistant_scope.get("intent_classifier", {}) if isinstance(assistant_scope, dict) else {}
+    del adapter_factory  # retained for backwards-compatible signature in tests/callers.
 
-    if not isinstance(classifier_cfg, dict) or not bool(classifier_cfg.get("enabled")):
+    assistant_scope = policy.get("assistant_scope", {}) if isinstance(policy, dict) else {}
+    if not isinstance(assistant_scope, dict):
         return {
             "ok": "false",
             "status": "config_error",
-            "message": (
-                "Classifier is disabled in policy. Set assistant_scope.intent_classifier.enabled=true "
-                "to run the operator assistant in strict LLM mode."
-            ),
+            "message": "assistant_scope policy block is missing or invalid.",
         }
 
-    model = str(classifier_cfg.get("model", "mistral:7b"))
-    base_url = str(classifier_cfg.get("base_url", "http://localhost:11434"))
+    domain_anchors = assistant_scope.get("domain_anchors", [])
+    grounding_files = assistant_scope.get("grounding_files", [])
+    sensitive_domains = assistant_scope.get("sensitive_domains", [])
 
-    try:
-        adapter = adapter_factory(model=model, base_url=base_url)
-    except Exception as exc:
+    if not isinstance(domain_anchors, list) or len(domain_anchors) == 0:
         return {
             "ok": "false",
-            "status": "adapter_init_error",
-            "message": (
-                f"Failed to initialize classifier adapter (model={model}, base_url={base_url}). "
-                f"Details: {exc}"
-            ),
+            "status": "config_error",
+            "message": "assistant_scope.domain_anchors must be a non-empty list.",
         }
-
-    try:
-        payload = _chat_json_response(
-            adapter,
-            "Return ONLY valid JSON: {\"intent\": \"feature_request\", \"confidence\": 0.9, \"reason\": \"healthcheck\"}",
-            [{"role": "user", "content": "Health check: classify this as feature_request."}],
-        )
-    except Exception as exc:
-        msg = str(exc)
-        lowered = msg.lower()
-        if "not found" in lowered and "model" in lowered:
-            return {
-                "ok": "false",
-                "status": "model_missing",
-                "message": (
-                    f"Classifier model '{model}' is not available in local Ollama. "
-                    "Install/pull it and retry (for example: ollama pull <model>). "
-                    f"Details: {msg}"
-                ),
-            }
-        if any(token in lowered for token in ["connection refused", "failed to connect", "timed out", "connection error"]):
-            return {
-                "ok": "false",
-                "status": "service_unreachable",
-                "message": (
-                    f"Cannot reach Ollama at {base_url}. Ensure the local service is running and accessible. "
-                    f"Details: {msg}"
-                ),
-            }
-        if "json" in lowered or "no json object found" in lowered or "empty model output" in lowered:
-            return {
-                "ok": "false",
-                "status": "malformed_output",
-                "message": (
-                    "Classifier returned non-JSON output during health check. "
-                    f"Details: {msg}"
-                ),
-            }
+    if not isinstance(grounding_files, list) or len(grounding_files) == 0:
         return {
             "ok": "false",
-            "status": "chat_error",
-            "message": f"Classifier call failed for model={model} at {base_url}. Details: {msg}",
+            "status": "config_error",
+            "message": "assistant_scope.grounding_files must be a non-empty list.",
         }
-
-    intent = str(payload.get("intent", "")).strip().lower()
-    if intent not in {"feature_request", "runtime_help", "code_explanation", "repo_question", "out_of_scope"}:
+    if not isinstance(sensitive_domains, list) or len(sensitive_domains) == 0:
         return {
             "ok": "false",
-            "status": "invalid_schema",
-            "message": (
-                "Classifier JSON is missing/invalid 'intent' value. "
-                f"Received intent={intent!r}."
-            ),
+            "status": "config_error",
+            "message": "assistant_scope.sensitive_domains must be a non-empty list.",
         }
 
     return {
         "ok": "true",
         "status": "healthy",
-        "message": f"Classifier healthy (model={model}, base_url={base_url}, intent={intent}).",
+        "message": "Scope-gate policy is healthy (anchors + grounding files + sensitive domains configured).",
     }
+
+
+def _runtime_preflight_check(
+    policy: Dict[str, object],
+    repo_root: Path,
+    workspace_manager_factory: Callable[..., Any] = RepoWorkspaceManager,
+) -> Dict[str, object]:
+    assistant_scope = policy.get("assistant_scope", {}) if isinstance(policy, dict) else {}
+    preflight_cfg = assistant_scope.get("runtime_preflight", {}) if isinstance(assistant_scope, dict) else {}
+
+    require_clean = True
+    require_feature_branch = True
+    if isinstance(preflight_cfg, dict):
+        require_clean = bool(preflight_cfg.get("require_clean_worktree", True))
+        require_feature_branch = bool(preflight_cfg.get("require_feature_branch", True))
+
+    manager = workspace_manager_factory(repo_root=repo_root, sandbox_root=repo_root / ".nanopore-runtime" / "preflight")
+    try:
+        state = manager.inspect_start_state(require_clean=require_clean, recommend_feature_branch=False)
+    except RuntimeError as exc:
+        return {
+            "ok": "false",
+            "status": "dirty_worktree",
+            "message": str(exc),
+            "warnings": [],
+        }
+
+    if require_feature_branch and bool(state.get("is_git_repo", False)):
+        branch = str(state.get("base_branch", ""))
+        if branch in {"main", "master"}:
+            return {
+                "ok": "false",
+                "status": "feature_branch_required",
+                "message": (
+                    f"Operator assistant runtime launch blocked on branch '{branch}'. "
+                    "Please create/switch to a dedicated feature branch before running assistant-managed executions."
+                ),
+                "warnings": state.get("warnings", []),
+            }
+        if not branch:
+            return {
+                "ok": "false",
+                "status": "feature_branch_required",
+                "message": (
+                    "Operator assistant runtime launch blocked in detached HEAD state. "
+                    "Please switch to a dedicated feature branch before running assistant-managed executions."
+                ),
+                "warnings": state.get("warnings", []),
+            }
+
+    return {
+        "ok": "true",
+        "status": "ready",
+        "message": "Runtime preflight checks passed.",
+        "warnings": state.get("warnings", []),
+    }
+
+
+def _init_markdown_tags(widget: Any) -> None:
+    theme = getattr(widget, "_pane_theme", "light")
+    if getattr(widget, "_markdown_tags_ready", False) and getattr(widget, "_markdown_theme", "light") == theme:
+        return
+    if not hasattr(widget, "tag_configure"):
+        return
+
+    light = {
+        "body": "#1f2937",
+        "h1": "#1d4ed8",
+        "h2": "#1e40af",
+        "h3": "#1e3a8a",
+        "separator": "#cbd5e1",
+        "bold": "#111827",
+        "italic": "#334155",
+        "code_fg": "#7c2d12",
+        "code_bg": "#fff7ed",
+        "quote": "#475467",
+    }
+    dark = {
+        "body": "#e5e7eb",
+        "h1": "#93c5fd",
+        "h2": "#bfdbfe",
+        "h3": "#dbeafe",
+        "separator": "#475569",
+        "bold": "#f9fafb",
+        "italic": "#cbd5e1",
+        "code_fg": "#fed7aa",
+        "code_bg": "#3f2b1d",
+        "quote": "#cbd5e1",
+    }
+    colors = dark if theme == "dark" else light
+
+    widget.tag_configure("md_body", foreground=colors["body"], spacing1=1, spacing3=2)
+    widget.tag_configure("md_h1", font=("TkDefaultFont", 16, "bold"), foreground=colors["h1"], spacing1=11, spacing3=6)
+    widget.tag_configure("md_h2", font=("TkDefaultFont", 14, "bold"), foreground=colors["h2"], spacing1=9, spacing3=5)
+    widget.tag_configure("md_h3", font=("TkDefaultFont", 12, "bold"), foreground=colors["h3"], spacing1=7, spacing3=4)
+    widget.tag_configure("md_separator", foreground=colors["separator"], spacing1=4, spacing3=6)
+    widget.tag_configure("md_bold", font=("TkDefaultFont", 11, "bold"), foreground=colors["bold"])
+    widget.tag_configure("md_italic", font=("TkDefaultFont", 11, "italic"), foreground=colors["italic"])
+    widget.tag_configure("md_code", font=("Courier", 10), foreground=colors["code_fg"], background=colors["code_bg"])
+    widget.tag_configure(
+        "md_code_block",
+        font=("Courier", 10),
+        foreground=colors["code_fg"],
+        background=colors["code_bg"],
+        lmargin1=14,
+        lmargin2=14,
+        spacing1=4,
+        spacing3=4,
+    )
+    widget.tag_configure("md_quote", foreground=colors["quote"], lmargin1=14, lmargin2=14, spacing1=2, spacing3=2)
+    widget._markdown_tags_ready = True
+    widget._markdown_theme = theme
+
+
+def _is_dark_hex_color(color: str) -> bool:
+    value = (color or "").strip()
+    if not value.startswith("#"):
+        return False
+    hex_value = value[1:]
+    if len(hex_value) == 3:
+        try:
+            r = int(hex_value[0] * 2, 16)
+            g = int(hex_value[1] * 2, 16)
+            b = int(hex_value[2] * 2, 16)
+        except ValueError:
+            return False
+    elif len(hex_value) == 6:
+        try:
+            r = int(hex_value[0:2], 16)
+            g = int(hex_value[2:4], 16)
+            b = int(hex_value[4:6], 16)
+        except ValueError:
+            return False
+    else:
+        return False
+    luma = 0.299 * r + 0.587 * g + 0.114 * b
+    return luma < 128
+
+
+def _widget_prefers_dark_theme(widget: Any) -> bool:
+    if hasattr(widget, "_pane_theme"):
+        return getattr(widget, "_pane_theme") == "dark"
+
+    bg_color = ""
+    if hasattr(widget, "cget"):
+        try:
+            bg_color = str(widget.cget("bg"))
+        except Exception:
+            bg_color = ""
+
+    if bg_color and _is_dark_hex_color(bg_color):
+        return True
+
+    if hasattr(widget, "winfo_toplevel"):
+        try:
+            toplevel = widget.winfo_toplevel()
+            if hasattr(toplevel, "cget"):
+                top_bg = str(toplevel.cget("bg"))
+                if _is_dark_hex_color(top_bg):
+                    return True
+        except Exception:
+            return False
+
+    return False
+
+
+def _style_text_pane(widget: Any, pane_kind: str) -> None:
+    is_dark = _widget_prefers_dark_theme(widget)
+    base = {
+        "font": ("TkDefaultFont", 11),
+        "insertbackground": "#f9fafb" if is_dark else "#111827",
+        "selectbackground": "#1d4ed8" if is_dark else "#bfdbfe",
+        "selectforeground": "#f8fafc" if is_dark else "#111827",
+        "relief": tk.FLAT,
+        "borderwidth": 0,
+        "padx": 8,
+        "pady": 8,
+    }
+    if is_dark:
+        palette = {
+            "chat": {"bg": "#0f172a", "fg": "#e2e8f0"},
+            "followup": {"bg": "#102a43", "fg": "#e2e8f0"},
+            "preview": {"bg": "#0b1220", "fg": "#e2e8f0"},
+            "timeline": {"bg": "#1e1b4b", "fg": "#e2e8f0"},
+        }
+        widget._pane_theme = "dark"
+    else:
+        palette = {
+            "chat": {"bg": "#f8fafc", "fg": "#0f172a"},
+            "followup": {"bg": "#f0f9ff", "fg": "#0f172a"},
+            "preview": {"bg": "#f8fafc", "fg": "#0f172a"},
+            "timeline": {"bg": "#f5f3ff", "fg": "#1f2937"},
+        }
+        widget._pane_theme = "light"
+    colors = palette.get(pane_kind, {"bg": "#ffffff", "fg": "#111827"})
+    kwargs = dict(base)
+    kwargs.update(colors)
+    if hasattr(widget, "config"):
+        widget.config(**kwargs)
+
+
+def _inline_markdown_segments(text: str) -> list[tuple[str, Optional[str]]]:
+    pattern = re.compile(r"(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)")
+    segments: list[tuple[str, Optional[str]]] = []
+    idx = 0
+    for match in pattern.finditer(text):
+        start, end = match.span()
+        if start > idx:
+            segments.append((text[idx:start], None))
+        token = match.group(0)
+        if token.startswith("`") and token.endswith("`"):
+            segments.append((token[1:-1], "md_code"))
+        elif token.startswith("**") and token.endswith("**"):
+            segments.append((token[2:-2], "md_bold"))
+        elif token.startswith("*") and token.endswith("*"):
+            segments.append((token[1:-1], "md_italic"))
+        else:
+            segments.append((token, None))
+        idx = end
+    if idx < len(text):
+        segments.append((text[idx:], None))
+    return segments
+
+
+def _insert_markdown_line(widget: Any, line: str, line_tag: Optional[str] = None) -> None:
+    def _safe_insert(text: str, tags: tuple[str, ...] = ()) -> None:
+        if tags:
+            try:
+                widget.insert(tk.END, text, tags)
+                return
+            except TypeError:
+                pass
+        widget.insert(tk.END, text)
+
+    segments = _inline_markdown_segments(line)
+    effective_line_tag = line_tag or "md_body"
+    for segment_text, inline_tag in segments:
+        if not segment_text:
+            continue
+        tags = tuple(tag for tag in [effective_line_tag, inline_tag] if tag)
+        _safe_insert(segment_text, tags)
+    _safe_insert("\n", (effective_line_tag,))
+
+
+def _render_markdown_to_text_widget(widget: Any, markdown_text: str, append: bool = False) -> None:
+    text = markdown_text or ""
+    if not append and hasattr(widget, "delete"):
+        widget.delete("1.0", tk.END)
+
+    _init_markdown_tags(widget)
+
+    in_code_block = False
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip("\n")
+        stripped = line.strip()
+
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+            continue
+
+        if in_code_block:
+            _insert_markdown_line(widget, line, line_tag="md_code_block")
+            continue
+
+        if stripped.startswith("### "):
+            _insert_markdown_line(widget, stripped[4:], line_tag="md_h3")
+            continue
+        if stripped.startswith("## "):
+            _insert_markdown_line(widget, stripped[3:], line_tag="md_h2")
+            continue
+        if stripped.startswith("# "):
+            _insert_markdown_line(widget, stripped[2:], line_tag="md_h1")
+            continue
+        if stripped.startswith("> "):
+            _insert_markdown_line(widget, stripped[2:], line_tag="md_quote")
+            continue
+        if stripped in {"---", "***", "___"}:
+            _insert_markdown_line(widget, "─" * 36, line_tag="md_separator")
+            continue
+
+        bullet = re.match(r"^\s*[-*+]\s+(.*)$", line)
+        if bullet:
+            _insert_markdown_line(widget, f"• {bullet.group(1)}")
+            continue
+
+        numbered = re.match(r"^\s*(\d+)\.\s+(.*)$", line)
+        if numbered:
+            _insert_markdown_line(widget, f"{numbered.group(1)}. {numbered.group(2)}")
+            continue
+
+        _insert_markdown_line(widget, line)
+
+    if text.endswith("\n"):
+        widget.insert(tk.END, "\n")
 
 
 class OperatorAssistantGUI:
@@ -201,7 +450,18 @@ class OperatorAssistantGUI:
         self.assistant: Optional[LocalOperatorAssistant] = None
         self.assistant_startup_error: Optional[str] = None
         try:
-            self.assistant = LocalOperatorAssistant(repo_root=self.repo_root, policy=self.policy)
+            _mp = self.policy.get("model_provider") or {}
+            _model_adapter = OllamaAdapter(
+                model=str(_mp.get("model", "qwen2.5:3b")),
+                base_url=str(_mp.get("base_url", "http://localhost:11434")),
+                timeout_seconds=int(_mp.get("request_timeout_seconds", 180)),
+                max_retries=int(_mp.get("max_retries", 1)),
+            )
+            self.assistant = LocalOperatorAssistant(
+                repo_root=self.repo_root,
+                policy=self.policy,
+                model_adapter=_model_adapter,
+            )
         except AssistantStartupError as exc:
             self.assistant_startup_error = str(exc)
 
@@ -244,6 +504,7 @@ class OperatorAssistantGUI:
         self.intent_badge.pack(side=tk.TOP, fill=tk.X, pady=(0, 6))
 
         self.chat_output = scrolledtext.ScrolledText(left, height=26, state=tk.DISABLED, wrap=tk.WORD)
+        _style_text_pane(self.chat_output, "chat")
         self.chat_output.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         chat_input_frame = tk.Frame(left)
@@ -276,11 +537,13 @@ class OperatorAssistantGUI:
         followup_frame = tk.LabelFrame(right, text="Follow-up questions (if needed)")
         followup_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=False, pady=(8, 6))
         self.followup_output = scrolledtext.ScrolledText(followup_frame, height=6, state=tk.DISABLED, wrap=tk.WORD)
+        _style_text_pane(self.followup_output, "followup")
         self.followup_output.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         preview_frame = tk.LabelFrame(right, text="Runtime request preview")
         preview_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=(0, 6))
         self.preview_output = scrolledtext.ScrolledText(preview_frame, height=18, state=tk.DISABLED, wrap=tk.WORD)
+        _style_text_pane(self.preview_output, "preview")
         self.preview_output.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         self.readiness_var = tk.StringVar(value="Status: waiting for feature request message")
@@ -300,6 +563,7 @@ class OperatorAssistantGUI:
         timeline = tk.LabelFrame(self.root, text="Runtime Timeline (events)", padx=8, pady=8)
         timeline.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=False, padx=10, pady=(0, 10))
         self.timeline_output = scrolledtext.ScrolledText(timeline, height=10, state=tk.DISABLED, wrap=tk.WORD)
+        _style_text_pane(self.timeline_output, "timeline")
         self.timeline_output.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         if self.assistant_startup_error:
@@ -310,7 +574,7 @@ class OperatorAssistantGUI:
             self._set_intent_badge("out_of_scope", 1.0)
             self._log_chat(
                 "assistant",
-                "Startup error: strict local-LLM mode is required for routing and session analysis. "
+                "Startup error: operator assistant failed to initialize. "
                 f"{self.assistant_startup_error}",
             )
 
@@ -321,7 +585,13 @@ class OperatorAssistantGUI:
 
     def _log_chat(self, role: str, message: str) -> None:
         self.chat_output.config(state=tk.NORMAL)
-        self.chat_output.insert(tk.END, f"[{self._timestamp()}] {role}: {message}\n\n")
+        clean_role = (role or "assistant").strip().title()
+        body = (message or "").rstrip()
+        _render_markdown_to_text_widget(
+            self.chat_output,
+            f"## [{self._timestamp()}] {clean_role}\n{body}\n---\n\n",
+            append=True,
+        )
         self.chat_output.see(tk.END)
         self.chat_output.config(state=tk.DISABLED)
 
@@ -332,24 +602,27 @@ class OperatorAssistantGUI:
 
     def _log_timeline(self, message: str) -> None:
         self.timeline_output.config(state=tk.NORMAL)
-        self.timeline_output.insert(tk.END, f"[{self._timestamp()}] {message}\n")
+        body = (message or "").rstrip()
+        _render_markdown_to_text_widget(
+            self.timeline_output,
+            f"### [{self._timestamp()}]\n{body}\n---\n",
+            append=True,
+        )
         self.timeline_output.see(tk.END)
         self.timeline_output.config(state=tk.DISABLED)
 
     def _set_preview_text(self, text: str) -> None:
         self.preview_output.config(state=tk.NORMAL)
-        self.preview_output.delete("1.0", tk.END)
-        self.preview_output.insert(tk.END, text)
+        _render_markdown_to_text_widget(self.preview_output, text, append=False)
         self.preview_output.config(state=tk.DISABLED)
 
     def _set_followups(self, questions: list[str]) -> None:
         self.followup_output.config(state=tk.NORMAL)
-        self.followup_output.delete("1.0", tk.END)
         if questions:
-            for idx, question in enumerate(questions, start=1):
-                self.followup_output.insert(tk.END, f"{idx}. {question}\n")
+            markdown = "\n".join(f"{idx}. {question}" for idx, question in enumerate(questions, start=1))
+            _render_markdown_to_text_widget(self.followup_output, markdown, append=False)
         else:
-            self.followup_output.insert(tk.END, "No follow-up questions pending.")
+            _render_markdown_to_text_widget(self.followup_output, "No follow-up questions pending.", append=False)
         self.followup_output.config(state=tk.DISABLED)
 
     def _new_session(self) -> None:
@@ -418,7 +691,7 @@ class OperatorAssistantGUI:
         except RuntimeError as exc:
             self._log_chat(
                 "assistant",
-                "Routing error: strict LLM mode requires valid structured model output for each message. "
+                "Routing error while processing this message. "
                 f"Details: {exc}",
             )
             self._set_intent_badge("out_of_scope", 1.0)
@@ -470,7 +743,7 @@ class OperatorAssistantGUI:
             "assistant",
             "Health check failed "
             f"[{status}]: {message} "
-            "Fix the issue and run Health Check again before relying on strict routing.",
+            "Fix the issue and run Health Check again before relying on assistant routing.",
         )
 
     def _start_runtime(self) -> None:
@@ -485,6 +758,19 @@ class OperatorAssistantGUI:
         if not self.latest_ready_to_run:
             self._log_timeline("Please answer pending follow-up questions before running.")
             return
+
+        preflight = _runtime_preflight_check(self.policy, self.repo_root)
+        if preflight.get("ok") != "true":
+            message = str(preflight.get("message", "Runtime preflight failed."))
+            self._log_chat("assistant", f"Runtime launch blocked: {message}")
+            self._log_timeline(f"Runtime launch blocked: {message}")
+            self.run_button.config(state=tk.DISABLED)
+            return
+
+        warnings = preflight.get("warnings", [])
+        if isinstance(warnings, list):
+            for warning in warnings:
+                self._log_timeline(f"Preflight warning: {warning}")
 
         request_text = self.latest_runtime_request
         self._log_chat("assistant", "Launching attended runtime using the latest conversation-derived request.")
@@ -538,6 +824,9 @@ class OperatorAssistantGUI:
         return None
 
     def _read_new_events(self) -> None:
+        if self.run_watch_started_at is None and self.current_run_dir is None and not self.runtime_running:
+            return
+
         run_dir = self._discover_run_dir()
         if run_dir is None:
             return

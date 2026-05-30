@@ -169,6 +169,7 @@ Primary package location: `src/nanoporethon/`.
   - `runtime/planner.py`
   - `runtime/executor.py`
   - `runtime/context_manager.py`
+  - `runtime/skill_loader.py`
   - `runtime/gates.py`
   - `runtime/state.py`
   - `runtime/repo_ops.py`
@@ -179,23 +180,31 @@ Primary package location: `src/nanoporethon/`.
   - `runtime/schemas/stage_result.schema.json`
   - `runtime/schemas/gate_result.schema.json`
   - `runtime/schemas/run_state.schema.json`
+  - `runtime/skills/*.SKILL.md`
 - **Purpose**: Provide executable delegation contracts so one orchestrator run can route work across specialists with stage gates and auditable handoffs.
 - **Key behavior**:
   - Documents a deliberately modest operating model: local, branch-scoped, human-reviewed feature-work assistance rather than unattended autonomous repository management.
   - Declares specialist registry and stage ownership.
   - Executes full policy-driven stage graph with conditional routing (`refactor_or_docsync`).
   - Parses specialist model output as structured JSON stage payloads, validates required stage fields, and falls back to deterministic payloads when parsing/validation fails.
+  - Deterministic implement fallback now attempts targeted scaffold actions for explicit "create new python GUI file at <path>" requests, reducing silent no-op completions when model-authored implement payloads are missing.
+  - Deterministic implement fallback now supports template-backed outputs under `runtime/templates/` (including `sequence_designer_gui_template.py`) so generated files can preserve higher-fidelity behavior without requiring model-authored implement actions.
+  - Deterministic implement target extraction now prioritizes explicit output-target wording (for example, `as "new_gui.py"`) over unrelated `.py` paths embedded in guardrail text, and filters protected-file mentions from fallback target selection.
+  - Deterministic fallback scaffolding is runtime-generic (module-level and GUI-level Python stubs) and no longer hardcodes behavior for specific generated application files.
+  - Runtime request-file context ingestion supports explicit absolute local paths and `.mlapp` files by extracting `matlab/document.xml`, allowing MATLAB app audits to inform implement-stage payloads and deterministic fallbacks.
+  - Runtime path discovery for request-file context is path-agnostic and avoids hardcoded user-home folder assumptions (for example no implicit `Downloads` dependency).
   - Validates model-authored action payloads against strict per-action schemas, policy-driven size/count limits, and stage-allowed action types before any repository mutation occurs.
   - Applies model-authored edit intents (`write_file`, `append_file`, `replace_in_file`) only after action-schema validation and edit-scope checks succeed.
   - Treats `verify` and `verify_after_refactor` command execution as authoritative gate evidence (`tests_exit_code`/`coverage_exit_code`); model verify output is retained only as metadata and cannot override deterministic verification results.
   - Defines conditional route to refactor stage when verification quality signals require it.
   - Enforces gate checks for plan/build/verify/doc-sync/memory-sync transitions.
   - Executes implementation/doc-sync work directly in the active local feature-branch workspace.
+  - Uses git-porcelain-based changed-file detection in workspace mode to avoid repeated full-repo hashing stalls between stages.
   - Requires a clean git working tree before starting a fresh run when the repository root is a git checkout.
   - Captures base commit/branch metadata plus a start-of-run file-hash snapshot for promotion guardrails.
   - Executes verification commands from policy (`gates.verify.commands`) in the active workspace rather than fixed hardcoded test commands.
   - Normalizes bare `pytest ...` verify commands to `python -m pytest ...` before execution to avoid interpreter entrypoint mismatches between shell scripts and runtime Python environments.
-  - Enforces implementation gate merge-marker checks by scanning changed files for unresolved conflict markers.
+  - Enforces implementation gate merge-marker checks by scanning changed files line-by-line for unresolved conflict markers, avoiding false positives from literal marker strings embedded in code.
   - Supports per-stage policy-controlled handling for pytest code `5` (`allow_no_tests_collected`) for both `verify` and `verify_after_refactor` instead of implicitly treating empty test scope as pass.
   - Defines waiver structure for explicit, auditable gate bypasses, restricted to approved operators.
   - Validates handoff, stage-result, gate-result, and run-state artifacts against JSON schemas at stage boundaries.
@@ -206,8 +215,10 @@ Primary package location: `src/nanoporethon/`.
   - Applies per-stage context budgets from policy and compacts oversized stage payloads before artifact write/model handoff.
   - Stores context utilization metrics in stage results and final run state for budget tuning.
   - Supports local specialist prompting through Ollama adapter + specialist `prompt_file`/`prompt_inline` contexts.
+  - Applies a hard wall-clock timeout around specialist model calls; on timeout/error the stage records a warning and falls back to deterministic payload behavior instead of stalling run progression.
+  - Loads stage-specific markdown skill context via `runtime/skill_loader.py` and injects bounded `skill_context` into specialist model payloads to improve plan/implementation quality without changing deterministic gates.
   - Supports optional per-specialist model-provider overrides (with global fallback) so different agents can use different local models.
-  - Current balanced default routing keeps the global runtime default on `qwen2.5:3b`, routes coding-heavy `feature_builder` and `refactor` stages to `qwen3:4b`, keeps lightweight `doc_sync`/`memory_sync` on `qwen2.5:3b`, and keeps the operator-assistant classifier on `mistral:7b` so attended runtime remains viable on 16 GB-class machines while improving code-stage quality.
+  - Current balanced default routing keeps the global runtime default on `qwen2.5:3b`, routes coding-heavy `feature_builder` and `refactor` stages to `qwen3:4b`, and keeps lightweight `doc_sync`/`memory_sync` on `qwen2.5:3b` so attended runtime remains viable on 16 GB-class machines while improving code-stage quality.
   - Supports optional operator approval pauses at stage transitions, persisting pending approvals in run state so blocked runs can be resumed safely.
   - Supports operator-selected resume behavior for interrupted runs.
   - Is intentionally a secondary development aid for the main nanoporethon codebase, so guardrails should optimize for safe occasional use instead of heavy always-on platform complexity.
@@ -222,26 +233,78 @@ Primary package location: `src/nanoporethon/`.
 - **Key behavior**:
   - Provides a chat-first local assistant for in-scope repository/runtime interaction.
   - Displays a live intent badge above chat output (for example Feature Request / Runtime Help / Out-of-Scope) so routing decisions are immediately visible.
-  - Uses semantic intent classification via local LLM (configurable model, defaults to `mistral:7b` for speed) with JSON-structured responses for reliability.
-  - Requests JSON-mode classifier responses when available and falls back to extracting embedded JSON objects from chatty model output, reducing false startup/health-check failures caused by prose-wrapped responses.
-  - Runs in strict LLM mode: classifier availability is a hard startup requirement and non-LLM routing fallback is disabled.
+  - Uses a deterministic hybrid scope gate with two lanes: **feature requests** and **general questions**.
+  - Applies an evidence-based repository relevance check before any answer/run action: prompts must align with configured anchors/goal terms and retrievable local repo context.
+  - Off-topic/sensitive prompts are refused before runtime request drafting; ambiguous prompts get one targeted re-anchoring follow-up.
+  - Does not require model-based intent classification for on-topic enforcement.
+  - Treats common guided-workflow phrasing (for example confusion, reproducibility/checklist, safeguards, and capability-redirect prompts) as in-scope support requests rather than off-topic by default.
+  - Uses a positive capability model in policy (`feature_request`, `runtime_help`, `code_explanation`, `repo_question`, `nanopore_science_explanation`) instead of denylist-style topic filtering.
+  - Supports a dedicated `nanopore_science_explanation` route for scientific/algorithmic nanoporethon questions when they can be grounded in local repository materials.
+  - Requires a repository/domain anchor (for example runtime terms, file/module references, q-mer/sequence-designer concepts, or retrieved local snippets) before answering explanation-style prompts.
+  - Fails closed on ungrounded questions: if a scientific/code question lacks a clear local anchor, the assistant asks for one precise grounding clarification instead of guessing.
   - Uses LLM-based session analysis (request-kind inference, clarifying-question generation, and core-GUI authorization detection) instead of hard-coded keyword detectors for follow-up routing and request drafting.
+  - Uses recent conversation/session context for continuation handling while preventing context contamination.
   - Avoids redundant clarification loops by collapsing overlapping core-GUI authorization questions and remembering explicit user decisions (for example, repeated "No" answers do not trigger the same authorization prompt again).
   - Builds a runtime request preview directly from conversation context (instead of requiring a long static form upfront).
   - Asks targeted clarification questions only when more precision is needed.
   - Favors low-friction execution for actionable requests: the assistant now defaults to zero follow-up questions unless execution is actually blocked (for example, protected core-GUI authorization or a genuinely underspecified request), and even then asks at most one question per turn.
+  - Detects likely source-file reference mistakes in feature prompts (for example `.m` vs `.mlapp`) by checking referenced directories for near matches and asking a targeted one-question confirmation before runtime launch.
   - When protected core GUI files are implicated, authorization prompts are plan-specific: the assistant names the file(s) it expects to change and explains why it believes those file edits are needed before asking for permission.
-  - **Session-aware continuation**: Follow-up responses to clarifying questions (e.g., answering "both" to a verification question) are recognized as continuations of the active feature request and NOT re-evaluated against scope rules, preventing context loss in multi-turn conversations.
+  - **Session-aware continuation**: Follow-up responses are treated as feature-request continuation only when they remain repository-relevant and pass scope/safety checks; off-topic follow-ups reset feature context and are blocked from runtime request handling.
   - **Default verification policy for code changes**: Feature requests are treated as code-changing by default (unless clearly docs-only), and runtime request packets automatically require both automated tests and behavior checks without requiring users to include testing keywords.
   - Classifies intents into in-scope runtime/repo workflows vs out-of-scope domains.
-  - Enforces semantic off-topic refusal guardrails (for example medical/political/financial/general lifestyle requests) before any runtime action can occur.
+  - Separates off-topic refusal from sensitive-domain blocking: unrelated prompts are redirected, while sensitive advisory domains (for example medical/legal/financial/political guidance) are explicitly blocked before any runtime action can occur.
+  - Grounds answer-mode responses in configured local docs/code files (`assistant_scope.grounding_files`) and refuses to freewheel beyond retrieved local evidence.
   - Builds a runtime request packet from chat context and launches attended runtime execution locally.
-  - Protects core GUI components by default (`data_navi_gui.py`, `event_classifier_gui.py`) unless user explicitly authorizes modifying them.
+  - Enforces runtime launch preflight before assistant-triggered runs: clean working tree (policy-controlled) plus feature-branch requirement (policy-controlled), with explicit blocked-state diagnostics.
+  - Protects policy-configured core files by default (repository default policy includes `data_navi_gui.py` and `event_classifier_gui.py`) unless user explicitly authorizes modifying them.
+  - Includes an explicit anti-hallucination quality rubric in generated runtime request packets (contract-safe, evidence-first, surface-consistent, traceable, scoped, operator-supervised).
   - Streams runtime progress to users by reading `.nanopore-runtime/runs/<run_id>/events.jsonl` and surfacing stage/gate/promotion events.
   - Shows a live animated activity indicator (dot-cycling heartbeat) during assistant-processing and runtime execution, including a last-UI-tick timestamp, so users can distinguish active work from a frozen UI even between major timeline events.
-  - Surfaces explicit startup/routing errors in the GUI when classifier initialization fails or model responses are not valid structured JSON.
-  - Includes a manual **Health Check** button that validates classifier policy enablement, local Ollama connectivity, model availability, and structured JSON response compliance, with actionable remediation messages.
+  - Renders chat, follow-up questions, request preview, and runtime timeline text with lightweight markdown formatting (for example headings, lists, inline code, and fenced code blocks) plus pane-specific typography/color theming that now adapts to light/dark UI backgrounds for improved readability without requiring network/cloud renderers.
+  - Chat and timeline entries render each message with an explicit heading line (timestamp/role or timestamp/event) so users get larger bold visual anchors similar to Copilot-style section headers even when assistant body text does not include markdown heading markers.
+  - Chat and timeline entries also render a subtle separator rule under each message block to improve scanability during longer sessions.
+  - Surfaces explicit routing errors in the GUI when message processing fails.
+  - Includes a manual **Health Check** button that validates scope-gate policy readiness (anchors, grounding files, sensitive-domain config) with actionable remediation messages.
+  - Provides deterministic explanations for common runtime timeline terms (for example `promotion_disabled`, `promotion_skipped`, `promotion_blocked`) to keep post-run Q&A low-friction.
+  - Answers repository questions using the local Ollama model (from `model_provider` policy) when available, but constrains responses to retrievable local documentation/code evidence.
+  - Enforces evidence-validated answer synthesis for model-backed Q&A: model answers must include verifiable context quotes, and responses with unverifiable repository import/module claims are rejected.
+  - Falls back to relevant doc/code snippet excerpts when the model is not reachable.
+  - Also falls back to deterministic snippet-grounded answers when model output is malformed or fails evidence validation, reducing hallucinated run/API instructions.
+  - Deterministic fallback now synthesizes practical guidance for how/use/find/work questions (for example runnable commands + usage considerations + source references) rather than dumping raw snippet fragments.
+  - Treats common guided-workflow phrasing (for example confusion, reproducibility/checklist, safeguards, and capability-redirect prompts) as in-scope support requests.
   - Keeps the operational model branch-local and human-supervised by design.
+
+  ### C13. Sequence designer GUI (sequence-to-signal utility)
+
+  - **File**:
+    - `src/nanoporethon/sequence_designer_gui.py`
+  - **Purpose**: Provide a deterministic sequence-to-signal design surface aligned with MATLAB Sequence Designer controls.
+  - **Key behavior**:
+    - Validates DNA input to strict A/C/G/T (sequence entered in 5'→3' direction).
+    - Computes deterministic normalized current levels per k-mer window.
+    - Exposes explicit design controls for feeding orientation (5'/3'), pore orientation (forwards/backwards), display order (5'→3'/3'→5'), and phase shift (0..1).
+    - Exposes MATLAB-style edit-at-position controls (position slider/index, A/C/G/T mutation buttons, delete, random mutation) for rapid iterative sequence design.
+    - Includes Hel308 mode toggle plus save/export actions for generated traces (figure save and JSON level export).
+    - Applies display-order and phase-shift transforms prior to plotting.
+    - Uses q-mer-map lookup when available (with env override `NANOPORETHON_QMER_MAP_PATH` and auto-detect disable switch `NANOPORETHON_DISABLE_QMER_AUTODETECT`) to match MATLAB-aligned default level outputs for the validated reference sequence.
+    - Supports MLAPP-style map-profile branching for exhaustive parity targets: forwards/backwards pore orientation × 5'/3' feeding orientation plus Hel308 profile handling, including branch-specific warning semantics.
+    - For MLAPP parity, feeding/pore choices are applied via map-profile selection (rather than sequence transformation), while display order controls output ordering semantics.
+    - Export payload now carries MATLAB-aligned parity metadata (levels, error, x-axis indices, details text, phase, and numstep) for golden acceptance checks.
+    - Provides a dedicated parity scorecard generator at `runtime/sequence_designer_parity_scorecard.py` that emits JSON/Markdown graduation artifacts under `.nanopore-runtime/parity/sequence_designer/latest/`.
+    - When the runtime falls back without model-authored implement actions, it now emits a contract-aware `sequence_designer_gui.py` template instead of a blank GUI placeholder.
+    - Is self-contained: sequence sanitization and signal helpers are implemented in the same module (no GUI-to-GUI dependency).
+
+#### Golden output acceptance workflow (sequence designer)
+
+- Treat MATLAB-derived numeric traces and branch semantics as **golden acceptance targets** for this component.
+- Runtime/template updates are not considered complete until:
+  1. default validated reference-sequence output parity passes,
+  2. branch-profile selection semantics (forwards/backwards, 5'/3', hel308 warnings) are covered by tests,
+  3. regenerated `src/nanoporethon/sequence_designer_gui.py` is produced through the runtime path,
+  4. verification evidence is recorded in run artifacts/tests.
+- This workflow is used to both improve deterministic fallback quality and establish a clear quality floor for Porsche-generated code.
+- Recommended evidence bundle now includes the parity scorecard artifacts (`sequence_designer_parity_scorecard.json` and `.md`) in addition to pytest output.
 
 ---
 
@@ -309,6 +372,10 @@ Each selected item is expected to be a folder containing at least:
 ### Operator-assistant path
 
 `User chat/form input` → C12 intent + scope guardrails → structured request packet → C11 runtime execution → event timeline updates in GUI
+
+### Consensus maker path
+
+`User sequence input` → C13 sequence validation + k-mer mapping → consensus step-signal plot
 
 Current implementation status:
 

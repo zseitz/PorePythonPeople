@@ -72,7 +72,14 @@ def _build_executor(
             return None
         model = str(provider_cfg.get("model", "qwen3:4b"))
         base_url = str(provider_cfg.get("base_url", "http://localhost:11434"))
-        return OllamaAdapter(model=model, base_url=base_url)
+        timeout_seconds = int(provider_cfg.get("request_timeout_seconds", 180))
+        max_retries = int(provider_cfg.get("max_retries", 1))
+        return OllamaAdapter(
+            model=model,
+            base_url=base_url,
+            timeout_seconds=timeout_seconds,
+            max_retries=max_retries,
+        )
 
     adapter = None
     model_adapters: Dict[str, object] = {}

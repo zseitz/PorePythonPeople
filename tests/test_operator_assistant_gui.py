@@ -6,10 +6,12 @@ from types import SimpleNamespace
 
 from nanoporethon.operator_assistant_gui import (
     OperatorAssistantGUI,
+    _render_markdown_to_text_widget,
     _activity_indicator_text,
     _activity_status_label,
     _classifier_health_check,
     _intent_badge_style,
+    _runtime_preflight_check,
     _resolve_repo_root,
 )
 
@@ -27,108 +29,62 @@ def test_intent_badge_style_defaults_for_unknown_intent():
     assert color == "#555555"
 
 
-class _HealthyAdapter:
-    def __init__(self, model: str, base_url: str):
-        self.model = model
-        self.base_url = base_url
-
-    def chat(self, system_prompt: str, messages: list) -> str:
-        return '{"intent": "feature_request", "confidence": 0.92, "reason": "ok"}'
-
-
-class _ModelMissingAdapter:
-    def __init__(self, model: str, base_url: str):
-        pass
-
-    def chat(self, system_prompt: str, messages: list) -> str:
-        raise RuntimeError("model 'mistral:7b' not found")
-
-
-class _ConnectionErrorAdapter:
-    def __init__(self, model: str, base_url: str):
-        pass
-
-    def chat(self, system_prompt: str, messages: list) -> str:
-        raise RuntimeError("connection refused")
-
-
-class _MalformedAdapter:
-    def __init__(self, model: str, base_url: str):
-        pass
-
-    def chat(self, system_prompt: str, messages: list) -> str:
-        return "not json"
-
-
-class _WrappedJsonAdapter:
-    def __init__(self, model: str, base_url: str):
-        self.model = model
-        self.base_url = base_url
-
-    def chat_json(self, system_prompt: str, messages: list) -> str:
-        return 'Sure — here is the result: {"intent": "feature_request", "confidence": 0.9, "reason": "healthcheck"}'
+def test_intent_badge_style_for_nanopore_science_is_distinct():
+    text, color = _intent_badge_style("nanopore_science_explanation", 0.77)
+    assert "Nanopore Science Explanation" in text
+    assert color == "#0b7285"
 
 
 def test_classifier_health_check_healthy():
     policy = {
         "assistant_scope": {
-            "intent_classifier": {"enabled": True, "model": "mistral:7b", "base_url": "http://localhost:11434"}
+            "domain_anchors": ["runtime", "nanoporethon"],
+            "grounding_files": ["Docs/components.md"],
+            "sensitive_domains": ["medical advice"],
         }
     }
-    result = _classifier_health_check(policy, adapter_factory=_HealthyAdapter)
+    result = _classifier_health_check(policy)
     assert result["ok"] == "true"
     assert result["status"] == "healthy"
 
 
-def test_classifier_health_check_disabled_config():
-    policy = {"assistant_scope": {"intent_classifier": {"enabled": False}}}
-    result = _classifier_health_check(policy, adapter_factory=_HealthyAdapter)
+def test_classifier_health_check_missing_anchors():
+    policy = {
+        "assistant_scope": {
+            "domain_anchors": [],
+            "grounding_files": ["Docs/components.md"],
+            "sensitive_domains": ["medical advice"],
+        }
+    }
+    result = _classifier_health_check(policy)
     assert result["ok"] == "false"
     assert result["status"] == "config_error"
 
 
-def test_classifier_health_check_model_missing():
+def test_classifier_health_check_missing_grounding_files():
     policy = {
         "assistant_scope": {
-            "intent_classifier": {"enabled": True, "model": "mistral:7b", "base_url": "http://localhost:11434"}
+            "domain_anchors": ["runtime"],
+            "grounding_files": [],
+            "sensitive_domains": ["medical advice"],
         }
     }
-    result = _classifier_health_check(policy, adapter_factory=_ModelMissingAdapter)
+    result = _classifier_health_check(policy)
     assert result["ok"] == "false"
-    assert result["status"] == "model_missing"
+    assert result["status"] == "config_error"
 
 
-def test_classifier_health_check_connection_error():
+def test_classifier_health_check_missing_sensitive_domains():
     policy = {
         "assistant_scope": {
-            "intent_classifier": {"enabled": True, "model": "mistral:7b", "base_url": "http://localhost:11434"}
+            "domain_anchors": ["runtime"],
+            "grounding_files": ["Docs/components.md"],
+            "sensitive_domains": [],
         }
     }
-    result = _classifier_health_check(policy, adapter_factory=_ConnectionErrorAdapter)
+    result = _classifier_health_check(policy)
     assert result["ok"] == "false"
-    assert result["status"] == "service_unreachable"
-
-
-def test_classifier_health_check_malformed_output():
-    policy = {
-        "assistant_scope": {
-            "intent_classifier": {"enabled": True, "model": "mistral:7b", "base_url": "http://localhost:11434"}
-        }
-    }
-    result = _classifier_health_check(policy, adapter_factory=_MalformedAdapter)
-    assert result["ok"] == "false"
-    assert result["status"] == "malformed_output"
-
-
-def test_classifier_health_check_extracts_wrapped_json_when_available():
-    policy = {
-        "assistant_scope": {
-            "intent_classifier": {"enabled": True, "model": "mistral:7b", "base_url": "http://localhost:11434"}
-        }
-    }
-    result = _classifier_health_check(policy, adapter_factory=_WrappedJsonAdapter)
-    assert result["ok"] == "true"
-    assert result["status"] == "healthy"
+    assert result["status"] == "config_error"
 
 
 def test_activity_indicator_runtime_cycles_dots():
@@ -287,19 +243,112 @@ def _build_gui_stub():
     gui.existing_runs = set()
     gui.events_line_cursor = 0
     gui.policy = {"runtime": {"run_root": ".nanopore-runtime/runs"}}
+    gui.repo_root = Path(__file__).resolve().parents[1]
     gui.session_state = {}
     gui.latest_runtime_request = None
     gui.latest_ready_to_run = False
     return gui
 
 
+class _CleanFeatureBranchManager:
+    def __init__(self, repo_root, sandbox_root):
+        self.repo_root = repo_root
+        self.sandbox_root = sandbox_root
+
+    def inspect_start_state(self, require_clean=True, recommend_feature_branch=False):
+        return {
+            "is_git_repo": True,
+            "base_branch": "feature/test",
+            "working_tree_clean": True,
+            "warnings": [],
+        }
+
+
+class _MainBranchManager:
+    def __init__(self, repo_root, sandbox_root):
+        self.repo_root = repo_root
+        self.sandbox_root = sandbox_root
+
+    def inspect_start_state(self, require_clean=True, recommend_feature_branch=False):
+        return {
+            "is_git_repo": True,
+            "base_branch": "main",
+            "working_tree_clean": True,
+            "warnings": [],
+        }
+
+
+class _DirtyRepoManager:
+    def __init__(self, repo_root, sandbox_root):
+        self.repo_root = repo_root
+        self.sandbox_root = sandbox_root
+
+    def inspect_start_state(self, require_clean=True, recommend_feature_branch=False):
+        raise RuntimeError("working tree is not clean")
+
+
+def test_runtime_preflight_check_passes_for_clean_feature_branch():
+    policy = {
+        "assistant_scope": {
+            "runtime_preflight": {
+                "require_clean_worktree": True,
+                "require_feature_branch": True,
+            }
+        }
+    }
+    result = _runtime_preflight_check(
+        policy,
+        Path(__file__).resolve().parents[1],
+        workspace_manager_factory=_CleanFeatureBranchManager,
+    )
+    assert result["ok"] == "true"
+    assert result["status"] == "ready"
+
+
+def test_runtime_preflight_check_blocks_main_branch_when_required():
+    policy = {
+        "assistant_scope": {
+            "runtime_preflight": {
+                "require_clean_worktree": True,
+                "require_feature_branch": True,
+            }
+        }
+    }
+    result = _runtime_preflight_check(
+        policy,
+        Path(__file__).resolve().parents[1],
+        workspace_manager_factory=_MainBranchManager,
+    )
+    assert result["ok"] == "false"
+    assert result["status"] == "feature_branch_required"
+
+
+def test_runtime_preflight_check_blocks_dirty_worktree_when_required():
+    policy = {
+        "assistant_scope": {
+            "runtime_preflight": {
+                "require_clean_worktree": True,
+                "require_feature_branch": False,
+            }
+        }
+    }
+    result = _runtime_preflight_check(
+        policy,
+        Path(__file__).resolve().parents[1],
+        workspace_manager_factory=_DirtyRepoManager,
+    )
+    assert result["ok"] == "false"
+    assert result["status"] == "dirty_worktree"
+
+
 def test_gui_logging_and_preview_helpers_update_widgets():
     gui = _build_gui_stub()
     gui._log_chat("assistant", "hello")
-    assert "assistant: hello" in gui.chat_output.content
+    assert "Assistant" in gui.chat_output.content
+    assert "hello" in gui.chat_output.content
 
     gui._set_preview_text("request preview")
-    assert gui.preview_output.content == "request preview"
+    assert gui.preview_output.content.strip() == "request preview"
 
     gui._set_followups(["Q1", "Q2"])
     assert "1. Q1" in gui.followup_output.content
@@ -307,6 +356,35 @@ def test_gui_logging_and_preview_helpers_update_widgets():
 
     gui._set_followups([])
     assert "No follow-up questions pending." in gui.followup_output.content
+
+
+def test_markdown_renderer_formats_basic_markdown_in_text_widgets():
+    text = _FakeText()
+    _render_markdown_to_text_widget(
+        text,
+        "# Title\n- bullet item\n1. first\nUse `code` and **bold** text.",
+        append=False,
+    )
+    assert "Title" in text.content
+    assert "# Title" not in text.content
+    assert "• bullet item" in text.content
+    assert "1. first" in text.content
+    assert "`code`" not in text.content
+    assert "**bold**" not in text.content
+
+
+def test_markdown_renderer_formats_chat_and_timeline_headers_as_headings():
+    gui = _build_gui_stub()
+    gui._log_chat("assistant", "Body text")
+    gui._log_timeline("Runtime line")
+
+    assert "##" not in gui.chat_output.content
+    assert "###" not in gui.timeline_output.content
+    assert "Assistant" in gui.chat_output.content
+    assert "Body text" in gui.chat_output.content
+    assert "Runtime line" in gui.timeline_output.content
+    assert "─" * 10 in gui.chat_output.content
+    assert "─" * 10 in gui.timeline_output.content
 
 
 def test_gui_new_session_resets_runtime_request_state():
@@ -410,6 +488,23 @@ def test_gui_event_format_discovery_and_polling(tmp_path):
     assert len(gui.root.after_calls) >= 1
 
 
+def test_gui_does_not_replay_old_events_before_a_new_run_starts(tmp_path):
+    gui = _build_gui_stub()
+    run_root = tmp_path / "runs"
+    run_root.mkdir()
+    run_dir = run_root / "run_old"
+    run_dir.mkdir()
+    (run_dir / "events.jsonl").write_text('{"type":"stage_result","stage_id":"implement","status":"success"}\n', encoding="utf-8")
+    gui.policy = {"runtime": {"run_root": str(run_root)}}
+    gui.run_watch_started_at = None
+    gui.current_run_dir = None
+    gui.runtime_running = False
+
+    gui._read_new_events()
+
+    assert gui.timeline_output.content == ""
+
+
 def test_gui_health_check_logs_success_and_failure(monkeypatch):
     gui = _build_gui_stub()
     gui.policy = {"assistant_scope": {"intent_classifier": {"enabled": True}}}
@@ -427,3 +522,26 @@ def test_gui_health_check_logs_success_and_failure(monkeypatch):
     )
     gui._run_health_check()
     assert "Health check failed" in gui.chat_output.content
+
+
+def test_start_runtime_blocks_when_preflight_fails(monkeypatch):
+    gui = _build_gui_stub()
+    gui.latest_runtime_request = "run this request"
+    gui.latest_ready_to_run = True
+    gui.runtime_running = False
+
+    monkeypatch.setattr(
+        "nanoporethon.operator_assistant_gui._runtime_preflight_check",
+        lambda _policy, _repo_root: {
+            "ok": "false",
+            "status": "feature_branch_required",
+            "message": "must use feature branch",
+            "warnings": [],
+        },
+    )
+
+    gui._start_runtime()
+
+    assert gui.runtime_running is False
+    assert "Runtime launch blocked" in gui.chat_output.content
+    assert "must use feature branch" in gui.timeline_output.content

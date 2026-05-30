@@ -1,7 +1,21 @@
 # Operator Assistant Hybrid Architecture Plan (No-MCP, Local-First)
 
 Date: 2026-05-07  
-Status: Proposed (planning only)
+Status: Active; Phase 1 + Phase 2 implemented (2026-05-24)
+
+## Implementation status update (2026-05-24)
+
+Completed in repository runtime:
+
+- Added markdown skill artifacts under `runtime/skills/`.
+- Implemented `runtime/skill_loader.py`.
+- Wired stage-specific bounded `skill_context` injection into runtime specialist payloads.
+- Added regression coverage for skill loading and payload injection boundaries.
+
+Current note:
+
+- Deterministic stage gates and command-derived verification evidence remain source-of-truth.
+- Skill guidance improves reasoning quality but does not bypass contracts/gates.
 
 ## Goal
 

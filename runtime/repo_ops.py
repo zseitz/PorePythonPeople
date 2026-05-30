@@ -311,3 +311,36 @@ class RepoWorkspaceManager(RepoSandboxManager):
         # In-place mode intentionally avoids copy-based sandboxes.
         self.sandbox_root.mkdir(parents=True, exist_ok=True)
         return self.repo_root
+
+    def changed_files(self) -> List[str]:
+        """Return changed files quickly when running directly in a git workspace.
+
+        In workspace mode, repeated full-tree hashing is expensive (especially
+        with large binary fixtures). Prefer git porcelain status when available,
+        and fall back to hash-based detection only when git is unavailable.
+        """
+        if self.is_git_repo():
+            result = self._run_git(["status", "--porcelain"])
+            if result is not None and result.returncode == 0:
+                changed: List[str] = []
+                for raw_line in result.stdout.splitlines():
+                    if not raw_line.strip() or len(raw_line) < 4:
+                        continue
+
+                    # Porcelain format: XY <path> or XY <old> -> <new>
+                    path_part = raw_line[3:].strip()
+                    if " -> " in path_part:
+                        path_part = path_part.split(" -> ", 1)[1].strip()
+                    if not path_part:
+                        continue
+
+                    relative = Path(path_part)
+                    if relative.is_absolute() or ".." in relative.parts:
+                        continue
+                    if self._should_ignore_relative(relative):
+                        continue
+                    changed.append(relative.as_posix())
+
+                return sorted(set(changed))
+
+        return super().changed_files()

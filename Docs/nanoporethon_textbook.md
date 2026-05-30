@@ -63,7 +63,8 @@ It helps researchers work with large collections of nanopore experiments by maki
 In plain language:
 
 - the **Data Navigator GUI** helps you find the right experiments,
-- and the **Event Classifier GUI** helps you inspect and annotate them.
+- the **Event Classifier GUI** helps you inspect and annotate them,
+- and the **Consensus Maker GUI** provides a sequence-to-expected-signal utility for quick consensus previews.
 
 ---
 
@@ -164,6 +165,15 @@ You then:
 5. and save event-quality edits back into `event.mat`.
 
 This makes the workflow both **interactive** and **reproducible**.
+
+Optional utility stage:
+
+- **Sequence design preview with `SequenceDesignerGUI`**
+  - enter a DNA sequence in 5'→3' order,
+  - choose k-mer size, feeding orientation, pore orientation, display order, and phase shift,
+  - optionally edit at a specific N-position with A/C/G/T, delete, or random mutation controls,
+  - optionally toggle Hel308 mode and save/export generated outputs,
+  - generate a deterministic expected normalized current trace.
 
 ---
 
@@ -327,6 +337,21 @@ Behavior summary:
 - `subcomponent_5_directory_utilities.py`
 
 These make the GUIs easier to use by persisting paths and centralizing directory selection behavior.
+
+### 7.8 `SequenceDesignerGUI`
+
+- **File**: `src/nanoporethon/sequence_designer_gui.py`
+- **Role**: sequence-to-signal design GUI aligned to MATLAB Sequence Designer controls.
+
+What it does:
+
+- validates DNA input (A/C/G/T) entered in 5'→3',
+- computes a deterministic k-mer-based expected signal,
+- exposes feeding orientation (5'/3'), pore orientation (forwards/backwards), display order (5'→3'/3'→5'), and phase shift (0..1),
+- adds MATLAB-style edit-at-position controls (position slider/index plus A/C/G/T/delete/random actions),
+- includes Hel308 toggle plus save-figure and export-levels actions,
+- displays the result as a step trace in normalized $I/I_0$-style units.
+- If the runtime has to fall back without model-authored implement actions, it now generates this contract-aware Sequence Designer GUI instead of a blank placeholder scaffold.
 
 ---
 
@@ -1069,6 +1094,11 @@ Use this checklist for day-to-day operation.
   - Confirm `runtime/policies.yaml` + schemas exist.
   - Confirm tests/environment are available.
   - Confirm the request is appropriately scoped for a supervised feature-work run, not a broad autonomous repo rewrite.
+
+For assistant-triggered runs (Option B), pre-flight is now policy-enforced before launch:
+
+- clean working tree requirement (policy-controlled), and
+- feature-branch requirement (policy-controlled; `main`/`master` and detached HEAD are blocked).
 - **Submit request**
   - Run the orchestrator with a clear scoped request.
   - Prefer acceptance checks in the request itself.
@@ -1090,6 +1120,25 @@ Example prompt for a feature run:
 
 - "Add <feature>. Update nearest tests. If behavior/contracts change, sync `Docs/components.md` and relevant textbook sections. Run verification gates, record artifacts, and complete memory + closeout stages."
 
+### 15.6.1 Golden output acceptance workflow (Sequence Designer parity)
+
+When iterating on `sequence_designer_gui.py`, use the following acceptance loop:
+
+1. Extract or confirm MATLAB reference behavior (including branch-specific map selection and warning semantics).
+2. Encode parity intent in runtime/template behavior first (for deterministic fallback quality floor).
+3. Regenerate `src/nanoporethon/sequence_designer_gui.py` through runtime execution (not ad-hoc manual edits).
+4. Verify both:
+  - exact numeric parity for validated golden sequences/settings, and
+  - branch coverage across forwards/backwards, feeding 5'/3', and hel308 warning modes.
+5. Generate the parity scorecard artifact bundle:
+  - `python -m runtime.sequence_designer_parity_scorecard`
+  - outputs:
+    - `.nanopore-runtime/parity/sequence_designer/latest/sequence_designer_parity_scorecard.json`
+    - `.nanopore-runtime/parity/sequence_designer/latest/sequence_designer_parity_scorecard.md`
+6. Treat runtime success as insufficient unless the parity tests, branch acceptance checks, and parity scorecard all pass.
+
+This keeps Porsche output quality anchored to measurable acceptance evidence rather than subjective visual similarity.
+
 ### 15.7 Runtime entrypoint (usable now)
 
 Run with:
@@ -1103,7 +1152,7 @@ Helpful options:
 - `--approval-mode per_stage`
 - `--resume-run-id <run_id> --resume-choice restart_from_beginning|resume_from_last_completed`
 
-Current runtime behavior includes in-place branch edits, policy-driven verification commands, schema validation with deterministic fallback handling, approval-aware resume flow, and optional operator-gated promotion.
+Current runtime behavior includes in-place branch edits, policy-driven verification commands, schema validation with deterministic fallback handling (including explicit output-target precedence, syntax-safe generic Python scaffold emission for missing/invalid implement payloads), absolute local file-context ingestion (including `.mlapp` extraction from `matlab/document.xml`), approval-aware resume flow, and optional operator-gated promotion.
 
 Recommended usage pattern:
 
@@ -1122,9 +1171,7 @@ Current recommended model map:
   - `doc_sync` → `qwen2.5:3b`
   - `memory_sync` → `qwen2.5:3b`
 
-Operator-assistant classifier recommendation remains separate from specialist generation routing:
-
-- `assistant_scope.intent_classifier.model` → `mistral:7b` (kept for strict JSON routing stability)
+Operator-assistant topic enforcement is deterministic and policy-driven (scope gate) rather than classifier-model-driven.
 
 Recommended context planning (operational estimates):
 
@@ -1178,7 +1225,6 @@ That means `nanoporethon` can often benefit from faster quantized local models w
 
 Current configured agent/model ownership in `runtime/policies.yaml` is:
 
-- **Operator-assistant intent classifier** → `mistral:7b`
 - **Orchestrator runtime global default** → `qwen2.5:3b`
 - **Specialists inheriting the global default**:
   - `orchestrator`
@@ -1191,7 +1237,6 @@ Current configured agent/model ownership in `runtime/policies.yaml` is:
 
 As checked against the local Ollama metadata during documentation review on **2026-05-08**, the currently installed model variants reported:
 
-- `mistral:7b` → `Q4_K_M`
 - `qwen2.5:3b` → `Q4_K_M`
 - `qwen3:4b` → `Q4_K_M`
 
@@ -1199,7 +1244,6 @@ So, on the machine used for this update, the effective current map is:
 
 | Agent / role | Configured model | Reported quant |
 |---|---|---|
-| Operator-assistant intent classifier | `mistral:7b` | `Q4_K_M` |
 | `orchestrator` specialist | `qwen2.5:3b` | `Q4_K_M` |
 | `feature_builder` specialist | `qwen3:4b` | `Q4_K_M` |
 | `refactor` specialist | `qwen3:4b` | `Q4_K_M` |
@@ -1215,7 +1259,6 @@ Important caveat: the **model name** in policy and the **quant installed on a pa
 
 Practical recommendation for the default policy:
 
-- keep the **intent classifier** on `mistral:7b Q4_K_M` for routing stability,
 - keep the **global runtime default** on `qwen2.5:3b Q4_K_M` for portability,
 - upgrade the code-heavy **`feature_builder`** and **`refactor`** specialists to `qwen3:4b Q4_K_M`,
 - and keep **`doc_sync`**, **`memory_sync`**, **`orchestrator`**, and **`verifier`** on lighter models unless real usage shows a quality bottleneck.
@@ -1238,7 +1281,7 @@ When in doubt, the authoritative local check is Ollama model metadata (for examp
 Important guardrail behavior:
 
 - The assistant is domain-scoped to nanoporethon/runtime/repository workflows.
-- Off-topic requests are deterministically refused (for example: cooking recipes, medical advice, political advice, investment advice, legal advice, general lifestyle counseling).
+- Off-topic requests are refused before runtime execution, and sensitive advisory domains (for example medical, legal, political, or investment guidance) are explicitly blocked rather than answered approximately.
 - Scope checks occur before runtime execution so out-of-scope prompts cannot trigger implementation actions.
 
 Operationally, this keeps Option B interactive while preserving the project’s intended model:
@@ -1250,17 +1293,41 @@ Operationally, this keeps Option B interactive while preserving the project’s 
 Chat-first request guidance:
 
 - Start by describing the feature/task naturally in one or two sentences.
-- Intent and request-type understanding are inferred semantically by the local LLM (feature work vs question vs docs/help), not by hard-coded keyword checks.
+- Routing uses a deterministic hybrid scope gate with two user-facing lanes: **feature requests** and **general questions**. Internally, allowed intents are `feature_request`, `runtime_help`, `code_explanation`, `repo_question`, and `nanopore_science_explanation`; unrelated prompts are redirected or blocked.
+- The deterministic scope gate also treats common guidance-style phrasing (for example confusion after clicking around, safeguards/checklist/reproducibility requests, and "what can you help with" redirects) as in-scope support.
 - Local model calls for this flow use the Ollama HTTP adapter (`runtime/adapters/ollama.py`) against `/api/chat`; this assistant path is not MCP-server based.
-- Classifier availability is mandatory at startup in strict mode; if local classifier initialization fails, the GUI shows an explicit startup error and disables message routing until fixed.
-- Use the **Health Check** button to validate strict-mode prerequisites (classifier enabled in policy, Ollama reachable, model installed, and valid JSON classifier output contract).
+- Assistant text panes (chat, follow-ups, request preview, timeline) render lightweight markdown formatting with richer local styling (headings/lists/inline code/fenced code blocks + pane-specific typography/color theme) and adaptive light/dark contrast for easier reading.
+- Chat/timeline messages now include explicit heading lines (timestamp + role/event) so each entry has clear larger/bold visual structure even when body text is plain prose.
+- Chat/timeline messages also include a subtle divider line under each entry to improve visual chunking during long assistant sessions.
+- Repository Q&A now uses evidence-validated local model output: answers must be supported by verifiable context excerpts, and malformed/ungrounded model outputs automatically fall back to deterministic doc/code snippet guidance.
+- Deterministic fallback guidance is now formatted as practical instructions (runnable commands, usage considerations, and grounding-source references) so users get actionable answers for “how/use/find/work” questions instead of raw snippet dumps.
+- Message routing does not require classifier startup availability.
+- Session context is still used so runtime follow-up questions after a run are interpreted in conversation context (not as isolated messages), but feature continuation is conditional: follow-ups must stay repository-relevant and pass scope checks.
+- Scope decisions are evidence-based: prompts are considered in-scope when they align with repository goal terms/anchors and retrievable local repo context.
+- Scientific or algorithmic nanopore questions are answered only with local repository grounding; otherwise the assistant asks for a repository anchor rather than improvising.
+- Use the **Health Check** button to validate scope-gate prerequisites (domain anchors, grounding files, and sensitive-domain policy values).
+- Common runtime timeline terms (like `promotion_disabled`) are answered directly in-assistant so users can ask immediate post-run questions without switching workflows.
 - For code-edit requests, verification is expected by default (automated tests + behavior checks) and is included in the runtime request guardrails without requiring testing keywords.
+- Generated runtime request packets now include an explicit anti-hallucination quality rubric for each assistant-produced change:
+  - Contract-safe (schema/policy/gate compatible)
+  - Evidence-first (deterministic tests + behavior checks)
+  - Surface-consistent (`Docs/components.md` + textbook sync when behavior changes)
+  - Traceable (`Docs/agent_logs/REQUEST_LOG.md` row appended)
+  - Scoped (minimal relevant diffs)
+  - Operator-supervised (branch-local, human-reviewed flow)
 - The assistant will ask targeted clarifying questions only when needed for missing behavior details or boundaries.
+- For explanation-style prompts, “needed” now includes missing local grounding: mention the relevant file, runtime stage, docs section, q-mer map, MATLAB reference, or component name if you want a scientific/code explanation rather than a refusal.
+- If a prompt references a likely-mistyped source filename (for example requesting `SequenceDesigner.m` when `SequenceDesigner.mlapp` exists in the referenced folder), the assistant asks a single near-match confirmation question instead of launching a likely no-op run.
+- When implement-stage model output is unavailable or invalid, runtime deterministic fallback can now scaffold explicitly requested GUI Python targets instead of always completing as a no-op.
+- Runtime deterministic scaffolds are now runtime-generic (not tied to any specific generated app module), preserving architecture independence from application-specific code.
+- Runtime request-file context discovery avoids hardcoded local folder assumptions and relies on explicit referenced paths plus discovered absolute roots.
+- Porsche answers repository questions about code, documentation, runtime/agent design, AI concepts used in the project, and nanoporethon science using the configured local model (`model_provider.model` in `runtime/policies.yaml`) while staying bounded to local repo evidence.
+- When Ollama is not running, Porsche falls back to relevant doc/code excerpts for context.
 - You do not need to pre-fill a long static intake form before getting useful help.
 
 Core-component protection rule:
 
-- `src/nanoporethon/data_navi_gui.py` and `src/nanoporethon/event_classifier_gui.py` are treated as protected by default.
+- Protected files are policy-configured in `runtime/policies.yaml` (repository defaults include `src/nanoporethon/data_navi_gui.py` and `src/nanoporethon/event_classifier_gui.py`).
 - They should only be modified when the user explicitly authorizes such changes.
 
 ---
