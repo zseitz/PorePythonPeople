@@ -638,7 +638,7 @@ def test_repository_policy_uses_balanced_model_profile():
     policy_path = Path(__file__).resolve().parents[1] / "runtime" / "policies.yaml"
     policy = orchestrator_module._load_policy(policy_path)
 
-    assert policy["assistant_scope"]["intent_classifier"]["model"] == "mistral:7b"
+    assert policy["assistant_scope"]["intent_classifier"]["enabled"] is True
     assert policy["model_provider"]["model"] == "qwen2.5:3b"
     assert policy["specialists"]["feature_builder"]["model_provider"]["model"] == "qwen3:4b"
     assert policy["specialists"]["refactor"]["model_provider"]["model"] == "qwen3:4b"

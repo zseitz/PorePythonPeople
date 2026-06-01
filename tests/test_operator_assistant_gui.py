@@ -485,6 +485,9 @@ def test_gui_places_runtime_timeline_below_runtime_controls(monkeypatch):
             super().__init__(None)
             self.after_calls = []
 
+        def configure(self, **kwargs):
+            self.config_calls.append(kwargs)
+
         def title(self, *_args, **_kwargs):
             return None
 
