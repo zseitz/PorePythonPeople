@@ -11,9 +11,23 @@ def test_build_scorecard_has_no_failed_checks() -> None:
 
     assert scorecard["component"] == "sequence_designer_gui"
     assert scorecard["summary"]["failed"] == 0
-    assert scorecard["summary"]["passed"] >= 5
     assert len(scorecard["checks"]) >= 6
     assert all(check["status"] in {"passed", "skipped"} for check in scorecard["checks"])
+
+    passed = int(scorecard["summary"]["passed"])
+    skipped = int(scorecard["summary"]["skipped"])
+    checks = scorecard["checks"]
+
+    # In clean CI environments, scipy may be absent and MAT-dependent checks
+    # are intentionally skipped by scorecard design.
+    if skipped > 0:
+        assert passed >= 1
+        skipped_checks = [check for check in checks if check["status"] == "skipped"]
+        assert skipped_checks
+        assert all("scipy.io unavailable" in str(check["summary"]).lower() for check in skipped_checks)
+    else:
+        # When all dependencies are available, the majority of checks should pass.
+        assert passed >= 5
 
 
 def test_write_scorecard_artifacts_creates_json_and_markdown(tmp_path: Path) -> None:
