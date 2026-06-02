@@ -203,3 +203,5 @@
 | 2026-06-01 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
 | 2026-06-01 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
 | 2026-06-01 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |
+| 2026-06-02 | team | Improve Porsche Q&A quality for onboarding/privacy/model questions | GitHub Copilot | `runtime/operator_assistant.py`; `tests/test_operator_assistant.py`; `Docs/components.md`; `Docs/nanoporethon_textbook.md`; `Docs/agent_logs/REQUEST_LOG.md` | completed | Added deterministic answer routes for event-classification onboarding and privacy/offline posture prompts, preserved model/quantization mapping behavior, and added regressions covering the three representative question patterns. |
+| 2026-06-02 | runtime | Runtime doc sync fallback entry | Runtime | `Docs/agent_logs/REQUEST_LOG.md` | completed | Deterministic fallback path recorded. |

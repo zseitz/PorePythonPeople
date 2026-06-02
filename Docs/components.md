@@ -280,6 +280,8 @@ Primary package location: `src/nanoporethon/`.
   - Deterministic fallback now synthesizes practical guidance for how/use/find/work questions (for example runnable commands + usage considerations + source references) rather than dumping raw snippet fragments.
   - Deterministic fallback now distinguishes procedural launch/how-to prompts from architecture/process questions, so prompts like “How is runtime organized?” explain stage flow (intent/scope → request packet → staged execution) instead of defaulting to run-command output.
   - File-location questions now route through deterministic local path verification, and model-authored answers with unverifiable filepath claims are rejected in favor of verified local paths.
+  - Event-classification onboarding prompts now produce a workflow-oriented answer (DataNavi selection → query log → EventClassifier load/classify/save) instead of raw snippet dumps when users ask how to classify newly collected data.
+  - Privacy/offline prompts now prioritize local/offline posture guidance (local-only attended workflow, local Ollama adapter usage, policy-based model endpoint configuration) before model-routing summaries.
   - In deeper follow-up mode, Porsche prioritizes presenting existing repository information with explicit references and adds a "Further reading in repository" section that includes available paper resources from `Docs/papers/`.
   - Treats common guided-workflow phrasing (for example confusion, reproducibility/checklist, safeguards, and capability-redirect prompts) as in-scope support requests.
   - Keeps the operational model branch-local and human-supervised by design.

@@ -499,6 +499,14 @@ class LocalOperatorAssistant:
         if runtime_event_explanation:
             return runtime_event_explanation
 
+        event_classification_explanation = self._event_classification_explanation(user_text)
+        if event_classification_explanation:
+            return event_classification_explanation
+
+        privacy_explanation = self._privacy_offline_explanation(user_text)
+        if privacy_explanation:
+            return privacy_explanation
+
         model_routing_explanation = self._model_routing_explanation(user_text)
         if model_routing_explanation:
             return model_routing_explanation
@@ -603,6 +611,56 @@ class LocalOperatorAssistant:
                 "`promotion_blocked` means runtime refused promotion due to a guardrail (for example dirty/changed target paths or policy constraints)."
             )
         return None
+
+    def _event_classification_explanation(self, user_text: str) -> Optional[str]:
+        text = (user_text or "").strip().lower()
+        if not text:
+            return None
+
+        if "classify" not in text or "event" not in text:
+            return None
+
+        lines = [
+            "Here’s the repository-grounded workflow Porsche should walk you through for event classification:",
+            "",
+            "1) Build a reproducible selection in DataNaviGUI and confirm it so a query folder with `search_query.txt` is written.",
+            "2) Open EventClassifierGUI, point it to your logs directory, and choose the saved query.",
+            "3) Load an experiment folder that contains `reduced.mat` and `event.mat` (`meta.mat` is optional for sampling frequency).",
+            "4) Navigate events, assign quality values, and save updates back to `event.mat`.",
+            "",
+            "Grounding sources: `Docs/components.md`, `Docs/nanoporethon_textbook.md`, `README.md`",
+        ]
+        return "\n".join(lines)
+
+    def _privacy_offline_explanation(self, user_text: str) -> Optional[str]:
+        text = (user_text or "").strip().lower()
+        if not text:
+            return None
+
+        privacy_tokens = [
+            "privacy",
+            "leak",
+            "leaked",
+            "online",
+            "offline",
+            "internet",
+            "cloud",
+            "data leaving",
+        ]
+        if not any(token in text for token in privacy_tokens):
+            return None
+
+        lines = [
+            "Here’s the repository-grounded privacy/offline posture Porsche should explain:",
+            "",
+            "- Operator assistant is documented as local-only, branch-local, and human-supervised.",
+            "- Assistant model calls are routed through the local Ollama adapter (`runtime/adapters/ollama.py`) and are not MCP-server based.",
+            "- Runtime/model configuration is read from local `runtime/policies.yaml` (including `model_provider.base_url`).",
+            "- No repository contract indicates automatic cloud upload as part of standard Porsche request handling.",
+            "",
+            "Grounding sources: `Docs/nanoporethon_textbook.md`, `Docs/components.md`, `runtime/policies.yaml`",
+        ]
+        return "\n".join(lines)
 
     def _model_routing_explanation(self, user_text: str) -> Optional[str]:
         text = (user_text or "").strip().lower()

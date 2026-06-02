@@ -527,6 +527,49 @@ def test_prompt_lifecycle_question_explains_pre_codegen_stages():
     assert "Run it from the repository root:" not in response.message
 
 
+def test_event_classification_onboarding_question_gets_workflow_guidance():
+    assistant = _assistant()
+    response = assistant.handle_message(
+        "I am new to nanoporethon, how do I classify events from some data that I just collected?",
+        session=assistant.init_session(),
+    )
+
+    assert response.intent in {"repo_question", "runtime_help", "code_explanation", "nanopore_science_explanation"}
+    lower = response.message.lower()
+    assert "eventclassifiergui" in lower or "event classifier gui" in lower
+    assert "search_query.txt" in response.message
+    assert "reduced.mat" in response.message
+    assert "event.mat" in response.message
+
+
+def test_privacy_question_prefers_offline_local_posture_explanation():
+    assistant = _assistant()
+    response = assistant.handle_message(
+        "I am worried about privacy, how do I know our data isn't being leaked online? Are we running models offline?",
+        session=assistant.init_session(),
+    )
+
+    assert response.intent in {"repo_question", "runtime_help", "code_explanation"}
+    lower = response.message.lower()
+    assert "local-only" in lower or "local only" in lower
+    assert "ollama" in lower
+    assert "not mcp-server based" in lower or "not mcp" in lower
+    assert "runtime/policies.yaml" in response.message
+
+
+def test_model_quantization_question_still_returns_model_map():
+    assistant = _assistant()
+    response = assistant.handle_message(
+        "What models are our agents running? Are they quantized?",
+        session=assistant.init_session(),
+    )
+
+    assert response.intent in {"repo_question", "runtime_help", "code_explanation"}
+    assert "qwen2.5:3b" in response.message
+    assert "qwen3:4b" in response.message
+    assert "Q4_K_M" in response.message
+
+
 def test_file_location_question_returns_only_verified_paths_for_readme():
     assistant = _assistant()
     response = assistant.handle_message(
