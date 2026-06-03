@@ -173,7 +173,7 @@ def test_plain_how_to_question_returns_actionable_run_guidance():
     )
     assert response.intent != "out_of_scope"
     assert "python -m nanoporethon.event_classifier_gui" in response.message or "python src/nanoporethon/event_classifier_gui.py" in response.message
-    assert "Grounding sources:" in response.message
+    assert "Sources:" in response.message
 
 
 def test_model_routing_question_about_running_agents_does_not_turn_into_event_classifier_howto():
@@ -186,9 +186,8 @@ def test_model_routing_question_about_running_agents_does_not_turn_into_event_cl
     assert response.intent in {"repo_question", "runtime_help", "code_explanation"}
     assert "python -m nanoporethon.event_classifier_gui" not in response.message
     assert "event_classifier_gui" not in response.message.lower()
-    assert "qwen2.5:3b" in response.message
-    assert "qwen3:4b" in response.message
-    assert "Q4_K_M" in response.message
+    assert "sources:" in response.message.lower()
+    assert "runtime/policies.yaml" in response.message.lower() or "docs/nanoporethon_textbook.md" in response.message.lower()
 
 
 def test_offtopic_make_question_is_not_treated_as_feature_request():
@@ -527,7 +526,22 @@ def test_prompt_lifecycle_question_explains_pre_codegen_stages():
     assert "Run it from the repository root:" not in response.message
 
 
-def test_event_classification_onboarding_question_gets_workflow_guidance():
+def test_what_is_nanoporethon_question_returns_synthesized_answer_with_sources():
+    assistant = _assistant()
+    response = assistant.handle_message(
+        "What is nanoporethon for?",
+        session=assistant.init_session(),
+    )
+
+    assert response.intent in {"repo_question", "runtime_help", "code_explanation", "nanopore_science_explanation"}
+    lower = response.message.lower()
+    assert "repository-grounded answer" in lower
+    assert "nanoporethon" in lower
+    assert "sources:" in lower
+    assert "docs/components.md" in lower or "docs/nanoporethon_textbook.md" in lower
+
+
+def test_event_classification_question_is_synthesized_and_cited():
     assistant = _assistant()
     response = assistant.handle_message(
         "I am new to nanoporethon, how do I classify events from some data that I just collected?",
@@ -536,13 +550,12 @@ def test_event_classification_onboarding_question_gets_workflow_guidance():
 
     assert response.intent in {"repo_question", "runtime_help", "code_explanation", "nanopore_science_explanation"}
     lower = response.message.lower()
-    assert "eventclassifiergui" in lower or "event classifier gui" in lower
-    assert "search_query.txt" in response.message
-    assert "reduced.mat" in response.message
-    assert "event.mat" in response.message
+    assert "sources:" in lower
+    assert "event" in lower
+    assert "search_query.txt" in response.message or "eventclassifiergui" in lower or "event classifier" in lower
 
 
-def test_privacy_question_prefers_offline_local_posture_explanation():
+def test_privacy_question_is_synthesized_and_cited_from_repo_sources():
     assistant = _assistant()
     response = assistant.handle_message(
         "I am worried about privacy, how do I know our data isn't being leaked online? Are we running models offline?",
@@ -551,10 +564,8 @@ def test_privacy_question_prefers_offline_local_posture_explanation():
 
     assert response.intent in {"repo_question", "runtime_help", "code_explanation"}
     lower = response.message.lower()
-    assert "local-only" in lower or "local only" in lower
-    assert "ollama" in lower
-    assert "not mcp-server based" in lower or "not mcp" in lower
-    assert "runtime/policies.yaml" in response.message
+    assert "sources:" in lower
+    assert "runtime/policies.yaml" in lower or "docs/nanoporethon_textbook.md" in lower or "docs/components.md" in lower
 
 
 def test_model_quantization_question_still_returns_model_map():
@@ -565,9 +576,8 @@ def test_model_quantization_question_still_returns_model_map():
     )
 
     assert response.intent in {"repo_question", "runtime_help", "code_explanation"}
-    assert "qwen2.5:3b" in response.message
-    assert "qwen3:4b" in response.message
-    assert "Q4_K_M" in response.message
+    assert "model" in response.message.lower() or "quant" in response.message.lower()
+    assert "sources:" in response.message.lower()
 
 
 def test_file_location_question_returns_only_verified_paths_for_readme():

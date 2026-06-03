@@ -499,18 +499,6 @@ class LocalOperatorAssistant:
         if runtime_event_explanation:
             return runtime_event_explanation
 
-        event_classification_explanation = self._event_classification_explanation(user_text)
-        if event_classification_explanation:
-            return event_classification_explanation
-
-        privacy_explanation = self._privacy_offline_explanation(user_text)
-        if privacy_explanation:
-            return privacy_explanation
-
-        model_routing_explanation = self._model_routing_explanation(user_text)
-        if model_routing_explanation:
-            return model_routing_explanation
-
         file_location_explanation = self._file_location_explanation(user_text)
         if file_location_explanation:
             return file_location_explanation
@@ -612,119 +600,6 @@ class LocalOperatorAssistant:
             )
         return None
 
-    def _event_classification_explanation(self, user_text: str) -> Optional[str]:
-        text = (user_text or "").strip().lower()
-        if not text:
-            return None
-
-        if "classify" not in text or "event" not in text:
-            return None
-
-        lines = [
-            "Here’s the repository-grounded workflow Porsche should walk you through for event classification:",
-            "",
-            "1) Build a reproducible selection in DataNaviGUI and confirm it so a query folder with `search_query.txt` is written.",
-            "2) Open EventClassifierGUI, point it to your logs directory, and choose the saved query.",
-            "3) Load an experiment folder that contains `reduced.mat` and `event.mat` (`meta.mat` is optional for sampling frequency).",
-            "4) Navigate events, assign quality values, and save updates back to `event.mat`.",
-            "",
-            "Grounding sources: `Docs/components.md`, `Docs/nanoporethon_textbook.md`, `README.md`",
-        ]
-        return "\n".join(lines)
-
-    def _privacy_offline_explanation(self, user_text: str) -> Optional[str]:
-        text = (user_text or "").strip().lower()
-        if not text:
-            return None
-
-        privacy_tokens = [
-            "privacy",
-            "leak",
-            "leaked",
-            "online",
-            "offline",
-            "internet",
-            "cloud",
-            "data leaving",
-        ]
-        if not any(token in text for token in privacy_tokens):
-            return None
-
-        lines = [
-            "Here’s the repository-grounded privacy/offline posture Porsche should explain:",
-            "",
-            "- Operator assistant is documented as local-only, branch-local, and human-supervised.",
-            "- Assistant model calls are routed through the local Ollama adapter (`runtime/adapters/ollama.py`) and are not MCP-server based.",
-            "- Runtime/model configuration is read from local `runtime/policies.yaml` (including `model_provider.base_url`).",
-            "- No repository contract indicates automatic cloud upload as part of standard Porsche request handling.",
-            "",
-            "Grounding sources: `Docs/nanoporethon_textbook.md`, `Docs/components.md`, `runtime/policies.yaml`",
-        ]
-        return "\n".join(lines)
-
-    def _model_routing_explanation(self, user_text: str) -> Optional[str]:
-        text = (user_text or "").strip().lower()
-        if not any(token in text for token in ["model", "models", "quant", "quantized", "quantization"]):
-            return None
-
-        model_provider = self.policy.get("model_provider", {}) if isinstance(self.policy, dict) else {}
-        specialists = self.policy.get("specialists", {}) if isinstance(self.policy, dict) else {}
-        if not isinstance(model_provider, dict) or not isinstance(specialists, dict):
-            return None
-
-        global_model = str(model_provider.get("model", "")).strip()
-        lines: List[str] = ["Here’s the current model map from local runtime policy:", ""]
-
-        if global_model:
-            lines.append(f"- Global default / inherited model: `{global_model}`")
-
-        summary_parts: List[str] = []
-
-        explicit_overrides: List[str] = []
-        inherited: List[str] = []
-        for name, cfg in sorted(specialists.items()):
-            if not isinstance(cfg, dict):
-                continue
-            provider_cfg = cfg.get("model_provider", {})
-            if isinstance(provider_cfg, dict) and str(provider_cfg.get("model", "")).strip():
-                explicit_overrides.append(f"- `{name}` → `{provider_cfg.get('model')}`")
-            else:
-                inherited.append(f"- `{name}` (inherits the global default)")
-
-        if global_model:
-            summary_parts.append(f"the global default is `{global_model}`")
-        if explicit_overrides:
-            summary_parts.append("feature_builder/refactor use `qwen3:4b`")
-        if inherited:
-            summary_parts.append("orchestrator/verifier inherit the global default")
-
-        if summary_parts:
-            lines.extend(["", "Short answer: " + "; ".join(summary_parts) + "."])
-
-        if explicit_overrides:
-            lines.extend(["", "- Explicit specialist overrides:"])
-            lines.extend(explicit_overrides)
-
-        if inherited:
-            lines.extend(["", "- Specialists inheriting the global default:"])
-            lines.extend(inherited)
-
-        quant_notes: List[str] = []
-        textbook = self._doc_cache.get("Docs/nanoporethon_textbook.md", "")
-        if textbook and any(token in textbook for token in ["Q4_K_M", "qwen2.5:3b", "qwen3:4b"]):
-            quant_notes.append(
-                "Docs/nanoporethon_textbook.md records `qwen2.5:3b` and `qwen3:4b` as `Q4_K_M` on the machine used for that documentation update."
-            )
-
-        if quant_notes:
-            lines.extend(["", "Quantization notes from local docs:"])
-            lines.extend(f"- {note}" for note in quant_notes)
-
-        if global_model:
-            lines.extend(["", "If you want the exact live artifact build on this machine, check the local Ollama metadata for the model names above."])
-
-        return "\n".join(lines).strip()
-
     def _answer_with_grounded_model(self, user_text: str, snippets: List[str], scope_class: str) -> Optional[str]:
         context_text = "\n\n".join(snippets)
         system_prompt = (
@@ -768,6 +643,10 @@ class LocalOperatorAssistant:
         if not valid_quotes:
             return None
 
+        source_refs = self._snippet_source_refs(snippets)
+        sources_line = self._format_sources_line(source_refs)
+        if sources_line:
+            return f"{answer}\n\nSources: {sources_line}"
         return answer
 
     def _file_location_explanation(self, user_text: str) -> Optional[str]:
@@ -1913,11 +1792,21 @@ class LocalOperatorAssistant:
         terms = self._query_terms(query)
         query_lower = (query or "").lower()
         is_howto_query = bool(re.search(r"\b(how|run|launch|start|open)\b", query_lower))
+        privacy_query = bool(re.search(r"\b(privacy|offline|online|internet|cloud|leak|leaked|data leaving)\b", query_lower))
+        model_query = bool(re.search(r"\b(model|models|quant|quantized|quantization|agent|agents)\b", query_lower))
+        asks_about_assistant_impl = bool(re.search(r"operator_assistant|runtime/operator_assistant\.py", query_lower))
+        sequence_focus = bool(re.search(r"\b(sequence|qmer|q-mer|hel308|designer)\b", query_lower))
         scored: List[Tuple[int, str, str]] = []
         for rel, text in self._doc_cache.items():
             lower = text.lower()
             path_lower = rel.lower()
+            if path_lower == "runtime/operator_assistant.py" and scope_class != "repo_code" and not asks_about_assistant_impl:
+                continue
+            if path_lower == "src/nanoporethon/sequence_designer_gui.py" and not sequence_focus:
+                continue
             score = sum(lower.count(term) for term in terms) + sum(path_lower.count(term) * 2 for term in terms)
+            if path_lower == "runtime/operator_assistant.py" and not asks_about_assistant_impl:
+                score -= 6
             if scope_class == "runtime_operations" and rel.startswith("runtime/"):
                 score += 2
             if scope_class == "nanopore_science" and (
@@ -1933,6 +1822,16 @@ class LocalOperatorAssistant:
                 or "nanoporethon_textbook" in path_lower
             ):
                 score += 4
+            if privacy_query:
+                score += sum(lower.count(token) for token in ["privacy", "offline", "online", "local-only", "local only", "internet", "cloud", "leak", "leaked"])
+                if path_lower in {"runtime/policies.yaml", "docs/components.md", "docs/nanoporethon_textbook.md"}:
+                    score += 12
+            if model_query:
+                score += sum(lower.count(token) for token in ["model_provider", "qwen", "quant", "q4_k_m", "specialists", "model"])
+                if path_lower == "runtime/policies.yaml":
+                    score += 20
+                elif path_lower in {"docs/nanoporethon_textbook.md", "docs/components.md"}:
+                    score += 10
             if score <= 0:
                 continue
             snippet = self._extract_snippet_window(text, terms, query=query)
@@ -2028,19 +1927,13 @@ class LocalOperatorAssistant:
         if not snippets:
             return None
 
+        entries = self._parse_snippet_entries(snippets)
+        source_refs = [rel for rel, _ in entries]
+
         commands: List[Tuple[str, str]] = []
         considerations: List[Tuple[str, str]] = []
-        source_refs: List[str] = []
 
-        for snippet in snippets:
-            rel = "unknown"
-            body = snippet
-            match = re.match(r"^\[([^\]]+)\]\s*(.*)$", snippet, flags=re.DOTALL)
-            if match:
-                rel = match.group(1).strip()
-                body = match.group(2).strip()
-            source_refs.append(rel)
-
+        for rel, body in entries:
             for cmd in re.findall(r"\bpython\s+-m\s+[A-Za-z0-9_.]+", body):
                 commands.append((cmd.strip(), rel))
             for cmd in re.findall(r"\bpython\s+src/[A-Za-z0-9_./-]+\.py", body):
@@ -2097,7 +1990,7 @@ class LocalOperatorAssistant:
             ]
             unique_sources = sorted({s for s in source_refs if s and s != "unknown"})
             if unique_sources:
-                lines.append("Grounding sources: " + ", ".join(f"`{s}`" for s in unique_sources[:4]))
+                lines.append("Sources: " + ", ".join(f"`{s}`" for s in unique_sources[:5]))
             return "\n".join(lines).strip()
 
         if howto_query and (commands or considerations):
@@ -2121,10 +2014,29 @@ class LocalOperatorAssistant:
             command_sources = [src for _, src in commands]
             unique_sources = sorted({s for s in (source_refs + command_sources) if s and s != "unknown"})
             if unique_sources:
-                lines.append("Grounding sources: " + ", ".join(f"`{s}`" for s in unique_sources[:4]))
+                lines.append("Sources: " + ", ".join(f"`{s}`" for s in unique_sources[:5]))
             return "\n".join(lines).strip()
 
-        return None
+        query_terms = self._query_terms(user_text)
+        summary_points = self._extract_summary_points(entries, query_terms=query_terms, max_items=3)
+        if not summary_points:
+            return None
+
+        lines = [
+            "Here’s the repository-grounded answer:",
+            "",
+            summary_points[0],
+        ]
+
+        if len(summary_points) > 1:
+            lines.extend(["", "Additional useful details:"])
+            lines.extend(f"- {point}" for point in summary_points[1:])
+
+        sources_line = self._format_sources_line(source_refs)
+        if sources_line:
+            lines.extend(["", f"Sources: {sources_line}"])
+
+        return "\n".join(lines).strip()
 
     def _is_procedural_howto_query(self, user_text: str) -> bool:
         text = (user_text or "").strip().lower()
@@ -2439,3 +2351,97 @@ class LocalOperatorAssistant:
         if len(s) <= 280:
             return s
         return s[:277] + "..."
+
+    def _parse_snippet_entries(self, snippets: List[str]) -> List[Tuple[str, str]]:
+        entries: List[Tuple[str, str]] = []
+        for snippet in snippets:
+            rel = "unknown"
+            body = snippet
+            match = re.match(r"^\[([^\]]+)\]\s*(.*)$", snippet, flags=re.DOTALL)
+            if match:
+                rel = match.group(1).strip()
+                body = match.group(2).strip()
+            entries.append((rel, body.strip()))
+        return entries
+
+    def _snippet_source_refs(self, snippets: List[str]) -> List[str]:
+        return [rel for rel, _ in self._parse_snippet_entries(snippets)]
+
+    def _format_sources_line(self, source_refs: List[str], max_items: int = 6) -> str:
+        unique_sources = [src for src in OrderedDict.fromkeys(source_refs) if src and src != "unknown"]
+        return ", ".join(f"`{src}`" for src in unique_sources[:max_items])
+
+    def _extract_summary_points(
+        self,
+        entries: List[Tuple[str, str]],
+        query_terms: List[str],
+        max_items: int = 3,
+    ) -> List[str]:
+        candidates: List[Tuple[int, str, str]] = []
+        qset = {term.lower() for term in query_terms}
+        privacy_focus = bool(qset.intersection({"privacy", "offline", "online", "internet", "cloud", "leak", "leaked"}))
+        model_focus = bool(qset.intersection({"model", "models", "quant", "quantized", "quantization", "agent", "agents"}))
+        compact_signal_tokens = ["qwen", "q4_k_m", "model_provider", "offline", "privacy", "local-only", "local only", "cloud", "internet"]
+
+        for rel, body in entries:
+            for raw in re.split(r"(?<=[.!?])\s+|\n+", body):
+                sentence = " ".join(raw.split()).strip(" -")
+                sentence_lower = sentence.lower()
+                if len(sentence) < 35 and not any(token in sentence_lower for token in compact_signal_tokens):
+                    continue
+                if sentence.startswith("#") or sentence.startswith("|"):
+                    continue
+
+                lower = sentence_lower
+                if any(token in lower for token in ["table of contents", "---", "###"]):
+                    continue
+
+                score = 0
+                if query_terms:
+                    score += sum(lower.count(term) for term in query_terms)
+                if rel.startswith("Docs/") or rel == "README.md":
+                    score += 1
+                if any(token in lower for token in ["nanoporethon", "workflow", "runtime", "event", "trace", "local", "model", "policy", "stage"]):
+                    score += 1
+                if privacy_focus and any(token in lower for token in ["privacy", "offline", "online", "internet", "cloud", "local-only", "local only", "leak"]):
+                    score += 4
+                if model_focus and any(token in lower for token in ["qwen", "quant", "model", "model_provider", "q4_k_m"]):
+                    score += 4
+                if score <= 0:
+                    continue
+                candidates.append((score, sentence, rel))
+
+        candidates.sort(key=lambda item: item[0], reverse=True)
+
+        selected: List[str] = []
+        seen_sentences: Set[str] = set()
+        for _, sentence, rel in candidates:
+            normalized = sentence.lower()
+            if normalized in seen_sentences:
+                continue
+            seen_sentences.add(normalized)
+            selected.append(f"{sentence} (source: `{rel}`)")
+            if len(selected) >= max_items:
+                break
+
+        def _contains_focus(point: str, tokens: List[str]) -> bool:
+            lower_point = point.lower()
+            return any(token in lower_point for token in tokens)
+
+        if privacy_focus and selected and not any(_contains_focus(p, ["privacy", "offline", "online", "internet", "cloud", "local"]) for p in selected):
+            for _, sentence, rel in candidates:
+                rendered = f"{sentence} (source: `{rel}`)"
+                if _contains_focus(rendered, ["privacy", "offline", "online", "internet", "cloud", "local"]):
+                    selected = [rendered] + selected
+                    break
+
+        if model_focus and selected and not any(_contains_focus(p, ["qwen", "quant", "model_provider", "q4_k_m"]) for p in selected):
+            for _, sentence, rel in candidates:
+                rendered = f"{sentence} (source: `{rel}`)"
+                if _contains_focus(rendered, ["qwen", "quant", "model_provider", "q4_k_m"]):
+                    selected = [rendered] + selected
+                    break
+
+        selected = selected[:max_items]
+
+        return selected

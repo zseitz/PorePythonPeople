@@ -277,11 +277,10 @@ Primary package location: `src/nanoporethon/`.
   - Enforces evidence-validated answer synthesis for model-backed Q&A: model answers must include verifiable context quotes, and responses with unverifiable repository import/module claims are rejected.
   - Falls back to relevant doc/code snippet excerpts when the model is not reachable.
   - Also falls back to deterministic snippet-grounded answers when model output is malformed or fails evidence validation, reducing hallucinated run/API instructions.
-  - Deterministic fallback now synthesizes practical guidance for how/use/find/work questions (for example runnable commands + usage considerations + source references) rather than dumping raw snippet fragments.
+  - Deterministic fallback now follows a synthesis-first contract: produce a direct, immediately useful explanation first, then cite local repository sources used as evidence.
   - Deterministic fallback now distinguishes procedural launch/how-to prompts from architecture/process questions, so prompts like “How is runtime organized?” explain stage flow (intent/scope → request packet → staged execution) instead of defaulting to run-command output.
   - File-location questions now route through deterministic local path verification, and model-authored answers with unverifiable filepath claims are rejected in favor of verified local paths.
-  - Event-classification onboarding prompts now produce a workflow-oriented answer (DataNavi selection → query log → EventClassifier load/classify/save) instead of raw snippet dumps when users ask how to classify newly collected data.
-  - Privacy/offline prompts now prioritize local/offline posture guidance (local-only attended workflow, local Ollama adapter usage, policy-based model endpoint configuration) before model-routing summaries.
+  - Repository Q&A no longer depends on hardcoded keyword-only answer branches for specific question categories (for example event/privacy/model wording); it uses evidence retrieval plus synthesis to handle broad technology questions.
   - In deeper follow-up mode, Porsche prioritizes presenting existing repository information with explicit references and adds a "Further reading in repository" section that includes available paper resources from `Docs/papers/`.
   - Treats common guided-workflow phrasing (for example confusion, reproducibility/checklist, safeguards, and capability-redirect prompts) as in-scope support requests.
   - Keeps the operational model branch-local and human-supervised by design.

@@ -1307,11 +1307,10 @@ Chat-first request guidance:
 - Chat/timeline messages now include explicit heading lines (timestamp + role/event) so each entry has clear larger/bold visual structure even when body text is plain prose.
 - Chat/timeline messages also include a subtle divider line under each entry to improve visual chunking during long assistant sessions.
 - Repository Q&A now uses evidence-validated local model output: answers must be supported by verifiable context excerpts, and malformed/ungrounded model outputs automatically fall back to deterministic doc/code snippet guidance.
-- Deterministic fallback guidance is now formatted as practical instructions (runnable commands, usage considerations, and grounding-source references) so users get actionable answers for “how/use/find/work” questions instead of raw snippet dumps.
+- Deterministic fallback now uses synthesis-first responses: Porsche gives a direct, useful explanation first and then cites the local docs/code sources used as evidence.
 - Deterministic fallback now separates procedural launch questions (for example “How do I run …?”) from architecture/process questions (for example “How is runtime organized?”), returning stage-flow explanations for the latter instead of launch-command blocks.
 - File-location prompts now use deterministic repository path verification, and answers containing unverifiable filepath claims are discarded in favor of paths proven to exist locally.
-- Event-classification onboarding questions now receive a concrete workflow summary (selection/query-log setup, EventClassifier loading requirements, and classification/save sequence) rather than opaque snippet-only output.
-- Privacy/offline questions now prefer local-posture explanations (local-only attended flow, local Ollama adapter path, and policy-configured endpoints) before generic model-routing summaries.
+- Repository Q&A no longer relies on hardcoded keyword-answer routes for specific categories (for example event/privacy/model wording); broad technology questions are handled through evidence retrieval + synthesis.
 - Porsche keeps explanation depth balanced by default for all users and only auto-deepens when recent follow-up question density is high (for example multiple question-style follow-ups in a short span).
 - When auto-deepness is triggered, Porsche prioritizes existing repository evidence and appends a "Further reading in repository" section with explicit docs/code references and any available resources under `Docs/papers/`.
 - Store local academic papers or paper notes under `Docs/papers/` (for example PDFs with optional companion markdown summaries) so Porsche can surface them during deeper follow-up guidance.
