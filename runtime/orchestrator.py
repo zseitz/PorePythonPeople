@@ -10,7 +10,7 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from .adapters.ollama import OllamaAdapter
 from .context_manager import ContextBudgetManager
@@ -34,10 +34,18 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _as_dict(value: object) -> Dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _as_list(value: object) -> List[Any]:
+    return value if isinstance(value, list) else []
+
+
 StageApprovalHandler = Callable[[Dict[str, object]], str]
 
 
-def _load_policy(path: Path) -> Dict[str, object]:
+def _load_policy(path: Path) -> Dict[str, Any]:
     """Load policy yaml if PyYAML is available.
 
     Milestone-1 allows injecting policy dict directly for deterministic tests.
@@ -58,7 +66,7 @@ def _load_policy(path: Path) -> Dict[str, object]:
 
 
 def _build_executor(
-    policy: Dict[str, object],
+    policy: Dict[str, Any],
     repo_root: Path,
     repo_ops: Optional[RepoWorkspaceManager],
     memory_writer: Optional[MemoryWriter],
@@ -67,7 +75,7 @@ def _build_executor(
     model_provider = policy.get("model_provider", {})
     specialists = policy.get("specialists", {})
 
-    def _build_ollama_adapter(provider_cfg: Dict[str, object]) -> Optional[OllamaAdapter]:
+    def _build_ollama_adapter(provider_cfg: Dict[str, Any]) -> Optional[OllamaAdapter]:
         if provider_cfg.get("adapter") != "ollama":
             return None
         model = str(provider_cfg.get("model", "qwen3:4b"))
@@ -93,7 +101,7 @@ def _build_executor(
             override = cfg.get("model_provider")
             if not isinstance(override, dict):
                 continue
-            merged: Dict[str, object] = {}
+            merged: Dict[str, Any] = {}
             if isinstance(model_provider, dict):
                 merged.update(model_provider)
             merged.update(override)
@@ -113,7 +121,7 @@ def _build_executor(
     )
 
 
-def _collect_ollama_targets(policy: Dict[str, object]) -> List[Dict[str, str]]:
+def _collect_ollama_targets(policy: Dict[str, Any]) -> List[Dict[str, str]]:
     """Collect effective Ollama model targets used by runtime specialists."""
     targets: List[Dict[str, str]] = []
     global_provider = policy.get("model_provider", {})
@@ -124,8 +132,8 @@ def _collect_ollama_targets(policy: Dict[str, object]) -> List[Dict[str, str]]:
     if not isinstance(specialists, dict):
         specialists = {}
 
-    def _effective_provider(override: Optional[Dict[str, object]]) -> Dict[str, object]:
-        merged: Dict[str, object] = {}
+    def _effective_provider(override: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        merged: Dict[str, Any] = {}
         merged.update(global_provider)
         if isinstance(override, dict):
             merged.update(override)
@@ -186,7 +194,7 @@ def _extract_quantization(show_payload: Dict[str, object]) -> str:
     return ""
 
 
-def _emit_ollama_startup_warnings(policy: Dict[str, object]) -> None:
+def _emit_ollama_startup_warnings(policy: Dict[str, Any]) -> None:
     """Best-effort startup checks for configured Ollama models.
 
     This is intentionally non-blocking and warning-only.
@@ -258,16 +266,16 @@ def _emit_ollama_startup_warnings(policy: Dict[str, object]) -> None:
             )
 
 
-def _get_stage_map(policy: Dict[str, object]) -> Dict[str, Dict[str, object]]:
-    stages: List[Dict[str, object]] = policy.get("stages", [])  # type: ignore[assignment]
+def _get_stage_map(policy: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    stages: List[Dict[str, Any]] = policy.get("stages", [])  # type: ignore[assignment]
     return {str(stage["id"]): stage for stage in stages}
 
 
-def _read_json(path: Path) -> Dict[str, object]:
+def _read_json(path: Path) -> Dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _promotion_allowed_paths(runtime_cfg: Dict[str, object]) -> List[str]:
+def _promotion_allowed_paths(runtime_cfg: Dict[str, Any]) -> List[str]:
     promotion_cfg = runtime_cfg.get("promotion", {}) if isinstance(runtime_cfg, dict) else {}
     if not isinstance(promotion_cfg, dict):
         return []
@@ -291,7 +299,7 @@ def _partition_promotion_paths(changed_files: List[str], allowed_paths: List[str
     return {"allowed": allowed, "disallowed": disallowed}
 
 
-def _get_path_value(payload: Dict[str, object], dotted: str) -> object:
+def _get_path_value(payload: Dict[str, Any], dotted: str) -> object:
     current: object = payload
     for part in dotted.split("."):
         if isinstance(current, dict) and part in current:
@@ -301,7 +309,7 @@ def _get_path_value(payload: Dict[str, object], dotted: str) -> object:
     return current
 
 
-def _evaluate_condition(condition: str, context: Dict[str, object]) -> bool:
+def _evaluate_condition(condition: str, context: Dict[str, Any]) -> bool:
     expression = condition.strip()
     if "==" not in expression:
         return False
@@ -315,7 +323,7 @@ def _evaluate_condition(condition: str, context: Dict[str, object]) -> bool:
     return str(left_value) == right
 
 
-def _next_stage(stage_spec: Dict[str, object], context: Dict[str, object]) -> Optional[str]:
+def _next_stage(stage_spec: Dict[str, Any], context: Dict[str, Any]) -> Optional[str]:
     routing = stage_spec.get("routing", {})
     if isinstance(routing, dict):
         when = routing.get("when", [])
@@ -339,7 +347,7 @@ def _build_handoff_packet(
     run_id: str,
     from_stage: str,
     to_stage: str,
-    payload: Dict[str, object],
+    payload: Dict[str, Any],
     acceptance_criteria: List[str],
 ) -> Dict[str, object]:
     return {
@@ -533,7 +541,7 @@ def _maybe_resume_pending_approval(
 
 def run_milestone1(
     request: str,
-    policy: Optional[Dict[str, object]] = None,
+    policy: Optional[Dict[str, Any]] = None,
     run_root: Optional[Path] = None,
     executor: Optional[SpecialistExecutor] = None,
     repo_root: Optional[Path] = None,
@@ -567,8 +575,8 @@ def run_milestone1(
     sandbox_manager = RepoWorkspaceManager(repo_root=repo_root, sandbox_root=run_dir / "sandbox")
     memory_writer = MemoryWriter(repo_root=repo_root)
     snapshot_path = run_dir / "artifacts" / "repo_start_snapshot.json"
-    runtime_cfg = policy.get("runtime", {}) if isinstance(policy, dict) else {}
-    git_guardrails_cfg = runtime_cfg.get("git_guardrails", {}) if isinstance(runtime_cfg, dict) else {}
+    runtime_cfg = _as_dict(policy.get("runtime", {}))
+    git_guardrails_cfg = _as_dict(runtime_cfg.get("git_guardrails", {}))
     require_clean_worktree = True
     recommend_feature_branch = True
     if isinstance(git_guardrails_cfg, dict):
@@ -576,7 +584,7 @@ def run_milestone1(
         recommend_feature_branch = bool(git_guardrails_cfg.get("recommend_feature_branch", True))
 
     is_resume = bool(resume_run_id and resume_choice == "resume_from_last_completed" and (run_dir / "run.json").exists())
-    repo_guardrails: Dict[str, object] = {}
+    repo_guardrails: Dict[str, Any] = {}
     try:
         if is_resume:
             sandbox_repo = sandbox_manager.prepare()
@@ -632,16 +640,15 @@ def run_milestone1(
     run_state["base_commit"] = str(run_state.get("base_commit") or repo_guardrails.get("base_commit", ""))
     run_state["base_branch"] = str(run_state.get("base_branch") or repo_guardrails.get("base_branch", ""))
     run_state["repo_snapshot_file"] = str(snapshot_path.as_posix()) if snapshot_path.exists() else ""
-    startup_warnings = run_state.get("startup_warnings", [])
-    if not isinstance(startup_warnings, list):
-        startup_warnings = []
+    startup_warnings = _as_list(run_state.get("startup_warnings", []))
     if not startup_warnings:
-        startup_warnings = list(repo_guardrails.get("warnings", [])) if isinstance(repo_guardrails.get("warnings", []), list) else []
+        startup_warnings = [str(item) for item in _as_list(repo_guardrails.get("warnings", []))]
     run_state["startup_warnings"] = [str(w) for w in startup_warnings]
     validator.validate("run_state", run_state)
     write_run_state(run_dir, run_state)
 
-    for warning in run_state.get("startup_warnings", []):
+    startup_warning_items = _as_list(run_state.get("startup_warnings", []))
+    for warning in startup_warning_items:
         print(f"[runtime startup warning] {warning}")
         append_event(
             run_dir,
@@ -654,7 +661,7 @@ def run_milestone1(
         )
 
     stage_map = _get_stage_map(policy)
-    gates = policy.get("gates", {})
+    gates: Dict[str, Any] = _as_dict(policy.get("gates", {}))
     budget_cfg = policy.get("context_budgets", {}) if isinstance(policy, dict) else {}
     threshold_values = [60.0, 75.0, 85.0]
     if isinstance(budget_cfg, dict):
@@ -668,7 +675,7 @@ def run_milestone1(
                     continue
             if parsed:
                 threshold_values = parsed
-    context: Dict[str, object] = {"request": request, "stage_history": []}
+    context: Dict[str, Any] = {"request": request, "stage_history": []}
     stage_order = list(stage_map.keys())
     if not stage_order:
         finalize_run_state(run_state, "failed")
@@ -676,7 +683,8 @@ def run_milestone1(
         return run_state
 
     if resume_run_id and resume_choice == "resume_from_last_completed" and run_state.get("stage_history"):
-        previous_stage_ids = [entry.get("stage_id") for entry in run_state.get("stage_history", []) if isinstance(entry, dict)]
+        stage_history_items = _as_list(run_state.get("stage_history", []))
+        previous_stage_ids = [entry.get("stage_id") for entry in stage_history_items if isinstance(entry, dict)]
         last_stage = previous_stage_ids[-1] if previous_stage_ids else None
         if last_stage in stage_order:
             idx = stage_order.index(last_stage)
@@ -748,7 +756,8 @@ def run_milestone1(
             if isinstance(stage_payload.get("quality_signals"), dict):
                 context["quality_signals"] = stage_payload["quality_signals"]
 
-            required_checks = gates.get(current_stage_id, {}).get("required_checks", [])
+            stage_gate_cfg = _as_dict(gates.get(current_stage_id, {}))
+            required_checks = stage_gate_cfg.get("required_checks", [])
             evidence = build_gate_evidence(current_stage_id, stage_payload)
             passed, gate_results = evaluate_stage_gates(run_id, current_stage_id, required_checks, evidence)
             waiver_config = policy.get("waivers", {}) if isinstance(policy, dict) else {}
@@ -783,7 +792,8 @@ def run_milestone1(
 
             nxt = _next_stage(stage_spec, context)
             if nxt:
-                acceptance_criteria = context.get("triage_plan", {}).get("acceptance_criteria", [])
+                triage_context = _as_dict(context.get("triage_plan", {}))
+                acceptance_criteria = triage_context.get("acceptance_criteria", [])
                 if not isinstance(acceptance_criteria, list):
                     acceptance_criteria = []
                 handoff_packet = _build_handoff_packet(

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from tkinter import filedialog
+from typing import TypedDict
 
 import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -44,6 +45,16 @@ MAP_WARNING_TEXT = {
 }
 QMER_MAP_PATH_ENV = "NANOPORETHON_QMER_MAP_PATH"
 QMER_DISABLE_AUTODETECT_ENV = "NANOPORETHON_DISABLE_QMER_AUTODETECT"
+
+
+class PredictionContext(TypedDict):
+    profile_key: str
+    map_filename: str
+    map_field: str
+    warning_code: int
+    warning_text: str
+    numstep: int
+    details: str
 
 
 def sanitize_sequence(text: str) -> str:
@@ -297,7 +308,7 @@ def _qmer_lookup_error(sequence: str, profile_key: str) -> np.ndarray | None:
     return np.asarray(values, dtype=float)
 
 
-def _build_prediction_trace(sequence: str, *, display_order: str, feeding_orientation: str, pore_orientation: str, hel308: bool, phase_shift: float) -> tuple[np.ndarray, np.ndarray, dict[str, object]]:
+def _build_prediction_trace(sequence: str, *, display_order: str, feeding_orientation: str, pore_orientation: str, hel308: bool, phase_shift: float) -> tuple[np.ndarray, np.ndarray, PredictionContext]:
     sequence = sanitize_sequence(sequence)
     if not sequence:
         empty = np.asarray([], dtype=float)
@@ -349,7 +360,7 @@ def build_predicted_currents(sequence: str, *, display_order: str, feeding_orien
     return levels
 
 
-def prediction_context(*, feeding_orientation: str, pore_orientation: str, hel308: bool) -> dict[str, object]:
+def prediction_context(*, feeding_orientation: str, pore_orientation: str, hel308: bool) -> PredictionContext:
     profile_key, warning_code, numstep, details = _select_map_profile(
         feeding_orientation=feeding_orientation,
         pore_orientation=pore_orientation,

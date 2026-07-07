@@ -7,6 +7,7 @@ import sys
 import time
 import zipfile
 from pathlib import Path
+from typing import Any, cast
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -126,6 +127,27 @@ def _init_git_repo(repo_dir: Path, branch: str = "feature/runtime-guardrails") -
 
 def _stage_ids_from_run_state(run_state):
     return [entry["stage_id"] for entry in run_state["stage_history"]]
+
+
+def _as_dict(value: object) -> dict[str, Any]:
+    assert isinstance(value, dict)
+    return cast(dict[str, Any], value)
+
+
+def _as_str(value: object) -> str:
+    assert isinstance(value, str)
+    return value
+
+
+def _result_payload_path(result: dict[str, object]) -> Path:
+    artifacts = result.get("artifacts", [])
+    assert isinstance(artifacts, list)
+    assert artifacts
+    first = artifacts[0]
+    assert isinstance(first, dict)
+    path_value = first.get("path")
+    assert isinstance(path_value, str)
+    return Path(path_value)
 
 
 def test_classify_complexity_large_for_contract_migration():
@@ -535,7 +557,7 @@ def test_run_blocks_when_stage_transition_not_approved(tmp_path):
 
     assert run_state["status"] == "blocked"
     assert _stage_ids_from_run_state(run_state) == ["triage_plan"]
-    pending = run_state["pending_approval"]
+    pending = _as_dict(run_state["pending_approval"])
     assert pending["from_stage"] == "triage_plan"
     assert pending["to_stage"] == "implement"
 
@@ -567,7 +589,7 @@ def test_resume_after_stage_transition_approval_block(tmp_path):
         policy=policy,
         executor=SpecialistExecutor(),
         repo_root=repo_root,
-        resume_run_id=first_run["run_id"],
+        resume_run_id=_as_str(first_run["run_id"]),
         resume_choice="resume_from_last_completed",
         approval_handler=approval_handler,
     )
@@ -575,7 +597,8 @@ def test_resume_after_stage_transition_approval_block(tmp_path):
     assert resumed_run["status"] == "completed"
     assert resumed_run["pending_approval"] == {}
     assert resumed_run["approval_mode"] == "per_stage"
-    assert resumed_run["stage_history"][-1]["stage_id"] == "closeout"
+    resumed_history = cast(list[dict[str, object]], resumed_run["stage_history"])
+    assert resumed_history[-1]["stage_id"] == "closeout"
 
 
 def test_build_executor_supports_specialist_model_overrides(tmp_path):
@@ -638,14 +661,25 @@ def test_repository_policy_uses_balanced_model_profile():
     policy_path = Path(__file__).resolve().parents[1] / "runtime" / "policies.yaml"
     policy = orchestrator_module._load_policy(policy_path)
 
-    assert policy["assistant_scope"]["intent_classifier"]["enabled"] is True
-    assert policy["model_provider"]["model"] == "qwen2.5:3b"
-    assert policy["specialists"]["feature_builder"]["model_provider"]["model"] == "qwen3:4b"
-    assert policy["specialists"]["refactor"]["model_provider"]["model"] == "qwen3:4b"
-    assert policy["specialists"]["doc_sync"]["model_provider"]["model"] == "qwen2.5:3b"
-    assert policy["specialists"]["memory_sync"]["model_provider"]["model"] == "qwen2.5:3b"
-    assert policy["skills"]["enabled"] is True
-    assert "implement" in policy["skills"]["stage_map"]
+    assistant_scope = _as_dict(policy["assistant_scope"])
+    intent_classifier = _as_dict(assistant_scope["intent_classifier"])
+    model_provider = _as_dict(policy["model_provider"])
+    specialists = _as_dict(policy["specialists"])
+    feature_builder = _as_dict(specialists["feature_builder"])
+    refactor = _as_dict(specialists["refactor"])
+    doc_sync = _as_dict(specialists["doc_sync"])
+    memory_sync = _as_dict(specialists["memory_sync"])
+    skills = _as_dict(policy["skills"])
+    stage_map = _as_dict(skills["stage_map"])
+
+    assert intent_classifier["enabled"] is True
+    assert model_provider["model"] == "qwen2.5:3b"
+    assert _as_dict(feature_builder["model_provider"])["model"] == "qwen3:4b"
+    assert _as_dict(refactor["model_provider"])["model"] == "qwen3:4b"
+    assert _as_dict(doc_sync["model_provider"])["model"] == "qwen2.5:3b"
+    assert _as_dict(memory_sync["model_provider"])["model"] == "qwen2.5:3b"
+    assert skills["enabled"] is True
+    assert "implement" in stage_map
 
 
 def test_skill_loader_reads_stage_context_with_budget_cap():
@@ -972,7 +1006,7 @@ def test_executor_applies_llm_json_actions_in_sandbox(tmp_path):
         artifacts_dir=tmp_path / "artifacts",
     )
 
-    payload_path = Path(result["artifacts"][0]["path"])
+    payload_path = _result_payload_path(result)
     payload = json.loads(payload_path.read_text(encoding="utf-8"))
     assert "runtime/generated_from_model.txt" in payload["changed_files"]
     assert payload["llm_integration"]["used_llm_payload"] is True
@@ -1005,7 +1039,7 @@ def test_executor_falls_back_when_llm_payload_is_invalid(tmp_path):
         artifacts_dir=tmp_path / "artifacts",
     )
 
-    payload_path = Path(result["artifacts"][0]["path"])
+    payload_path = _result_payload_path(result)
     payload = json.loads(payload_path.read_text(encoding="utf-8"))
     assert payload["noop_justified"] is True
     assert payload["llm_integration"]["fallback_used"] is True
@@ -1042,7 +1076,7 @@ def test_verify_stage_uses_deterministic_commands_even_with_valid_llm_payload(tm
     executor = SpecialistExecutor(
         specialists={"verifier": {"prompt_inline": "verifier"}},
         model_adapter=FakeAdapter(),
-        repo_ops=PassingRepoOps(),
+        repo_ops=cast(RepoSandboxManager, PassingRepoOps()),
         policy=policy,
     )
 
@@ -1055,7 +1089,7 @@ def test_verify_stage_uses_deterministic_commands_even_with_valid_llm_payload(tm
         artifacts_dir=tmp_path / "artifacts",
     )
 
-    payload = json.loads(Path(result["artifacts"][0]["path"]).read_text(encoding="utf-8"))
+    payload = json.loads(_result_payload_path(result).read_text(encoding="utf-8"))
     evidence = build_gate_evidence("verify", payload)
 
     assert payload["tests_exit_code"] == 0
@@ -1097,7 +1131,7 @@ def test_verify_after_refactor_uses_deterministic_commands_even_with_valid_llm_p
     executor = SpecialistExecutor(
         specialists={"verifier": {"prompt_inline": "verifier"}},
         model_adapter=FakeAdapter(),
-        repo_ops=PassingRepoOps(),
+        repo_ops=cast(RepoSandboxManager, PassingRepoOps()),
         policy=policy,
     )
 
@@ -1110,7 +1144,7 @@ def test_verify_after_refactor_uses_deterministic_commands_even_with_valid_llm_p
         artifacts_dir=tmp_path / "artifacts",
     )
 
-    payload = json.loads(Path(result["artifacts"][0]["path"]).read_text(encoding="utf-8"))
+    payload = json.loads(_result_payload_path(result).read_text(encoding="utf-8"))
     evidence = build_gate_evidence("verify_after_refactor", payload)
 
     assert payload["tests_exit_code"] == 0
@@ -1178,7 +1212,7 @@ def test_run_records_git_baseline_and_feature_branch_warning(tmp_path, capsys):
     assert run_state["status"] == "completed"
     assert run_state["base_commit"]
     assert run_state["base_branch"] == "main"
-    assert run_state["repo_snapshot_file"].endswith("repo_start_snapshot.json")
+    assert _as_str(run_state["repo_snapshot_file"]).endswith("repo_start_snapshot.json")
     assert run_state["startup_warnings"]
     out = capsys.readouterr().out
     assert "feature branch" in out
@@ -1198,7 +1232,7 @@ def test_run_refuses_dirty_git_worktree_before_start(tmp_path):
     )
 
     assert run_state["status"] == "failed"
-    run_dir = Path(policy["runtime"]["run_root"]) / run_state["run_id"]
+    run_dir = Path(_as_dict(policy["runtime"])["run_root"]) / _as_str(run_state["run_id"])
     assert (run_dir / "run.json").exists()
     events_text = (run_dir / "events.jsonl").read_text(encoding="utf-8")
     assert '"type": "startup_error"' in events_text
@@ -1262,7 +1296,7 @@ def test_promotion_blocked_when_target_file_changes_during_run(tmp_path, monkeyp
 
     assert run_state["status"] == "completed"
     assert run_state["promoted_files"] == []
-    run_dir = Path(policy["runtime"]["run_root"]) / run_state["run_id"]
+    run_dir = Path(_as_dict(policy["runtime"])["run_root"]) / _as_str(run_state["run_id"])
     events_text = (run_dir / "events.jsonl").read_text(encoding="utf-8")
     assert '"type": "promotion_disabled"' in events_text
 
@@ -1311,7 +1345,7 @@ def test_verify_uses_sandbox_default_cwd(tmp_path):
     repo_ops = CapturingRepoOps()
     policy = _policy_with_run_root(tmp_path)
     policy["gates"]["verify"] = {"required_checks": [], "commands": {"tests": "pytest -q"}}
-    executor = SpecialistExecutor(policy=policy, repo_ops=repo_ops)
+    executor = SpecialistExecutor(policy=policy, repo_ops=cast(RepoSandboxManager, repo_ops))
 
     payload = executor._run_verify_commands("verify", context={})
     assert payload["tests_exit_code"] == 0
@@ -1335,7 +1369,7 @@ def test_no_tests_collected_fails_without_opt_in(tmp_path):
         "commands": {"tests": "pytest -q"},
         "allow_no_tests_collected": False,
     }
-    executor = SpecialistExecutor(policy=policy, repo_ops=ExitFiveRepoOps())
+    executor = SpecialistExecutor(policy=policy, repo_ops=cast(RepoSandboxManager, ExitFiveRepoOps()))
     payload = executor._run_verify_commands("verify", context={})
     evidence = build_gate_evidence("verify", payload)
     assert payload["tests_exit_code"] == 5
@@ -1358,7 +1392,7 @@ def test_no_tests_collected_passes_with_opt_in(tmp_path):
         "commands": {"tests": "pytest -q"},
         "allow_no_tests_collected": True,
     }
-    executor = SpecialistExecutor(policy=policy, repo_ops=ExitFiveRepoOps())
+    executor = SpecialistExecutor(policy=policy, repo_ops=cast(RepoSandboxManager, ExitFiveRepoOps()))
     payload = executor._run_verify_commands("verify", context={})
     evidence = build_gate_evidence("verify", payload)
     assert payload["tests_exit_code"] == 0
@@ -1381,7 +1415,7 @@ def test_verify_after_refactor_no_tests_collected_fails_without_opt_in(tmp_path)
         "commands": {"tests": "pytest -q"},
         "allow_no_tests_collected": False,
     }
-    executor = SpecialistExecutor(policy=policy, repo_ops=ExitFiveRepoOps())
+    executor = SpecialistExecutor(policy=policy, repo_ops=cast(RepoSandboxManager, ExitFiveRepoOps()))
     payload = executor._run_verify_commands("verify_after_refactor", context={})
     evidence = build_gate_evidence("verify_after_refactor", payload)
     assert payload["tests_exit_code"] == 5
@@ -1404,7 +1438,7 @@ def test_verify_after_refactor_no_tests_collected_passes_with_opt_in(tmp_path):
         "commands": {"tests": "pytest -q"},
         "allow_no_tests_collected": True,
     }
-    executor = SpecialistExecutor(policy=policy, repo_ops=ExitFiveRepoOps())
+    executor = SpecialistExecutor(policy=policy, repo_ops=cast(RepoSandboxManager, ExitFiveRepoOps()))
     payload = executor._run_verify_commands("verify_after_refactor", context={})
     evidence = build_gate_evidence("verify_after_refactor", payload)
     assert payload["tests_exit_code"] == 0
@@ -1437,7 +1471,7 @@ def test_valid_json_missing_required_fields_falls_back(tmp_path):
         artifacts_dir=tmp_path / "artifacts",
     )
 
-    payload_path = Path(result["artifacts"][0]["path"])
+    payload_path = _result_payload_path(result)
     payload = json.loads(payload_path.read_text(encoding="utf-8"))
     assert payload["noop_justified"] is True
     assert payload["llm_integration"]["fallback_used"] is True
@@ -1485,7 +1519,7 @@ def test_invalid_action_schema_falls_back(tmp_path):
         artifacts_dir=tmp_path / "artifacts",
     )
 
-    payload_path = Path(result["artifacts"][0]["path"])
+    payload_path = _result_payload_path(result)
     payload = json.loads(payload_path.read_text(encoding="utf-8"))
     assert payload["noop_justified"] is True
     assert payload["llm_integration"]["fallback_used"] is True
@@ -1540,7 +1574,7 @@ def test_invalid_action_path_outside_edit_scope_falls_back(tmp_path):
         artifacts_dir=tmp_path / "artifacts",
     )
 
-    payload_path = Path(result["artifacts"][0]["path"])
+    payload_path = _result_payload_path(result)
     payload = json.loads(payload_path.read_text(encoding="utf-8"))
     assert payload["noop_justified"] is True
     assert payload["llm_integration"]["fallback_used"] is True
@@ -1672,13 +1706,13 @@ def test_verify_sets_require_refactor_when_unresolved_risks_exist(tmp_path):
 
     policy = _policy_with_run_root(tmp_path)
     policy["gates"]["verify"] = {"required_checks": [], "commands": {"tests": "pytest -q"}}
-    executor = SpecialistExecutor(policy=policy, repo_ops=PassingRepoOps())
+    executor = SpecialistExecutor(policy=policy, repo_ops=cast(RepoSandboxManager, PassingRepoOps()))
 
     payload = executor._run_verify_commands(
         "verify",
         context={"implement": {"unresolved_risks": ["cleanup needed"]}},
     )
-    assert payload["quality_signals"]["require_refactor"] is True
+    assert _as_dict(payload["quality_signals"])["require_refactor"] is True
 
 
 def test_repo_ops_allowlist_token_matching_blocks_prefix_spoof(tmp_path):

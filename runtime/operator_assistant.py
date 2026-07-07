@@ -225,6 +225,21 @@ class LocalOperatorAssistant:
         self._core_gui_file_hints = self._load_protected_file_hints_from_policy()
         self._core_protected_files = sorted(self._core_gui_file_hints.keys())
 
+    def _policy_dict(self) -> Dict[str, object]:
+        return self.policy if isinstance(self.policy, dict) else {}
+
+    def _policy_section(self, key: str) -> Dict[str, object]:
+        return self._coerce_dict(self._policy_dict().get(key, {}))
+
+    def _assistant_scope_config(self) -> Dict[str, object]:
+        return self._policy_section("assistant_scope")
+
+    def _model_provider_config(self) -> Dict[str, object]:
+        return self._policy_section("model_provider")
+
+    def _coerce_dict(self, value: object) -> Dict[str, object]:
+        return value if isinstance(value, dict) else {}
+
     def init_session(self) -> Dict[str, Any]:
         return {
             "history": [],
@@ -1546,27 +1561,28 @@ class LocalOperatorAssistant:
         return "\n".join(context_lines)
 
     def _configure_intent_classifiers(self) -> None:
-        if not isinstance(self.policy, dict):
+        policy_cfg = self._policy_dict()
+        if not policy_cfg:
             self._intent_classifier = self.model_adapter
             return
 
-        scope_cfg = self.policy.get("assistant_scope", {})
-        classifier_cfg = scope_cfg.get("intent_classifier", {}) if isinstance(scope_cfg, dict) else {}
+        scope_cfg = self._assistant_scope_config()
+        classifier_cfg = self._coerce_dict(scope_cfg.get("intent_classifier", {}))
         enabled = True
-        if isinstance(classifier_cfg, dict):
+        if classifier_cfg:
             enabled = bool(classifier_cfg.get("enabled", True))
 
         self._intent_classifier = self.model_adapter if enabled else None
 
-        if not enabled or not isinstance(classifier_cfg, dict):
+        if not enabled or not classifier_cfg:
             return
 
         fallback_model = str(classifier_cfg.get("fallback_model", "")).strip()
         if not fallback_model:
             return
 
-        model_provider = self.policy.get("model_provider", {}) if isinstance(self.policy, dict) else {}
-        if not isinstance(model_provider, dict):
+        model_provider = self._model_provider_config()
+        if not model_provider:
             return
 
         adapter_name = str(model_provider.get("adapter", "")).strip().lower()
@@ -1717,10 +1733,7 @@ class LocalOperatorAssistant:
         return cache
 
     def _load_protected_file_hints_from_policy(self) -> Dict[str, List[str]]:
-        if not isinstance(self.policy, dict):
-            return {}
-
-        raw = self.policy.get("assistant_scope", {}).get("protected_file_hints", {})
+        raw = self._assistant_scope_config().get("protected_file_hints", {})
         if not isinstance(raw, dict):
             return {}
 
@@ -1743,34 +1756,22 @@ class LocalOperatorAssistant:
         return parsed
 
     def _load_grounding_files_from_policy(self) -> List[str]:
-        if not isinstance(self.policy, dict):
-            return list(_DEFAULT_GROUNDING_FILES)
-
-        raw = self.policy.get("assistant_scope", {}).get("grounding_files", _DEFAULT_GROUNDING_FILES)
+        raw = self._assistant_scope_config().get("grounding_files", _DEFAULT_GROUNDING_FILES)
         values = self._normalize_text_list(raw)
         return values or list(_DEFAULT_GROUNDING_FILES)
 
     def _load_domain_anchors_from_policy(self) -> List[str]:
-        if not isinstance(self.policy, dict):
-            return list(_DEFAULT_DOMAIN_ANCHORS)
-
-        raw = self.policy.get("assistant_scope", {}).get("domain_anchors", _DEFAULT_DOMAIN_ANCHORS)
+        raw = self._assistant_scope_config().get("domain_anchors", _DEFAULT_DOMAIN_ANCHORS)
         values = self._normalize_text_list(raw)
         return values or list(_DEFAULT_DOMAIN_ANCHORS)
 
     def _load_sensitive_domains_from_policy(self) -> List[str]:
-        if not isinstance(self.policy, dict):
-            return list(_DEFAULT_SENSITIVE_DOMAINS)
-
-        raw = self.policy.get("assistant_scope", {}).get("sensitive_domains", _DEFAULT_SENSITIVE_DOMAINS)
+        raw = self._assistant_scope_config().get("sensitive_domains", _DEFAULT_SENSITIVE_DOMAINS)
         values = self._normalize_text_list(raw)
         return values or list(_DEFAULT_SENSITIVE_DOMAINS)
 
     def _load_repo_goal_terms_from_policy(self) -> List[str]:
-        if not isinstance(self.policy, dict):
-            return list(_DEFAULT_REPO_GOAL_TERMS)
-
-        raw = self.policy.get("assistant_scope", {}).get("repo_goal_terms", _DEFAULT_REPO_GOAL_TERMS)
+        raw = self._assistant_scope_config().get("repo_goal_terms", _DEFAULT_REPO_GOAL_TERMS)
         values = self._normalize_text_list(raw)
         return values or list(_DEFAULT_REPO_GOAL_TERMS)
 

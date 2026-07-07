@@ -10,7 +10,7 @@ import threading
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from .context_manager import ContextBudgetManager
 from .memory_writer import MemoryWriter
@@ -21,6 +21,14 @@ from .skill_loader import SkillLoader
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _as_dict(value: object) -> Dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _as_list(value: object) -> List[Any]:
+    return value if isinstance(value, list) else []
 
 
 _STAGE_REQUIRED_FIELDS: Dict[str, List[str]] = {
@@ -66,13 +74,13 @@ class SpecialistExecutor:
 
     def __init__(
         self,
-        specialists: Optional[Dict[str, object]] = None,
+        specialists: Optional[Dict[str, Any]] = None,
         model_adapter: Optional[object] = None,
         model_adapters: Optional[Dict[str, object]] = None,
         repo_root: Optional[Path] = None,
         repo_ops: Optional[RepoSandboxManager] = None,
         memory_writer: Optional[MemoryWriter] = None,
-        policy: Optional[Dict[str, object]] = None,
+        policy: Optional[Dict[str, Any]] = None,
         context_manager: Optional[ContextBudgetManager] = None,
     ) -> None:
         self.specialists = specialists or {}
@@ -166,7 +174,7 @@ class SpecialistExecutor:
             meta_warnings.append(parse_warning)
         meta_warnings.extend(action_warnings)
         if llm_response:
-            payload["llm_integration"] = {
+            llm_integration: Dict[str, object] = {
                 "response_received": True,
                 "used_llm_payload": used_llm_payload,
                 "fallback_used": fallback_used,
@@ -174,9 +182,10 @@ class SpecialistExecutor:
                 "warnings": meta_warnings,
             }
             if deterministic_verify_source:
-                payload["llm_integration"]["source_of_truth"] = "deterministic_verify_commands"
+                llm_integration["source_of_truth"] = "deterministic_verify_commands"
                 if llm_commentary is not None:
-                    payload["llm_integration"]["model_commentary"] = llm_commentary
+                    llm_integration["model_commentary"] = llm_commentary
+            payload["llm_integration"] = llm_integration
 
         # --- context budget compaction + metrics recording ---
         context_metrics: Dict[str, object] = {}
@@ -279,12 +288,8 @@ class SpecialistExecutor:
             "max_content_chars": 200_000,
             "max_replace_chars": 50_000,
         }
-        if not isinstance(self.policy, dict):
-            return defaults
-
-        raw = self.policy.get("policies", {}).get("action_limits", {})
-        if not isinstance(raw, dict):
-            return defaults
+        raw = _as_dict(_as_dict(self.policy).get("policies", {})).get("action_limits", {})
+        raw = _as_dict(raw)
 
         limits = dict(defaults)
         for key in defaults:
@@ -378,12 +383,9 @@ class SpecialistExecutor:
         return True, None
 
     def _allowed_edit_globs(self) -> List[str]:
-        if not isinstance(self.policy, dict):
-            return []
-        globs = self.policy.get("policies", {}).get("edit_scope", {}).get("default_paths", [])
-        if isinstance(globs, list):
-            return [str(g) for g in globs if isinstance(g, str)]
-        return []
+        globs = _as_dict(_as_dict(self.policy).get("policies", {})).get("edit_scope", {})
+        defaults = _as_dict(globs).get("default_paths", [])
+        return [str(g) for g in _as_list(defaults) if isinstance(g, str)]
 
     def _normalize_relative_path(self, raw_path: str) -> str:
         rel = Path(raw_path)
@@ -607,7 +609,8 @@ class SpecialistExecutor:
         tests_result = self.repo_ops.run_command(
             commands["tests"], allowlist, blocklist
         )
-        tests_exit_code = int(tests_result.get("exit_code", 1))
+        tests_exit_code_raw = tests_result.get("exit_code", 1)
+        tests_exit_code = int(tests_exit_code_raw) if isinstance(tests_exit_code_raw, (int, float, str)) else 1
         if tests_exit_code == 5 and self._allow_no_tests_collected(stage_id):
             checks_run.append(f"{tests_result.get('command')} -> {tests_exit_code} (no tests collected; policy-allowed)")
             tests_exit_code = 0
@@ -627,7 +630,10 @@ class SpecialistExecutor:
             coverage_result = self.repo_ops.run_command(
                 coverage_command, allowlist, blocklist
             )
-            coverage_exit_code = int(coverage_result.get("exit_code", 1))
+            coverage_exit_code_raw = coverage_result.get("exit_code", 1)
+            coverage_exit_code = (
+                int(coverage_exit_code_raw) if isinstance(coverage_exit_code_raw, (int, float, str)) else 1
+            )
             checks_run.append(f"{coverage_result.get('command')} -> {coverage_exit_code}")
             if coverage_exit_code != 0:
                 stderr = str(coverage_result.get("stderr", "")).strip()
@@ -734,7 +740,8 @@ class SpecialistExecutor:
             ]
             changed_files: List[str] = []
             if self.memory_writer is not None:
-                targets = self.policy.get("repo_memory", {}).get("target_files", []) if isinstance(self.policy, dict) else []
+                repo_memory_cfg = _as_dict(_as_dict(self.policy).get("repo_memory", {}))
+                targets = _as_list(repo_memory_cfg.get("target_files", []))
                 for target in targets:
                     if not isinstance(target, str):
                         continue
@@ -750,6 +757,8 @@ class SpecialistExecutor:
 
         if stage_id == "closeout":
             stage_history = context.get("stage_history", [])
+            if not isinstance(stage_history, list):
+                stage_history = []
             return {
                 "final_summary": f"Run completed with {len(stage_history)} stage records.",
                 "artifacts_index": ["run.json", "events.jsonl", "artifacts/"],
@@ -1293,10 +1302,11 @@ class SpecialistExecutor:
             timeout_seconds = 45.0
 
         response_box: Dict[str, object] = {"response": None, "error": None}
+        chat_adapter = cast(Any, adapter)
 
         def _chat_worker() -> None:
             try:
-                response_box["response"] = adapter.chat(
+                response_box["response"] = chat_adapter.chat(
                     system_prompt,
                     [{"role": "user", "content": json.dumps(user_payload)}],
                 )
@@ -1446,11 +1456,8 @@ class SpecialistExecutor:
         return roots
 
     def _policy_protected_paths(self) -> List[str]:
-        if not isinstance(self.policy, dict):
-            return []
-        protected = self.policy.get("assistant_scope", {}).get("protected_file_hints", {})
-        if not isinstance(protected, dict):
-            return []
+        assistant_scope = _as_dict(_as_dict(self.policy).get("assistant_scope", {}))
+        protected = _as_dict(assistant_scope.get("protected_file_hints", {}))
         paths: List[str] = []
         for key in protected.keys():
             if isinstance(key, str) and key.strip():
@@ -1490,14 +1497,12 @@ class SpecialistExecutor:
         return ""
 
     def _command_allowlist(self) -> List[str]:
-        if isinstance(self.policy, dict):
-            return list(self.policy.get("policies", {}).get("command_allowlist", []))
-        return []
+        policies_cfg = _as_dict(_as_dict(self.policy).get("policies", {}))
+        return [str(item) for item in _as_list(policies_cfg.get("command_allowlist", [])) if isinstance(item, str)]
 
     def _command_blocklist(self) -> List[str]:
-        if isinstance(self.policy, dict):
-            return list(self.policy.get("policies", {}).get("command_blocklist", []))
-        return []
+        policies_cfg = _as_dict(_as_dict(self.policy).get("policies", {}))
+        return [str(item) for item in _as_list(policies_cfg.get("command_blocklist", [])) if isinstance(item, str)]
 
 
 def build_gate_evidence(stage_id: str, stage_artifacts: Dict[str, object]) -> Dict[str, bool]:
